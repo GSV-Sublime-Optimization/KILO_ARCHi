@@ -431,7 +431,7 @@ private struct AssistantReplyContent: View {
                     AssistantReceiptDetails(receipt: receipt, onOpenGraph: { store.open(.nodeLab) })
                 }
             }
-            Text("Moving ARCHi or changing shared context stops the current reply.")
+            Text("Changing shared text or its selected passage stops the current reply. Moving ARCHi clears pointing cues and stops Point and explain.")
                 .font(.system(size: 10)).foregroundStyle(.secondary)
         }
         .textSelection(.enabled).frame(maxWidth: .infinity, alignment: .topLeading)

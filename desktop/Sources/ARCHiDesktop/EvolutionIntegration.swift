@@ -10,7 +10,7 @@ extension CompanionStore {
               !lane.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               let receipt = lane.receipt, receipt.state == .complete,
               receipt.provider == provider, receipt.requestID == requestID,
-              isCurrent(receipt.context, requireVisible: false) else { return nil }
+              isCurrentReplyContext(receipt) else { return nil }
         if let sourceDigest = receipt.sourceDigest {
             guard sourceName != nil, !sharedText.isEmpty else { return nil }
             let currentDigest = SHA256.hash(data: Data(sharedText.utf8)).map { String(format: "%02x", $0) }.joined()

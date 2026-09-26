@@ -62,7 +62,7 @@ extension CompanionStore {
 
     func canReviewReading(_ receipt: AssistantLaneReceipt) -> Bool {
         guard !isShuttingDown, profileRecoveryBlock == nil, receipt.provider == .qwen,
-              isCurrent(receipt.context, requireVisible: false),
+              isCurrentReplyContext(receipt),
               receipt.state == .complete, let result = receipt.readingResult, result.kind == "ANSWER",
               let plan = receipt.documentReading, let lane = compareResults[.qwen],
               lane.state == .complete, lane.receipt?.requestID == receipt.requestID,

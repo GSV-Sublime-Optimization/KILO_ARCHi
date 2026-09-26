@@ -516,7 +516,7 @@ final class AutomaticAssistantRoutingTests: XCTestCase {
 
     @MainActor
     func testLocalReplyInvalidationPreventsStaleReplyOrExternalRequest() async throws {
-        for change in ["stop", "source", "placement", "selection", "route", "model", "context model", "clear context", "disable context"] {
+        for change in ["stop", "source", "selection", "route", "model", "context model", "clear context", "disable context"] {
             let f = AutomaticRoutingFixture(), store = f.store
             defer { f.drain() }
             store.share(text: "First. Second.", name: "source.txt")
@@ -526,7 +526,6 @@ final class AutomaticAssistantRoutingTests: XCTestCase {
             switch change {
             case "stop": store.cancelWork()
             case "source": store.share(text: "New shared source.", name: "new.txt")
-            case "placement": store.placed(at: CGPoint(x: 700, y: -120))
             case "selection": store.selectText(range: NSRange(location: 0, length: 6), sourceRevision: store.sourceRevision)
             case "route": store.setAssistantRoute(.local)
             case "model": store.selectQwenModel(try XCTUnwrap(QwenAssistant.supportedModels.first { $0 != store.qwenModel }))

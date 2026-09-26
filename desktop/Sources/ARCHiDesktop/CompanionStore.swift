@@ -630,8 +630,7 @@ final class CompanionStore: ObservableObject {
         guard point.x.isFinite, point.y.isFinite else { return }
         position = point
         placementRevision &+= 1
-        invalidateTextSelection(reason: "ARCHi moved. Select the passage again to restore its reference.")
-        cancelWork(reason: "Placement changed; old spatial work cancelled.")
+        invalidateDocumentGeometry(reason: "ARCHi moved. Preview pointing again.")
     }
 
     func showCompanion() { isVisible = true; onShowCompanion?() }
@@ -1277,7 +1276,7 @@ final class CompanionStore: ObservableObject {
 
     func canApplyDocumentRevision(provider: AssistantProvider, proposal: PassageRevisionProposal) -> Bool {
         guard let lane = compareResults[provider], lane.state == .complete,
-              let receipt = lane.receipt, isCurrent(receipt.context, requireVisible: false),
+              let receipt = lane.receipt, isCurrentReplyContext(receipt),
               textSelection == proposal.target.selection, documentWork.loadError == nil,
               let record = documentRecord(requestID: receipt.requestID, provider: provider),
               record.targetID == proposal.target.id, record.state == .ready else { return false }
@@ -1735,7 +1734,7 @@ final class CompanionStore: ObservableObject {
 
     private func receiveActiveARC(_ event: ARCCapabilitiesEvent, owner: ARCActiveAssistantOwnership) {
         guard activeARCOwner?.id == owner.id else { return }
-        guard !isShuttingDown, isCurrent(owner.ticket, requireVisible: false) else {
+        guard !isShuttingDown, isCurrentContent(owner.ticket) else {
             cancelActiveARC(reason: "The ARC request context changed.")
             return
         }
@@ -2460,11 +2459,11 @@ final class CompanionStore: ObservableObject {
                                client: any AssistantClient, ticket: ContextTicket) -> Bool {
         guard !isShuttingDown && replyOwners[provider] == owner && assistants[provider] === client
             && connectionGenerations[provider, default: 0] == epoch
-            && isCurrent(ticket, requireVisible: false) else { return false }
+            && isCurrentContent(ticket) else { return false }
         // Recheck the actual target before dispatch and every incoming event,
         // even after the short staff animation has completed.
         if let pointing = compareResults[provider]?.receipt?.pointing,
-           !isCurrentPointing(pointing) {
+           (!isCurrent(ticket, requireVisible: false) || !isCurrentPointing(pointing)) {
             cancelWork(reason: "The passage or ARCHi moved. Select the current passage and explain again.")
             return false
         }
@@ -2564,12 +2563,12 @@ final class CompanionStore: ObservableObject {
             && compareResults[provider]?.receipt?.readingDependencies == nil
             && NativeAssistantFallback.isEligible(error) && compareResults[.codex] == nil
         failLane(provider, message: message)
-        guard eligible, !isShuttingDown, isCurrent(ticket, requireVisible: false) else { return }
+        guard eligible, !isShuttingDown, isCurrentContent(ticket) else { return }
         guard desktopInterestSource == nil || desktopInterestExternalDigest == LessonSource.digest(of: sharedText) else {
             status = "Local Qwen is unavailable. This window copy is local-only; allow this exact copy before using an external route."
             return
         }
-        if let pointing, !isCurrentPointing(pointing) { return }
+        if let pointing, !isCurrent(ticket, requireVisible: false) || !isCurrentPointing(pointing) { return }
         do {
             try retryStewardReceipts()
             try tokenSteward.registerFallback(requestID: requestID)
@@ -3005,6 +3004,23 @@ final class CompanionStore: ObservableObject {
     /// Used by future asynchronous adapters immediately before publishing a contextual result.
     func isCurrent(_ ticket: ContextTicket, requireVisible: Bool = true) -> Bool {
         (!requireVisible || isVisible) && ticket == contextTicket()
+    }
+
+    /// Ordinary content work depends on the request, source and exact selection.
+    /// Companion movement changes presentation but cannot change those inputs.
+    /// Hide, close, source replacement and profile changes still revoke work
+    /// through their existing generation/selection invalidation paths.
+    func isCurrentContent(_ ticket: ContextTicket) -> Bool {
+        ticket.generation == workGeneration && ticket.source == sourceRevision
+            && ticket.selection == selectionRevision
+    }
+
+    /// A pointing receipt retains its additional placement and live geometry
+    /// requirements, including when a completed answer is reviewed later.
+    func isCurrentReplyContext(_ receipt: AssistantLaneReceipt) -> Bool {
+        guard isCurrentContent(receipt.context) else { return false }
+        guard let pointing = receipt.pointing else { return true }
+        return isCurrent(receipt.context, requireVisible: false) && isCurrentPointing(pointing)
     }
 
     private func record(_ message: String) {

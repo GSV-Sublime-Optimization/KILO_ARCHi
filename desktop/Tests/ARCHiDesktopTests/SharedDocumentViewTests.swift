@@ -162,7 +162,7 @@ struct SharedDocumentViewTests {
         #expect(text.layoutManager?.temporaryAttribute(.backgroundColor, atCharacterIndex: 1, effectiveRange: nil) == nil)
     }
 
-    @Test func inFlightRevisionSurvivesHistoryLayoutAndStillRequiresExactSourceForApply() async throws {
+    @Test func inFlightRevisionSurvivesLayoutAndCompanionMovementWithExactSourceApply() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let client = DocumentLayoutClient()
         let source = "A🌙 café makes this paragraph much longer than necessary.\nSecond paragraph."
@@ -194,12 +194,19 @@ struct SharedDocumentViewTests {
         #expect(store.textSelection == selection)
         #expect(store.isCurrent(ticket, requireVisible: false))
         #expect(store.sharedText == source)
+        store.placed(at: CGPoint(x: 430, y: 220))
+        #expect(store.isWorking)
+        #expect(store.textSelection == selection)
+        #expect(!store.isCurrent(ticket, requireVisible: false), "Old spatial coordinates expire")
+        #expect(store.isCurrentContent(ticket), "The selected bytes still belong to the active request")
         let target = try #require(client.request?.revisionTarget)
         let proposal = PassageRevisionProposal(target: target, decision: .propose, replacement: "A café.",
             explanation: "Shorter wording for review.", sourceIDs: ["selected-passage"], memoryIDs: [])
         client.handler?(.revision(proposal)); client.resolve()
         try await wait { !store.isWorking }
         #expect(store.canApplyDocumentRevision(provider: .qwen, proposal: proposal))
+        store.placed(at: CGPoint(x: 470, y: 230))
+        #expect(store.canApplyDocumentRevision(provider: .qwen, proposal: proposal), "Movement after completion cannot revoke a content-only proposal")
         // Even a byte change that bypasses a source-revision notification must
         // fail the existing exact-source verification before Apply.
         store.sharedText = source + "Changed."
@@ -211,7 +218,8 @@ struct SharedDocumentViewTests {
         #expect(store.documentWork.records.first?.state == .applied)
     }
 
-    @Test func geometryChangeRetiresPointingResultWithoutDroppingTheSourceRange() async throws {
+    @Test(arguments: [false, true])
+    func geometryChangeRetiresPointingResultWithoutDroppingTheSourceRange(companionMoves: Bool) async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let client = DocumentLayoutClient()
         let store = CompanionStore(preferenceURL: directory.appendingPathComponent("preferences.json"),
@@ -243,9 +251,13 @@ struct SharedDocumentViewTests {
         #expect(store.compareResults[.qwen]?.receipt?.pointing != nil)
         #expect(store.spatialPreview != nil)
         #expect(store.focusGesturePlayback != nil)
-        scroll.setFrameSize(CGSize(width: 380, height: 240))
-        scroll.needsLayout = true
-        scroll.layoutSubtreeIfNeeded()
+        if companionMoves {
+            store.placed(at: CGPoint(x: 600, y: 140))
+        } else {
+            scroll.setFrameSize(CGSize(width: 380, height: 240))
+            scroll.needsLayout = true
+            scroll.layoutSubtreeIfNeeded()
+        }
         #expect(store.spatialPreview == nil)
         #expect(store.focusGesturePlayback == nil)
         #expect(store.compareResults[.qwen]?.state == .cancelled)

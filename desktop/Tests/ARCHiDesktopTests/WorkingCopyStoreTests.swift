@@ -373,8 +373,8 @@ struct WorkingCopyStoreTests {
         #expect(rig.store.canUndoWorkingCopyEdit)
     }
 
-    @Test func stopSelectionPlacementAndSourceChangesRevokeCandidates() async throws {
-        for change in 0..<4 {
+    @Test func stopSelectionAndSourceChangesRevokeCandidates() async throws {
+        for change in 0..<3 {
             let rig = RevisionStoreRig(); defer { rig.drain() }
             try await rig.begin()
             let proposal = try rig.local.complete(replacement: "Revised copy.")
@@ -382,7 +382,6 @@ struct WorkingCopyStoreTests {
             switch change {
             case 0: rig.store.cancelWork()
             case 1: rig.store.clearTextSelection()
-            case 2: rig.store.placed(at: CGPoint(x: 10, y: 20))
             default: rig.store.share(text: "New source.", name: "new.txt")
             }
             let before = rig.store.sharedText, revision = rig.store.sourceRevision

@@ -75,6 +75,13 @@ struct AssistantRequest: Sendable {
                   localReading.matches(text: sourceText, question: prompt, selection: selection, references: localReading.references),
                   let localControl, localControl.isValid, localControl.domain == "document-reading",
                   localControl.contextID == localReading.sourceDigest, localControl.lane != .stop else { return false }
+            if localControl.version == HamptonQ2EController.readingNumericalVersion {
+                guard let evidence = localControl.readingEvidence,
+                      let expected = DocumentReadingPlan.make(text: sourceText, question: prompt,
+                        selection: selection, lane: localControl.lane,
+                        preferredSectionIDs: evidence.preferredSectionIDs(for: localReading.questionDigest),
+                        references: localReading.references), expected == localReading else { return false }
+            }
             return true
         }
         guard let localControl else { return true }

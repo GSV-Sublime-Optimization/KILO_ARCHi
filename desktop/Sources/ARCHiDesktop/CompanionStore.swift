@@ -1945,9 +1945,10 @@ final class CompanionStore: ObservableObject {
             : request.sourceName != nil ? .documentQuestion : .conversation
         let requiresReading = revisionTarget == nil && request.sourceName != nil && !request.sourceText.isEmpty
             && selectedRoute.providers.contains(.qwen)
+        if requiresReading { documentReadingMessage = nil }
         let reading = requiresReading ? prepareReading(question: question, text: sharedText, selection: textSelection) : nil
         if requiresReading && reading == nil {
-            status = "The reading context could not fit. Shorten the question or select a smaller passage. Nothing sent."
+            status = documentReadingMessage ?? "The reading context could not fit. Shorten the question or select a smaller passage. Nothing sent."
             return false
         }
         let capturedControl = selectedRoute.providers.contains(.qwen)

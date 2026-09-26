@@ -15,30 +15,28 @@ extension CompanionStore {
             selection: selection, lane: .expand, references: currentReadingReferences) else { return nil }
         guard currentReadingReferences.count == selectedReadingSourceIDs.count,
               readingReferencesAreCurrent(currentReadingReferences) else { return nil }
-        let records = Array(tokenSteward.tasks.filter {
-            $0.documentReading?.sourceDigest == initial.sourceDigest
-                && $0.documentReadingResult?.kind == "ANSWER"
-                && $0.lanes.contains { $0.provider == AssistantProvider.qwen.name && $0.dispatched && $0.state == "complete" }
-        }.prefix(8))
-        func verdict(_ task: TokenStewardTask) -> Bool? {
-            task.outcomes.last { $0.kind == .userUseful && $0.evidenceID.hasPrefix("document-reading:") }?.value
+        // Preparing is an explicit local action. Refresh the owner once here;
+        // the journal rechecks the frozen projection under its dispatch lock.
+        do { try tokenSteward.refresh() } catch {
+            documentReadingMessage = "The reading history could not be loaded. Nothing was sent."
+            return nil
         }
-        let positive = records.filter { verdict($0) == true }
-        let negative = records.filter { verdict($0) == false }
-        var strategies: [String: HamptonQ2EStrategyEvidence] = [:]
-        for lane in [HamptonQ2ELane.retain, .expand, .repair] {
-            strategies[lane.rawValue] = HamptonQ2EStrategyEvidence(
-                helpful: positive.filter { $0.documentReading?.control.lane == lane }.count,
-                corrections: negative.filter { $0.documentReading?.control.lane == lane }.count)
+        let evidence = HamptonReadingOutcomeAdapter.project(tasks: tokenSteward.tasks, sourceDigest: initial.sourceDigest)
+        guard evidence.isValid, evidence.reconciliationIssue == nil else {
+            documentReadingMessage = "The reading history needs review before its feedback can guide another answer. Nothing was sent."
+            return nil
         }
+        let previous = tokenSteward.tasks.first {
+            $0.id == evidence.bindings.first?.taskID
+        }?.documentReading?.control
         let control = HamptonQ2EController.decide(domain: "document-reading", contextID: initial.sourceDigest,
-            signals: HamptonQ2ESignals(observations: records.count, retainedSupport: positive.count,
-                contradictions: negative.count, unchangedSteps: 0,
+            signals: HamptonQ2ESignals(observations: evidence.observations, retainedSupport: evidence.support,
+                contradictions: evidence.corrections, unchangedSteps: 0,
                 availableAlternatives: min(initial.totalSections, 4096), remainingBudget: 1, totalBudget: 1,
                 prerequisitesSatisfied: profileRecoveryBlock == nil && tokenSteward.loadError == nil,
-                strategyResults: strategies), previous: records.first?.documentReading?.control)
-        let preferred = positive.first { $0.documentReading?.questionDigest == initial.questionDigest }?
-            .documentReading?.sectionIDs ?? []
+                strategyResults: evidence.strategyResults), previous: previous, readingEvidence: evidence)
+        guard control.isValid, control.lane != .stop else { return nil }
+        let preferred = evidence.preferredSectionIDs(for: initial.questionDigest)
         guard let plan = DocumentReadingPlan.make(text: text, question: question, selection: selection,
             lane: control.lane, preferredSectionIDs: preferred, references: currentReadingReferences) else { return nil }
         return DocumentReadingPreview(plan: plan, control: control, sourceRevision: sourceRevision)
@@ -47,6 +45,8 @@ extension CompanionStore {
     var currentReadingPreview: DocumentReadingPreview? {
         guard let preview = documentReadingPreview, preview.sourceRevision == sourceRevision,
               !requestsRevision, sourceName != nil,
+              preview.control.readingEvidence == HamptonReadingOutcomeAdapter.project(
+                tasks: tokenSteward.tasks, sourceDigest: preview.plan.sourceDigest),
               readingReferencesAreCurrent(preview.plan.references),
               preview.plan.matches(text: sharedText, question: prompt, selection: textSelection, references: currentReadingReferences) else { return nil }
         return preview
@@ -54,7 +54,9 @@ extension CompanionStore {
 
     func previewDocumentReading() {
         guard !isWorking, !isShuttingDown, sourceName != nil else { return }
+        documentReadingMessage = nil
         documentReadingPreview = prepareReading(question: prompt, text: sharedText, selection: textSelection)
+        if documentReadingMessage != nil { return }
         documentReadingMessage = documentReadingPreview == nil
             ? "Write a question and choose a smaller passage if needed. The reading context could not fit; nothing was sent."
             : "Passages prepared locally. Send captures the current source and question again."
@@ -100,6 +102,10 @@ struct DocumentReadingTools: View {
                 .accessibilityIdentifier("work.reading.prepare")
             if let preview = store.currentReadingPreview {
                 Text(preview.control.lane.title)
+                if let evidence = preview.control.readingEvidence {
+                    Text("\(evidence.support) helpful · \(evidence.corrections) needing correction · \(evidence.observations - evidence.support - evidence.corrections) unreviewed. Your feedback guides the next passage choice for this source.")
+                        .foregroundStyle(.secondary)
+                }
                 DocumentReadingSections(plan: preview.plan, citedIDs: nil)
             }
             if let message = store.documentReadingMessage { Text(message).foregroundStyle(.secondary) }

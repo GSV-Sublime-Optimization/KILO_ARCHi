@@ -233,6 +233,7 @@ final class TokenStewardStore: ObservableObject {
             guard lane.state == "pending", !lane.dispatched else {
                 throw TokenStewardError.conflict("document reading trace after Qwen dispatch")
             }
+            try Self.requireCurrentReadingEvidence(trace, tasks: state.tasks, excludingRequestID: requestID)
             state.tasks[index].documentReading = trace
         }
     }
@@ -315,6 +316,12 @@ final class TokenStewardStore: ObservableObject {
             else { throw TokenStewardError.missingTask }
             guard state.tasks[task].lanes[lane].state == "pending" else {
                 throw TokenStewardError.conflict("dispatch after a terminal lane")
+            }
+            if provider == .qwen, !state.tasks[task].lanes[lane].dispatched,
+               let trace = state.tasks[task].documentReading {
+                // Check within the dispatch transaction too: another writer can
+                // revise a review after trace capture but before this lock.
+                try Self.requireCurrentReadingEvidence(trace, tasks: state.tasks, excludingRequestID: requestID)
             }
             state.tasks[task].lanes[lane].dispatched = true
         }
@@ -771,6 +778,16 @@ final class TokenStewardStore: ObservableObject {
         } else {
             state.tasks.append(TokenStewardTask(id: id, route: route, startedAt: date,
                 lanes: providers.map { TokenStewardLane(provider: $0) }))
+        }
+    }
+
+    private static func requireCurrentReadingEvidence(_ trace: DocumentReadingTrace,
+        tasks: [TokenStewardTask], excludingRequestID: String) throws {
+        guard trace.control.version == HamptonQ2EController.readingNumericalVersion else { return }
+        let current = HamptonReadingOutcomeAdapter.project(tasks: tasks, sourceDigest: trace.sourceDigest,
+            excludingRequestID: excludingRequestID)
+        guard current.isValid, current.reconciliationIssue == nil, current == trace.control.readingEvidence else {
+            throw TokenStewardError.conflict("reading feedback changed; prepare the passages again")
         }
     }
 

@@ -4,7 +4,7 @@
 
 ARCHi now connects numerical quotient updates, a potential-derived force and typed coupling to the existing document-revision controller. The resulting preference affects **Prepare next step** and the application-authored guidance delivered to local Qwen. The document journal remains the owner of observations, decisions, edits and reviews. There is no separate learning database.
 
-This is the first native numerical domain adapter. It operates on reviewed task approaches. Document reading and ARC3 retain their existing control policies; this change does not enable representation steering or modify model weights.
+This is the first native numerical domain adapter. It operates on reviewed task approaches. Document reading now has a separate [numerical reading adapter](native-numerical-reading.md); ARC3 retains its existing control policy. Neither adapter enables representation steering or modifies model weights.
 
 ## Three different kinds of coordinates
 

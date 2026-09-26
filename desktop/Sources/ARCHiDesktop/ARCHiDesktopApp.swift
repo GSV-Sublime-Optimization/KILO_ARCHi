@@ -347,6 +347,16 @@ final class DesktopDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         if terminationInProgress { return .terminateLater }
         guard !isReviewingQuit else { return .terminateCancel }
+        if store.knowledgePageDraft != nil {
+            pendingProfileID = nil
+            let alert = NSAlert()
+            alert.messageText = "Finish your knowledge page"
+            alert.informativeText = "Save or cancel your open page draft before closing or switching companions."
+            alert.addButton(withTitle: "Return to draft")
+            alert.runModal()
+            showWorkspace(.memory)
+            return .terminateCancel
+        }
         if store.hasPersonalContextDraft || store.hasSeedDesignDraft {
             pendingProfileID = nil
             let alert = NSAlert()
@@ -421,6 +431,7 @@ final class DesktopDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             return ("Save your appearance and conversation preferences in Memories before switching. Your current companion stays open.", .memory)
         }
         if store.lessonDraft != nil { return ("Keep or discard your lesson draft before switching.", .memory) }
+        if store.knowledgePageDraft != nil { return ("Save or discard your knowledge page draft before switching.", .memory) }
         if store.focusGestureDraft != nil { return ("Keep or discard your gesture draft before switching.", .appearance) }
         if store.voiceInput.phase == .review { return ("Use or discard your voice draft before switching.", .assistant) }
         if store.marketplaceCatalog.isBusy || store.marketplaceCatalog.hasPendingMutation {

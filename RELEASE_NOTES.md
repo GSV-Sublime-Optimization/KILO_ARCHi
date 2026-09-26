@@ -1,3 +1,9 @@
+# Source-linked knowledge pages — 26 September 2026
+
+Memories now contains authored claims and concepts linked to exact retained passages, with draft/review/withdraw revisions, stale-source invalidation and Activity map backlinks. The existing source library owns both copies and page history; source withdrawal never reconstructs forgotten prose. Navigation, profile changes and Quit protect unfinished drafts.
+
+Eight focused checks pass, with a two-case final navigation recheck. No model, API or puzzle run. [Mechanism, bounds and migration](docs/native-knowledge-pages.md). User review is not factual certification; automatic page synthesis/retrieval and knowledge-page backup inclusion remain unfinished.
+
 # Supplied method dependencies and knowledge navigation — 25 September 2026
 
 Native document methods now retain all supplied lesson versions separately from model citations. Keep, revision and reuse reject unavailable dependencies or unknown legacy provenance. Stale external journal feedback cannot enter development review. The existing Activity map exposes exact dependency references, incoming backlinks, outgoing links and one-hop navigation. No extra app or memory owner is introduced.

@@ -51,6 +51,7 @@ EXACT = RELEASE_FILES | ARC_REPLAY_FILES | {
     "docs/native-numerical-arc3.md",
     "docs/native-memory-correction.md",
     "docs/native-knowledge-links.md",
+    "docs/native-knowledge-pages.md",
 }
 SCOPES = {
     "desktop/Sources/ARCHiDesktop": {".swift"},

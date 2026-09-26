@@ -17,7 +17,8 @@ extension CompanionStore {
                 $0.id == summary.sessionID && $0.route == "arc-interactive" && $0.startedAt == summary.startedAt
             } ? summary : nil
         }
-        let interactive = ARC3Graph.append(to: base, observation: arc3.observation, transitions: arc3.transitions, summary: recordedSummary)
+        let knowledge = KnowledgePageGraph.append(to: base, library: readingSources)
+        let interactive = ARC3Graph.append(to: knowledge, observation: arc3.observation, transitions: arc3.transitions, summary: recordedSummary)
         return DocumentWorkGraph.append(to: interactive, records: documentWork.records,
             accountingTaskIDs: tokenSteward.loadError == nil ? Set(tokenSteward.tasks.map(\.id)) : [], lessons: keptLessons)
     }
@@ -27,6 +28,9 @@ extension CompanionStore {
         case .assistant: open(.assistant)
         case .context: open(.context)
         case .memory: open(.memory)
+        case .knowledgePage(let id):
+            selectedKnowledgePageID = id
+            open(.memory)
         case .advanced: open(.advanced)
         case .capabilities: open(.capabilities)
         case .steward: open(.steward)

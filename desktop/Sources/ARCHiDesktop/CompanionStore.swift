@@ -102,6 +102,9 @@ final class CompanionStore: ObservableObject {
     @Published private(set) var documentProcedures: DocumentProcedureLibrary
     @Published private(set) var readingSources: ReadingSourceLibrary
     @Published var selectedReadingSourceIDs: Set<String> = []
+    @Published var knowledgePageDraft: KnowledgePageDraft?
+    @Published var selectedKnowledgePageID: String?
+    @Published var knowledgePageMessage: String?
     @Published private(set) var preparedDocumentProcedure: DocumentProcedureUse?
     private var preparedProcedureSelection: DocumentSelection?
     private var preparedProcedureSourceDigest: String?
@@ -127,6 +130,12 @@ final class CompanionStore: ObservableObject {
     let allowsPlay: Bool
     @Published var section: WorkspaceSection = .home {
         didSet {
+            // The page editor is hosted by Memories. Keep that host alive until
+            // the user explicitly saves or cancels its local editable fields.
+            if knowledgePageDraft != nil, section != .memory {
+                section = .memory
+                knowledgePageMessage = "Save or cancel your open page draft before changing views."
+            }
             if section == .play && !allowsPlay { section = .assistant }
             if section != oldValue, focusGesturePlayback != nil { stopFocusGesture() }
             if section != oldValue, oldValue == .context {
@@ -3387,6 +3396,7 @@ extension CompanionStore {
             return "Save your changed appearance and rhythm settings before restoring."
         }
         if lessonDraft != nil { return "Keep or discard the lesson draft before restoring." }
+        if knowledgePageDraft != nil { return "Save or discard the knowledge page draft before restoring." }
         if focusGestureDraft != nil { return "Keep or discard the gesture draft before restoring." }
         if voiceInput.phase == .review { return "Use or discard the voice draft before restoring." }
         return nil
@@ -3413,6 +3423,8 @@ extension CompanionStore {
         }
         cancelWork(reason: "Saved profile restored. Earlier replies and references cleared.")
         selectedReadingSourceIDs = []
+        selectedKnowledgePageID = nil
+        knowledgePageMessage = nil
         documentReadingPreview = nil
         arc3.resetForProfile()
         lastARC3Summary = nil
@@ -3470,6 +3482,8 @@ extension CompanionStore {
         workingCopyUndo = nil
         clearPreparedDocumentProcedure()
         selectedReadingSourceIDs = []
+        selectedKnowledgePageID = nil
+        knowledgePageMessage = nil
         documentReadingPreview = nil
         status = reason
     }

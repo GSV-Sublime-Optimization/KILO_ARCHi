@@ -671,6 +671,7 @@ private struct MemoryWorkspace: View {
             }
             .buttonStyle(.bordered)
             .accessibilityIdentifier("memory.open-graph")
+            KnowledgePagesCard(store: store)
             KeptLessonsCard(store: store)
             WorkspaceCard {
                 SettingsRow(title: "Temporary session context", detail: "Let local Qwen refer to useful excerpts from earlier questions during this visit.", icon: "text.bubble") {

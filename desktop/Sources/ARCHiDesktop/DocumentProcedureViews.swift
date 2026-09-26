@@ -45,12 +45,17 @@ struct KeepDocumentProcedureView: View {
                         .foregroundStyle(.secondary)
                     Text("This is a candidate method you author. The earlier result supports review; it does not prove the new instruction will work elsewhere.")
                         .foregroundStyle(.secondary)
+                    if let reason = store.documentMethodDependencyIssue(record) {
+                        Text(reason).foregroundStyle(.orange)
+                            .accessibilityIdentifier("document.procedure-dependency-issue")
+                    }
                     Button("Keep procedure") {
                         if store.keepDocumentProcedure(recordID: record.id, title: title, instruction: instruction) {
                             title = ""; instruction = ""
                         }
                     }
-                    .disabled(!store.canKeepDocumentProcedure || title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    .disabled(!store.canKeepDocumentProcedure || store.documentMethodDependencyIssue(record) != nil
+                        || title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                         || instruction.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     .accessibilityIdentifier("document.keep-procedure")
                 }.padding(.top, 6)

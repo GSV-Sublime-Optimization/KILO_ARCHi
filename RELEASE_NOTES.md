@@ -1,3 +1,9 @@
+# Supplied method dependencies and knowledge navigation — 25 September 2026
+
+Native document methods now retain all supplied lesson versions separately from model citations. Keep, revision and reuse reject unavailable dependencies or unknown legacy provenance. Stale external journal feedback cannot enter development review. The existing Activity map exposes exact dependency references, incoming backlinks, outgoing links and one-hop navigation. No extra app or memory owner is introduced.
+
+Nine focused in-process checks pass; no model generation, ARC puzzles or broad suite. [Mechanism and primary references](docs/native-knowledge-links.md). This implements the scoped Hampton memory/competence path; full semantic wiki, automatic induction, qualified latent readers and transfer remain incomplete.
+
 ## Shared memory correction — 25 September 2026
 
 Specific reading corrections now invalidate generated follow-up context and descendant evidence through native task provenance. The existing reading strategy and development owners consume the withdrawals, including changes from another journal writer and reloading an older development save. Helpful reversal cannot resurrect withdrawn development credit; a fresh answer and explicit review are required. Kept lessons, source spans and chosen companion bodies retain their existing ownership.

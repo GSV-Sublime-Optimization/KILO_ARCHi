@@ -19,7 +19,7 @@ extension CompanionStore {
         }
         let interactive = ARC3Graph.append(to: base, observation: arc3.observation, transitions: arc3.transitions, summary: recordedSummary)
         return DocumentWorkGraph.append(to: interactive, records: documentWork.records,
-            accountingTaskIDs: tokenSteward.loadError == nil ? Set(tokenSteward.tasks.map(\.id)) : [])
+            accountingTaskIDs: tokenSteward.loadError == nil ? Set(tokenSteward.tasks.map(\.id)) : [], lessons: keptLessons)
     }
 
     func openGraphTarget(_ target: CompanionGraphTarget) {

@@ -5,28 +5,48 @@ import Foundation
 struct DocumentWorkLearningContext: Codable, Equatable, Sendable {
     let requestBinding: EvolutionRequestBinding
     let usedLessons: [EvolutionLessonUse]
+    /// Exact supplied versions can influence an answer without being cited.
+    /// Absence denotes older, incomplete provenance; [] explicitly records none.
+    let suppliedLessons: [EvolutionLessonUse]?
 
-    init(requestBinding: EvolutionRequestBinding, usedLessons: [EvolutionLessonUse] = []) {
+    init(requestBinding: EvolutionRequestBinding, usedLessons: [EvolutionLessonUse] = [],
+         suppliedLessons: [EvolutionLessonUse]? = nil) {
         self.requestBinding = requestBinding
         self.usedLessons = usedLessons
+        self.suppliedLessons = suppliedLessons
     }
 
+    var hasCompleteLessonProvenance: Bool { suppliedLessons != nil }
+    /// Older records retain their known cited dependencies without claiming
+    /// that those citations enumerate every lesson the model received.
+    var dependencyLessons: [EvolutionLessonUse] { suppliedLessons ?? usedLessons }
+
     var isValid: Bool {
-        requestBinding.isValid && usedLessons.count <= 16
-            && Set(usedLessons.map(\.lessonID)).count == usedLessons.count
-            && usedLessons.allSatisfy {
+        requestBinding.isValid && Self.validReferences(usedLessons)
+            && (suppliedLessons.map { supplied in
+                Self.validReferences(supplied) && usedLessons.allSatisfy { supplied.contains($0) }
+            } ?? true)
+    }
+
+    private static func validReferences(_ lessons: [EvolutionLessonUse]) -> Bool {
+        lessons.count <= 16
+            && Set(lessons.compactMap { UUID(uuidString: $0.lessonID) }).count == lessons.count
+            && lessons.allSatisfy {
                 UUID(uuidString: $0.lessonID) != nil && $0.lessonRevision > 0
                     && PracticeEvolutionReference.isDigest($0.snapshotDigest)
             }
     }
 
-    private enum CodingKeys: String, CodingKey { case requestBinding, usedLessons }
+    private enum CodingKeys: String, CodingKey { case requestBinding, usedLessons, suppliedLessons }
 
     init(from decoder: Decoder) throws {
-        try DocumentWorkFeedbackKeys.require(["requestBinding", "usedLessons"], in: decoder)
+        try DocumentWorkFeedbackKeys.require(["requestBinding", "usedLessons"], optional: ["suppliedLessons"], in: decoder)
         let values = try decoder.container(keyedBy: CodingKeys.self)
         requestBinding = try values.decode(EvolutionRequestBinding.self, forKey: .requestBinding)
         usedLessons = try values.decode([EvolutionLessonUse].self, forKey: .usedLessons)
+        // A present null is not an assertion that no lessons were supplied.
+        suppliedLessons = values.contains(.suppliedLessons)
+            ? try values.decode([EvolutionLessonUse].self, forKey: .suppliedLessons) : nil
         guard isValid else {
             throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath,
                 debugDescription: "Invalid document learning references."))
@@ -81,9 +101,10 @@ private struct DocumentWorkFeedbackKeys: CodingKey {
     init?(stringValue: String) { self.stringValue = stringValue }
     init?(intValue: Int) { return nil }
 
-    static func require(_ keys: Set<String>, in decoder: Decoder) throws {
+    static func require(_ keys: Set<String>, optional: Set<String> = [], in decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: Self.self)
-        guard Set(values.allKeys.map(\.stringValue)) == keys else {
+        let actual = Set(values.allKeys.map(\.stringValue))
+        guard keys.isSubset(of: actual), actual.isSubset(of: keys.union(optional)) else {
             throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath,
                 debugDescription: "Unsupported document feedback fields."))
         }

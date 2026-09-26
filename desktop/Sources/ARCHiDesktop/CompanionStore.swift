@@ -1169,22 +1169,34 @@ final class CompanionStore: ObservableObject {
                   let origin = documentWork.records.first(where: { $0.id == item.originRecordID }) else {
                 return "The procedure’s source history is unavailable."
             }
-            for lesson in origin.learning?.usedLessons ?? [] {
-                guard let disk = try? NativePreferencePersistence.read(preferenceURL), disk.baseline == preferenceBaseline else {
-                    return "Saved lessons changed outside this session. Reopen ARCHi before reusing this procedure."
-                }
-                guard let supporting = keptLessons.first(where: {
-                    let snapshot = LessonSnapshot(lesson: $0)
-                    return lesson.matches(snapshot: snapshot) && currentKeptLesson(matching: snapshot) != nil
-                }) else { return "A lesson supporting this procedure changed or expired." }
-                guard supporting.taskScope == nil || supporting.taskScope == .passageRevision else {
-                    return "A supporting lesson no longer applies to passage revision."
-                }
-                guard supporting.source == nil || supporting.source == currentLessonSource else {
-                    return "A supporting lesson applies only to its original shared copy."
-                }
-            }
+            if let reason = documentMethodDependencyIssue(origin) { return reason }
             current = origin.procedureUse.flatMap { documentProcedures.procedure(matching: $0) }
+        }
+        return nil
+    }
+
+    /// Availability follows every supplied lesson version. A model citation is
+    /// useful for explicit credit, but cannot enumerate all possible influence.
+    func documentMethodDependencyIssue(_ record: DocumentWorkRecord) -> String? {
+        guard let learning = record.learning, learning.isValid, learning.hasCompleteLessonProvenance else {
+            return "This earlier result did not retain all supplied lesson dependencies. Complete and review a fresh edit before keeping or reusing a method."
+        }
+        if !learning.dependencyLessons.isEmpty {
+            guard let disk = try? NativePreferencePersistence.read(preferenceURL), disk.baseline == preferenceBaseline else {
+                return "Saved lessons changed outside this session. Reopen ARCHi before using this method."
+            }
+        }
+        for lesson in learning.dependencyLessons {
+            guard let supporting = keptLessons.first(where: {
+                let snapshot = LessonSnapshot(lesson: $0)
+                return lesson.matches(snapshot: snapshot) && currentKeptLesson(matching: snapshot) != nil
+            }) else { return "A lesson supplied to this method’s source result changed, was withdrawn, or expired." }
+            guard supporting.taskScope == nil || supporting.taskScope == .passageRevision else {
+                return "A supporting lesson no longer applies to passage revision."
+            }
+            guard supporting.source == nil || supporting.source == currentLessonSource else {
+                return "A supporting lesson applies only to its original shared copy."
+            }
         }
         return nil
     }
@@ -1196,18 +1208,10 @@ final class CompanionStore: ObservableObject {
         guard canKeepDocumentProcedure, documentWork.isCurrentOnDisk, pendingDocumentReceipt == nil,
               let record = documentWork.records.first(where: { $0.id == recordID }),
               canReviewDocument(record), record.state == .applied, record.feedback?.verdict == .helpful,
-              record.procedureUse.map({ documentProcedureUnavailable($0) == nil }) ?? true,
-              (record.learning?.usedLessons ?? []).allSatisfy({ lesson in
-                  keptLessons.map(LessonSnapshot.init(lesson:)).contains {
-                      lesson.matches(snapshot: $0) && currentKeptLesson(matching: $0) != nil
-                          && ($0.taskScope == nil || $0.taskScope == .passageRevision)
-                  }
-              }) else { return false }
-        if !(record.learning?.usedLessons.isEmpty ?? true) {
-            guard let disk = try? NativePreferencePersistence.read(preferenceURL), disk.baseline == preferenceBaseline else {
-                documentWorkMessage = "Saved lessons changed. Reopen ARCHi before keeping this procedure."
-                return false
-            }
+              record.procedureUse.map({ documentProcedureUnavailable($0) == nil }) ?? true else { return false }
+        if let reason = documentMethodDependencyIssue(record) {
+            documentWorkMessage = reason
+            return false
         }
         do {
             _ = try documentProcedures.keep(from: record, title: title, instruction: instruction, records: documentWork.records)
@@ -1239,18 +1243,7 @@ final class CompanionStore: ObservableObject {
                   documentProcedures.canSupportRevision(of: use, with: record, records: documentWork.records),
                   record.procedureUse.map({ documentProcedureUnavailable($0) == nil }) ?? true else { return false }
             if previousUnavailable && (record.id == previous.originRecordID || record.createdAt <= previous.createdAt) { return false }
-            let lessons = record.learning?.usedLessons ?? []
-            if !lessons.isEmpty {
-                guard let disk = try? NativePreferencePersistence.read(preferenceURL), disk.baseline == preferenceBaseline else { return false }
-            }
-            return lessons.allSatisfy { lesson in
-                keptLessons.contains { kept in
-                    let snapshot = LessonSnapshot(lesson: kept)
-                    return lesson.matches(snapshot: snapshot) && currentKeptLesson(matching: snapshot) != nil
-                        && (kept.taskScope == nil || kept.taskScope == .passageRevision)
-                        && (kept.source == nil || kept.source == currentLessonSource)
-                }
-            }
+            return documentMethodDependencyIssue(record) == nil
         }.sorted { $0.updatedAt > $1.updatedAt }
     }
 
@@ -1395,7 +1388,8 @@ final class CompanionStore: ObservableObject {
             record.learning = DocumentWorkLearningContext(requestBinding: EvolutionRequestBinding(receipt: receipt),
                 usedLessons: provider == .qwen ? receipt.localLessons.filter {
                     receipt.usedLessonIDs.contains($0.modelID)
-                }.compactMap(EvolutionLessonUse.make(snapshot:)) : [])
+                }.compactMap(EvolutionLessonUse.make(snapshot:)) : [],
+                suppliedLessons: provider == .qwen ? receipt.localLessons.compactMap(EvolutionLessonUse.make(snapshot:)) : [])
         }
         record.state = checked.canApply ? .ready : .blocked
         record.updatedAt = wallClock()
@@ -1405,14 +1399,17 @@ final class CompanionStore: ObservableObject {
     }
 
     func canReviewDocument(_ record: DocumentWorkRecord) -> Bool {
-        !isShuttingDown && documentWork.loadError == nil && [.applied, .undone].contains(record.state)
+        !isShuttingDown && documentWork.isCurrentOnDisk
+            && documentWork.records.first(where: { $0.id == record.id }) == record
+            && [.applied, .undone].contains(record.state)
             && record.learning?.requestBinding.isValid == true && UUID(uuidString: record.requestID) != nil
             && record.expectedAfterDigest != nil && record.expectedAfterDigest == record.actualAfterDigest
             && record.afterRevision != nil && record.checks.allSatisfy(\.passed) && !record.checks.isEmpty
     }
 
     func canManageDocumentFeedback(_ record: DocumentWorkRecord) -> Bool {
-        !isShuttingDown && documentWork.loadError == nil && record.feedback != nil
+        !isShuttingDown && documentWork.isCurrentOnDisk
+            && documentWork.records.first(where: { $0.id == record.id }) == record && record.feedback != nil
             && [.applied, .undone, .failed].contains(record.state)
     }
 

@@ -69,6 +69,8 @@ struct CompanionGraphSource: Equatable, Sendable { let name: String; let text: S
 enum CompanionGraph {
     static let maximumNodes = 220
     static let maximumEdges = 500
+    /// Stable identity shared by projections; callers still check exact snapshots.
+    static func lessonNodeID(_ lesson: KeptLesson) -> String { lessonKey(lesson) }
     static func build(receipts: [AssistantLaneReceipt], lessons: [KeptLesson], source: CompanionGraphSource?,
                       now: Date, records: [SessionContextRecord] = [], turn: Int = 0,
                       arcRecords: [ARCCapabilitiesRecord] = [], arcError: String? = nil,

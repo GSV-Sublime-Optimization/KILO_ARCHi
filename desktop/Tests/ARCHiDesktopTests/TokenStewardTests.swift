@@ -6,6 +6,40 @@ final class TokenStewardTests: XCTestCase {
     private let date = Date(timeIntervalSince1970: 1_789_560_000)
 
     @MainActor
+    func testModelArtifactIdentityPersistsWithoutRewritingLegacyReplay() throws {
+        let url = try journalURL()
+        let store = TokenStewardStore(url: url, now: { self.date })
+        var attempt = invocation("answer")
+        attempt.model = QwenModelMetadata(name: "qwen3:8b", family: "qwen3", parameterSize: "8B",
+            quantization: "Q4_K_M", digest: String(repeating: "a", count: 64))
+        var result = receipt("artifact")
+        result.localInvocationReceipts = [attempt]
+        try store.recordLane(result)
+        let reopened = TokenStewardStore(url: url, now: { self.date })
+        XCTAssertEqual(reopened.observations.first?.modelDigest, attempt.model?.digest)
+        try reopened.recordLane(result)
+        var changed = result
+        changed.localInvocationReceipts?[0].model = QwenModelMetadata(name: "qwen3:8b", family: "qwen3",
+            parameterSize: "8B", quantization: "Q4_K_M", digest: String(repeating: "b", count: 64))
+        XCTAssertThrowsError(try reopened.recordLane(changed))
+
+        // Model the actual old on-disk format, whose observations had no digest.
+        var old = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+        var observations = try XCTUnwrap(old["observations"] as? [[String: Any]])
+        observations[0].removeValue(forKey: "modelDigest")
+        old["observations"] = observations
+        try JSONSerialization.data(withJSONObject: old).write(to: url, options: .atomic)
+        let legacy = TokenStewardStore(url: url, now: { self.date })
+        XCTAssertNil(legacy.loadError)
+        try legacy.recordLane(result)
+        XCTAssertNil(legacy.observations.first?.modelDigest, "Replay cannot invent artifact provenance for old usage")
+        let encoded = try JSONEncoder().encode(XCTUnwrap(legacy.observations.first))
+        XCTAssertFalse(String(decoding: encoded, as: UTF8.self).contains("modelDigest"))
+        XCTAssertEqual(legacy.summary.knownInputTokens, 10)
+        XCTAssertEqual(legacy.summary.knownOutputTokens, 5)
+    }
+
+    @MainActor
     func testFailedCompactAttemptNeverInheritsSuccessfulReasonerIdentity() throws {
         let store = TokenStewardStore(now: { self.date })
         var local = receipt("compact-retry")

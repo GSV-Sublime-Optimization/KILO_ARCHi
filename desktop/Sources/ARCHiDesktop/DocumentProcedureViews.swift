@@ -66,7 +66,7 @@ struct DocumentProcedureLibraryView: View {
     var body: some View {
         DisclosureGroup("Saved procedures (\(store.documentProcedures.latestProcedures.count))") {
             VStack(alignment: .leading, spacing: 10) {
-                Text("Keep a method after helpful applied work. Available methods matching these requirements appear first, ordered by their recorded outcomes. Choose a method explicitly for each new passage.")
+                Text("Keep a method after helpful applied work. Matching methods use reviewed outcomes first. Ties use comparable local usage when fully measured. Choose a method for each new passage.")
                     .foregroundStyle(.secondary)
                 if let error = store.documentProcedures.loadError { Text(error).foregroundStyle(.orange) }
                 ForEach(store.orderedDocumentProcedures) { procedure in
@@ -227,6 +227,18 @@ private struct DocumentProcedureVersionDetails: View {
                 Text("This version · \(outcomes.helpful) helpful · \(outcomes.needsCorrection) corrected or withdrawn · \(outcomes.awaitingReview) awaiting review")
                     .foregroundStyle(.secondary)
             }
+            DisclosureGroup("Local usage") {
+                if let usage = store.resources(for: procedure) {
+                    let perHelpful = Double(usage.totalTokens) / Double(usage.helpfulResults)
+                    Text("\(perHelpful.formatted(.number.precision(.fractionLength(0...1)))) observed tokens per Helpful result")
+                    Text("\(usage.totalTokens.formatted()) tokens across \(usage.recordedUses) uses · \(usage.localAttempts) model calls, including retries and context preparation.")
+                    Text("This describes past local work. It is not a price or a prediction of future savings.")
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text("Not enough comparable local usage yet. The existing review-based order is preserved.")
+                        .foregroundStyle(.secondary)
+                }
+            }.accessibilityIdentifier("document.procedure-usage.\(procedure.id).\(procedure.revision)")
             Text((procedure.mustBeShorter ? "Shorter text" : "Flexible length") + " · "
                  + (procedure.preserveNumbersAndLinks ? "Exact numbers and links" : "No exact-token requirement"))
                 .foregroundStyle(.secondary)

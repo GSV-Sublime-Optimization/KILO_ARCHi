@@ -15,6 +15,14 @@ extension CompanionStore {
         return HamptonMethodOutcomes(procedure: procedure.binding, records: documentWork.records)
     }
 
+    func resources(for procedure: DocumentProcedure) -> HamptonMethodResourceOutcomes? {
+        guard profileRecoveryBlock == nil, documentWork.isCurrentOnDisk,
+              tokenSteward.loadError == nil else { return nil }
+        return HamptonMethodResourceOutcomes(procedure: procedure.binding,
+            records: documentWork.records, tasks: tokenSteward.tasks,
+            observations: tokenSteward.observations)
+    }
+
     /// Prefer available methods for this requirement set, then observed helpful
     /// use. The bounded critic ranks suggestions only; selection stays explicit.
     var orderedDocumentProcedures: [DocumentProcedure] {
@@ -23,7 +31,7 @@ extension CompanionStore {
              matching: method.matches(requirements: documentRequirements) && documentProcedureUnavailable(method.binding) == nil,
              outcomes: outcomes(for: method))
         }
-        return entries.sorted { lhs, rhs in
+        let ordered = entries.sorted { lhs, rhs in
             if lhs.matching != rhs.matching { return lhs.matching }
             if lhs.matching, let left = lhs.outcomes, let right = rhs.outcomes {
                 if HamptonMethodOutcomes.rankBefore(lhs: left, rhs: right) { return true }
@@ -31,6 +39,15 @@ extension CompanionStore {
             }
             return lhs.index < rhs.index
         }.map(\.method)
+        let eligible = entries.filter { $0.matching }
+        let qualities = Dictionary(uniqueKeysWithValues: eligible.compactMap { entry in
+            entry.outcomes.map { (entry.method.binding, $0) }
+        })
+        let costs = Dictionary(uniqueKeysWithValues: eligible.compactMap { entry in
+            resources(for: entry.method).map { (entry.method.binding, $0) }
+        })
+        return HamptonMethodResourceOutcomes.refineEqualQualityOrder(ordered,
+            outcomes: qualities, resources: costs)
     }
 
     func beginLessonForCurrentTask() {

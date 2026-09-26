@@ -1,6 +1,54 @@
 import Foundation
 import CryptoKit
 
+/// Native translation of QuotientSchema(NATIVE_PRESSURES) in
+/// research/representation/archi_repe/stack_contracts.py. These definitions come
+/// from docs/native-q2e-control.md; they are neither the archived 18 coordinates
+/// nor model activation assays. The schema is fixed, not caller-authored data.
+enum HamptonQ2ECoordinateSchema {
+    static let id = "hampton-native-five-pressures/v1"
+    struct Coordinate: Equatable, Sendable {
+        let name: String
+        let definition: String
+        let unit: String
+        let range = 0.0...1.0
+    }
+    static let coordinates = [
+        Coordinate(name: "support", definition: "Beta(1,1) statistic from retained support and correction counts", unit: "dimensionless"),
+        Coordinate(name: "coveragePressure", definition: "One minus support when alternatives exist; otherwise one", unit: "dimensionless"),
+        Coordinate(name: "verifierPressure", definition: "Clipped authored pressure 0.20 corrections + 0.15 unchanged steps", unit: "dimensionless"),
+        Coordinate(name: "alternativeCoverage", definition: "Clipped available-alternative count divided by eight", unit: "dimensionless"),
+        Coordinate(name: "resourceRemaining", definition: "Remaining divided by total domain action budget", unit: "action-budget fraction")
+    ]
+    static var names: Set<String> { Set(coordinates.map(\.name)) }
+    static func contains(_ values: [String: Double]) -> Bool {
+        Set(values.keys) == names && values.values.allSatisfy { $0.isFinite && (0...1).contains($0) }
+    }
+}
+
+/// Bounded content reference, not a recursive copy of the decision history.
+/// Its digest links to the existing owner's original decision. Structural
+/// validation cannot authenticate a supplied history or invent an old revision.
+struct HamptonQ2EPredecessor: Codable, Equatable, Sendable {
+    let version: String
+    let domain: String
+    let contextID: String
+    let revision: Int
+    let pressures: [String: Double]
+    let decisionDigest: String
+
+    init(_ decision: HamptonQ2EDecision) {
+        version = decision.version; domain = decision.domain; contextID = decision.contextID
+        revision = decision.revision; pressures = decision.pressures; decisionDigest = decision.bindingDigest
+    }
+    var isValid: Bool {
+        [HamptonQ2EController.version, HamptonQ2EController.legacyVersion].contains(version)
+            && (1...10_001).contains(revision) && HamptonQ2ECoordinateSchema.contains(pressures)
+            && decisionDigest.utf8.count == 64
+            && decisionDigest.utf8.allSatisfy { (48...57).contains($0) || (97...102).contains($0) }
+    }
+}
+
 /// Native operational adaptation of qstate_controller.py and
 /// qstate_coupling_matrix.py. Inputs are admitted domain observations, never
 /// model confidence. The coefficients below are authored policy, not learned
@@ -63,9 +111,17 @@ struct HamptonQ2EDecision: Codable, Equatable, Sendable {
     let laneWeights: [String: Double]
     let lane: HamptonQ2ELane
     let reason: String
+    /// Nil only on legacy v1 records. No migration rewrites their evidence.
+    var coordinateSchema: String? = nil
+    /// Nil means the explicitly defined initial zero reference, not an observed
+    /// previous state. An incompatible/invalid previous decision is not reused.
+    var predecessor: HamptonQ2EPredecessor? = nil
+    /// Available for the document-revision adapter; other domain owners retain
+    /// their existing evidence contracts rather than fabricating these records.
+    var outcomeEvidence: HamptonQ2EOutcomeEvidence? = nil
 
     var isValid: Bool {
-        guard version == HamptonQ2EController.version, signals.isValid,
+        guard [HamptonQ2EController.version, HamptonQ2EController.legacyVersion].contains(version), signals.isValid,
               !domain.isEmpty, domain.utf8.count <= 80,
               !contextID.isEmpty, contextID.utf8.count <= 256,
               (1...10_001).contains(revision), reason.utf8.count <= 400,
@@ -76,8 +132,26 @@ struct HamptonQ2EDecision: Codable, Equatable, Sendable {
               delta.values.allSatisfy({ $0.isFinite && (-1...1).contains($0) }),
               laneWeights.values.allSatisfy({ $0.isFinite && (0...1).contains($0) }) else { return false }
         let expected = HamptonQ2EController.decide(domain: domain, contextID: contextID, signals: signals)
-        return pressures == expected.pressures && laneWeights == expected.laneWeights
-            && lane == expected.lane && reason == expected.reason
+        guard pressures == expected.pressures && laneWeights == expected.laneWeights,
+              lane == expected.lane && reason == expected.reason else { return false }
+        if version == HamptonQ2EController.legacyVersion {
+            // The old format never recorded a predecessor. Preserve its former
+            // read contract; do not claim reconstructed delta lineage for it.
+            return coordinateSchema == nil && predecessor == nil && outcomeEvidence == nil
+        }
+        guard coordinateSchema == HamptonQ2ECoordinateSchema.id,
+              HamptonQ2ECoordinateSchema.contains(pressures) else { return false }
+        if let predecessor {
+            guard predecessor.isValid, predecessor.domain == domain, predecessor.contextID == contextID,
+                  revision == min(10_000, predecessor.revision) + 1 else { return false }
+        } else if revision != 1 { return false }
+        // q_next - q_previous is the effective native pressure change. It is
+        // not a requested actuator increment, latent signal or learned coupling.
+        guard delta == pressures.mapValuesWithKey({ key, value in value - (predecessor?.pressures[key] ?? 0) }) else { return false }
+        if let outcomeEvidence {
+            guard domain == "document-revision", outcomeEvidence.matches(signals) else { return false }
+        }
+        return true
     }
 
     var bindingDigest: String {
@@ -88,16 +162,18 @@ struct HamptonQ2EDecision: Codable, Equatable, Sendable {
 }
 
 enum HamptonQ2EController {
-    static let version = "hampton-native-qstate-control/v1"
+    static let version = "hampton-native-qstate-control/v2"
+    static let legacyVersion = "hampton-native-qstate-control/v1"
 
     /// Q(t+1) is recomputed from the current admitted observations. Delta is
     /// retained for explanation; stale feedback is not compounded or counted
     /// twice. M(t) couples support/coverage/verifier pressure to bounded lanes.
     /// Domain owners implement the selected lane and retain actual outcomes.
     static func decide(domain: String, contextID: String, signals: HamptonQ2ESignals,
-                       previous: HamptonQ2EDecision? = nil) -> HamptonQ2EDecision {
+                       previous: HamptonQ2EDecision? = nil,
+                       outcomeEvidence: HamptonQ2EOutcomeEvidence? = nil) -> HamptonQ2EDecision {
         let compatible = previous.flatMap {
-            $0.version == version && $0.domain == domain && $0.contextID == contextID ? $0 : nil
+            $0.isValid && $0.domain == domain && $0.contextID == contextID ? $0 : nil
         }
         let clip: (Double) -> Double = { min(1, max(0, $0)) }
         let positive = Double(max(0, min(10_000, signals.retainedSupport)))
@@ -148,6 +224,14 @@ enum HamptonQ2EController {
         return HamptonQ2EDecision(version: version, domain: domain, contextID: contextID,
             revision: revision, signals: signals, pressures: q,
             delta: Dictionary(uniqueKeysWithValues: delta.map { ($0.key, $0.value) }),
-            laneWeights: weights, lane: lane, reason: reason)
+            laneWeights: weights, lane: lane, reason: reason,
+            coordinateSchema: HamptonQ2ECoordinateSchema.id,
+            predecessor: compatible.map(HamptonQ2EPredecessor.init), outcomeEvidence: outcomeEvidence)
+    }
+}
+
+private extension Dictionary where Key == String, Value == Double {
+    func mapValuesWithKey(_ transform: (String, Double) -> Double) -> [String: Double] {
+        Dictionary(uniqueKeysWithValues: map { ($0.key, transform($0.key, $0.value)) })
     }
 }

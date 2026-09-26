@@ -6,40 +6,27 @@ extension CompanionStore {
     /// store whenever SwiftUI reevaluates. Latest eight matching attempts bound
     /// the feedback window; withdrawn judgments never become positive evidence.
     var documentQ2EDecision: HamptonQ2EDecision {
-        let records = Array(documentWork.records.filter {
-            $0.mustBeShorter == documentRequirements.mustBeShorter
-                && $0.preserveNumbersAndLinks == documentRequirements.preserveNumbersAndLinks
-        }.prefix(8))
-        let outcomes = HamptonMethodOutcomes(records: records)
-        let corrections = records.filter {
-            ($0.state == .blocked && $0.checks.contains { !$0.passed }) || $0.procedureUseRejected == true
-                || $0.feedback.map { $0.verdict != .helpful } == true
-        }.count
+        makeDocumentQ2EDecision()
+    }
+
+    /// A sibling provider lane is part of this pending task, not an observed
+    /// historical outcome. Exclude it when rechecking a frozen Send decision.
+    func makeDocumentQ2EDecision(excludingRequestID: String? = nil) -> HamptonQ2EDecision {
+        let input = documentWork.records.filter { $0.requestID != excludingRequestID }
+        let projection = HamptonQ2EOutcomeAdapter(records: input, requirements: documentRequirements)
+        let records = projection.records
         let alternatives = documentProcedures.latestProcedures.filter {
             $0.matches(requirements: documentRequirements) && documentProcedureUnavailable($0.binding) == nil
         }.count + 1 // ordinary, checked revision remains an available approach
         let sourceID = WorkingCopyEditReceipt.digest(sharedText)
         let previous = records.compactMap(\.q2eDecision).first { $0.contextID == sourceID }
-        var strategyResults: [String: HamptonQ2EStrategyEvidence] = [:]
-        for lane in [HamptonQ2ELane.retain, .expand, .repair] {
-            let attributed = records.filter { $0.q2eDecision?.lane == lane }
-            let measured = HamptonMethodOutcomes(records: attributed)
-            let negative = attributed.filter {
-                ($0.state == .blocked && $0.checks.contains { !$0.passed }) || $0.procedureUseRejected == true
-                    || $0.feedback.map { $0.verdict != .helpful } == true
-            }.count
-            strategyResults[lane.rawValue] = HamptonQ2EStrategyEvidence(helpful: measured.helpful, corrections: negative)
-        }
         let prerequisites = profileRecoveryBlock == nil && documentWork.isCurrentOnDisk
             && documentProcedures.loadError == nil && sourceName != nil
             && textSelection?.matches(text: sharedText, sourceRevision: sourceRevision) == true
             && pendingDocumentReceipt == nil
         return HamptonQ2EController.decide(domain: "document-revision", contextID: sourceID,
-            signals: HamptonQ2ESignals(observations: outcomes.attempts,
-                retainedSupport: outcomes.helpful, contradictions: corrections,
-                unchangedSteps: 0, availableAlternatives: alternatives,
-                remainingBudget: 1, totalBudget: 1, prerequisitesSatisfied: prerequisites,
-                strategyResults: strategyResults), previous: previous)
+            signals: projection.signals(alternatives: alternatives, prerequisitesSatisfied: prerequisites),
+            previous: previous, outcomeEvidence: projection.evidence)
     }
 
     /// Preparing is reversible and sends nothing. Send freezes the current

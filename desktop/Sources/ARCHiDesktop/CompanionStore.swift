@@ -445,31 +445,82 @@ final class CompanionStore: ObservableObject {
             + (desktopInterest.phase == .idle ? "" : ". Object of interest: " + desktopInterest.message)
     }
 
-    var nextCallBudget: String {
-        if arc3CommandSelected { return "0 model calls · bounded local ARC3 environment actions" }
-        if let selection = ARCActiveAssistant.select(prompt) {
-            return selection == .command(.propose)
-                ? "At most 1 local Qwen proposal call · no external requests"
-                : "0 model calls · native ARC rules and checker"
+    var nextExecutionSelection: AssistantExecutionSelection {
+        executionSelection(question: prompt, pointing: nil)
+    }
+
+    func executionSelection(question: String, pointing: AssistantPointingSnapshot?) -> AssistantExecutionSelection {
+        .select(question: question, hasPreparedProcedure: preparedDocumentProcedure != nil, hasPointing: pointing != nil)
+    }
+
+    var nextLocalExpertDecision: LocalExpertDecision {
+        LocalExpertPolicy.decide(prompt: prompt,
+            requiresReasoning: sourceName != nil || !sharedText.isEmpty || textSelection != nil
+                || requestsRevision || !selectedReadingSourceIDs.isEmpty,
+            preference: localWorkPreference, measurements: representationMeasurementsEnabled)
+    }
+
+    /// Configuration checks only; current-source, proposal and budget validation
+    /// remain owned by submit. Reading previews never prepare or mutate a plan.
+    var nextAssistantBlockedReason: String? {
+        nextExecutionSelection == .assistant ? assistantBlockedReason(hasPointing: false) : nil
+    }
+
+    private func assistantBlockedReason(hasPointing: Bool) -> String? {
+        if representationMeasurementsEnabled && !route.providers.allSatisfy({ $0 == .qwen }) {
+            return "Model measurements stay on this Mac. Choose a local route, or turn measurements off before using an external assistant. Nothing sent."
         }
-        if !selectedReadingSourceIDs.isEmpty { return "Local Qwen only · kept copies never enter external fallback" }
-        let answerCalls = localWorkPreference == .reasoning || representationMeasurementsEnabled
+        if !selectedReadingSourceIDs.isEmpty,
+           requestsRevision || hasPointing || sourceName == nil || route == .codex || route == .compare {
+            return "Kept reading copies use local Qwen for document questions. Choose a local route or deselect the copies. Nothing sent."
+        }
+        return nil
+    }
+
+    /// This is a ceiling explanation, never permission to invoke fallback.
+    /// The captured request still passes finishFailedAttempt's complete checks.
+    var nextAssistantFallbackBlockedReason: String? {
+        if representationMeasurementsEnabled { return "Model measurements stay local; external fallback is disabled." }
+        if !selectedReadingSourceIDs.isEmpty { return "Selected kept reading copies stay local; external fallback is disabled." }
+        let lessons = nextReplyLessons
+        let readingBackedLesson = keptLessons.contains { lesson in
+            !(lesson.origin?.readingSources?.isEmpty ?? true) && lessons.contains { $0.id == lesson.id }
+        }
+        if readingBackedLesson || (!nextReplyConversation.isEmpty && !(localConversationReadingSources?.isEmpty ?? true)) {
+            return "Context supported by kept reading copies stays local; external fallback is disabled."
+        }
+        if desktopInterestSource != nil, desktopInterestExternalDigest != LessonSource.digest(of: sharedText) {
+            return "This window copy stays local until you allow this exact copy for an external route."
+        }
+        return nil
+    }
+
+    var nextCallBudget: String {
+        if let budget = nextExecutionSelection.nativeCallBudget { return budget }
+        if let reason = nextAssistantBlockedReason { return "0 model calls · " + reason }
+        let answerCalls = nextLocalExpertDecision.target == .reasoning
             ? "1 local answer attempt" : "Up to 2 local answer attempts (compact + recovery)"
         let local = answerCalls + (sessionContextEnabled ? ", plus up to 2 context calls" : "")
         switch route {
-        case .native: return local + (representationMeasurementsEnabled ? " · no external requests" : " · at most 1 Codex fallback request")
-        case .local: return local
+        case .native:
+            return local + (nextAssistantFallbackBlockedReason == nil
+                ? " · at most 1 Codex fallback request" : " · no external requests")
+        case .local, .automatic: return local + " · no external requests"
         case .codex: return "1 Codex request"
         case .compare: return local + " · 1 Codex request"
-        case .automatic: return local + " · no external requests"
         }
     }
 
-    var arc3CommandSelected: Bool { ARC3AssistantCommand.select(prompt) != nil }
-    var arcCommandSelected: Bool { ARCActiveAssistant.select(prompt) != nil || arc3CommandSelected }
+    var arc3CommandSelected: Bool { nextExecutionSelection.isARC3Command }
+    var arcCommandSelected: Bool { nextExecutionSelection.isNativeCommand }
     var isARCWorking: Bool { activeARCOwner != nil || arc3.isWorking }
-    var canBeginReply: Bool { !isShuttingDown && !voiceInput.isActive
-        && (arcCommandSelected || (canShareDesktopInterestWithRoute && (route.connectsAutomatically || connectionState == .ready))) }
+    var canBeginReply: Bool { canBeginReply(selection: nextExecutionSelection, hasPointing: false) }
+
+    private func canBeginReply(selection: AssistantExecutionSelection, hasPointing: Bool) -> Bool {
+        !isShuttingDown && !voiceInput.isActive
+            && (selection.isNativeCommand || (assistantBlockedReason(hasPointing: hasPointing) == nil
+                && canShareDesktopInterestWithRoute && (route.connectsAutomatically || connectionState == .ready)))
+    }
 
     var canShareDesktopInterestWithRoute: Bool {
         desktopInterestSource == nil || route == .local || route.connectsAutomatically
@@ -1027,7 +1078,9 @@ final class CompanionStore: ObservableObject {
     var canPointAndExplainSelection: Bool {
         !isShuttingDown && !isWorking && isVisible && preferences.equipment.supportsPointing
             && textSelection?.matches(text: sharedText, sourceRevision: sourceRevision) == true
-            && canBeginReply
+            && preparedDocumentProcedure == nil
+            && canBeginReply(selection: .select(question: pointedExplanationQuestion,
+                hasPreparedProcedure: preparedDocumentProcedure != nil, hasPointing: true), hasPointing: true)
             && pointedExplanationQuestion.utf8.count <= 16_000
     }
 
@@ -1289,6 +1342,14 @@ final class CompanionStore: ObservableObject {
         guard documentWork.isCurrentOnDisk, control?.isValid ?? true,
               control == nil || (control?.contextID == target.sourceDigest && control?.lane != .stop) else {
             throw DocumentWorkJournalError.changed
+        }
+        // Connection can suspend after Send. A changed review or method must
+        // not dispatch the previously captured approach. Same-request provider
+        // lanes are not prior outcomes and cannot invalidate one another.
+        if let control, control.version == HamptonQ2EController.version {
+            guard control == makeDocumentQ2EDecision(excludingRequestID: requestID) else {
+                throw DocumentWorkJournalError.changed
+            }
         }
         let use = documentProcedureRequests[requestID]
         if let use, let reason = documentProcedureUnavailable(use) {
@@ -1796,19 +1857,22 @@ final class CompanionStore: ObservableObject {
 
     private func submit(question: String, pointing: AssistantPointingSnapshot?) -> Bool {
         guard !isShuttingDown else { return false }
-        if preparedDocumentProcedure == nil, pointing == nil, let command = ARC3AssistantCommand.select(question) { return runARC3(command) }
-        if preparedDocumentProcedure == nil, pointing == nil, let selection = ARCActiveAssistant.select(question) {
+        switch executionSelection(question: question, pointing: pointing) {
+        case .arc3(let command): return runARC3(command)
+        case .arc(let command):
             guard !voiceInput.isActive else {
                 status = "Finish or cancel voice input before starting ARC."; return false
             }
-            switch selection {
-            case .command(let command): return runARC(command)
-            case .invalid:
-                cancelWork(reason: "New ARC request replaces prior work.")
-                compareResults = [:]
-                showActiveARCError(command: .solve, message: ARCActiveAssistant.commandHelp)
-                return false
+            return runARC(command)
+        case .invalidARC:
+            guard !voiceInput.isActive else {
+                status = "Finish or cancel voice input before starting ARC."; return false
             }
+            cancelWork(reason: "New ARC request replaces prior work.")
+            compareResults = [:]
+            showActiveARCError(command: .solve, message: ARCActiveAssistant.commandHelp)
+            return false
+        case .assistant: break
         }
         guard canShareDesktopInterestWithRoute else {
             status = "This window snapshot stays local. Allow this exact copy for your external route, or choose Local Qwen. Nothing sent."
@@ -1831,8 +1895,8 @@ final class CompanionStore: ObservableObject {
         // A measurement visit cannot also dispatch the same material through an
         // external/compare lane. This guard precedes every connection, budget
         // reservation and provider dispatch, including explicitly chosen routes.
-        guard !representationMeasurementsEnabled || route.providers.allSatisfy({ $0 == .qwen }) else {
-            status = "Model measurements stay on this Mac. Choose a local route, or turn measurements off before using an external assistant. Nothing sent."
+        if let reason = assistantBlockedReason(hasPointing: pointing != nil) {
+            status = reason
             return false
         }
         guard textSelection == nil || textSelection?.matches(text: sharedText, sourceRevision: sourceRevision) == true else {
@@ -1862,11 +1926,6 @@ final class CompanionStore: ObservableObject {
             guard readingReferencesAreCurrent(currentReadingReferences),
                   currentReadingReferences.count == selectedReadingSourceIDs.count else {
                 invalidateReadingContext(reason: "Kept sources changed or need recovery. Reopen ARCHi before using them.")
-                return false
-            }
-            guard revisionTarget == nil, pointing == nil, sourceName != nil,
-                  selectedRoute != .codex && selectedRoute != .compare else {
-                status = "Kept reading copies use local Qwen for document questions. Choose a local route or deselect the copies. Nothing sent."
                 return false
             }
         }

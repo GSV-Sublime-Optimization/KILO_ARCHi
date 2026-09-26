@@ -75,6 +75,12 @@ struct HamptonDocumentControlView: View {
                 .accessibilityIdentifier("work.q2e.prepare")
             DisclosureGroup("Why this approach") {
                 Text("\(decision.signals.observations) recent matching attempts · \(decision.signals.retainedSupport) helpful · \(decision.signals.contradictions) needing correction")
+                if let numerical = decision.numericalControl {
+                    Text(numerical.steps.isEmpty
+                         ? "Ready to adapt from reviewed approaches. Unreviewed replies do not change approach preferences."
+                         : "Approach preferences reflect \(numerical.steps.count) attributed outcomes. Updating a review updates the next approach.")
+                        .accessibilityIdentifier("work.q2e.adaptation")
+                }
                 Text("One proposed revision per Send. Your review, Apply and feedback guide the next approach. This does not train model weights.")
                     .foregroundStyle(.secondary)
             }.accessibilityIdentifier("work.q2e.reason")

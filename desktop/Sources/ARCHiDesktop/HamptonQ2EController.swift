@@ -42,7 +42,7 @@ struct HamptonQ2EPredecessor: Codable, Equatable, Sendable {
         revision = decision.revision; pressures = decision.pressures; decisionDigest = decision.bindingDigest
     }
     var isValid: Bool {
-        [HamptonQ2EController.version, HamptonQ2EController.legacyVersion].contains(version)
+        HamptonQ2EController.supportedVersions.contains(version)
             && (1...10_001).contains(revision) && HamptonQ2ECoordinateSchema.contains(pressures)
             && decisionDigest.utf8.count == 64
             && decisionDigest.utf8.allSatisfy { (48...57).contains($0) || (97...102).contains($0) }
@@ -119,9 +119,12 @@ struct HamptonQ2EDecision: Codable, Equatable, Sendable {
     /// Available for the document-revision adapter; other domain owners retain
     /// their existing evidence contracts rather than fabricating these records.
     var outcomeEvidence: HamptonQ2EOutcomeEvidence? = nil
+    /// Present on v3 document decisions. Recomputed from frozen bindings during
+    /// validation; never trusted as an imported score or independent authority.
+    var numericalControl: HamptonDocumentNumericalControl.Receipt? = nil
 
     var isValid: Bool {
-        guard [HamptonQ2EController.version, HamptonQ2EController.legacyVersion].contains(version), signals.isValid,
+        guard HamptonQ2EController.supportedVersions.contains(version), signals.isValid,
               !domain.isEmpty, domain.utf8.count <= 80,
               !contextID.isEmpty, contextID.utf8.count <= 256,
               (1...10_001).contains(revision), reason.utf8.count <= 400,
@@ -131,9 +134,17 @@ struct HamptonQ2EDecision: Codable, Equatable, Sendable {
               pressures.values.allSatisfy({ $0.isFinite && (0...1).contains($0) }),
               delta.values.allSatisfy({ $0.isFinite && (-1...1).contains($0) }),
               laneWeights.values.allSatisfy({ $0.isFinite && (0...1).contains($0) }) else { return false }
-        let expected = HamptonQ2EController.decide(domain: domain, contextID: contextID, signals: signals)
+        let usesNumerics = version == HamptonQ2EController.numericalVersion
+        if usesNumerics {
+            guard domain == "document-revision", let evidence = outcomeEvidence,
+                  evidence.matches(signals), evidence.reconciliationIssue == nil,
+                  numericalControl != nil else { return false }
+        } else if numericalControl != nil { return false }
+        let expected = HamptonQ2EController.decide(domain: domain, contextID: contextID, signals: signals,
+            outcomeEvidence: usesNumerics ? outcomeEvidence : nil, useNumericalControl: usesNumerics)
         guard pressures == expected.pressures && laneWeights == expected.laneWeights,
-              lane == expected.lane && reason == expected.reason else { return false }
+              lane == expected.lane && reason == expected.reason,
+              numericalControl == expected.numericalControl else { return false }
         if version == HamptonQ2EController.legacyVersion {
             // The old format never recorded a predecessor. Preserve its former
             // read contract; do not claim reconstructed delta lineage for it.
@@ -164,6 +175,8 @@ struct HamptonQ2EDecision: Codable, Equatable, Sendable {
 enum HamptonQ2EController {
     static let version = "hampton-native-qstate-control/v2"
     static let legacyVersion = "hampton-native-qstate-control/v1"
+    static let numericalVersion = "hampton-native-qstate-control/v3"
+    static let supportedVersions = [legacyVersion, version, numericalVersion]
 
     /// Q(t+1) is recomputed from the current admitted observations. Delta is
     /// retained for explanation; stale feedback is not compounded or counted
@@ -171,7 +184,8 @@ enum HamptonQ2EController {
     /// Domain owners implement the selected lane and retain actual outcomes.
     static func decide(domain: String, contextID: String, signals: HamptonQ2ESignals,
                        previous: HamptonQ2EDecision? = nil,
-                       outcomeEvidence: HamptonQ2EOutcomeEvidence? = nil) -> HamptonQ2EDecision {
+                       outcomeEvidence: HamptonQ2EOutcomeEvidence? = nil,
+                       useNumericalControl: Bool = true) -> HamptonQ2EDecision {
         let compatible = previous.flatMap {
             $0.isValid && $0.domain == domain && $0.contextID == contextID ? $0 : nil
         }
@@ -195,14 +209,28 @@ enum HamptonQ2EController {
             "expand": clip(0.45 * coverage + 0.25 * novelty + 0.15 * (1 - support) - 0.25 * verifier),
             "repair": clip(verifier + 0.25 * coverage)
         ]
-        for (lane, result) in signals.strategyResults where result.isValid {
-            if result.helpful > 0 || result.corrections > 0 {
-                weights[lane] = clip(weights[lane, default: 0] * (0.5 + result.mean))
+        let requiresNumerics = useNumericalControl && domain == "document-revision"
+            && outcomeEvidence != nil && outcomeEvidence?.reconciliationIssue == nil
+        let numerical = requiresNumerics ? outcomeEvidence.flatMap {
+            $0.matches(signals) ? HamptonDocumentNumericalControl.replay(evidence: $0) : nil
+        } : nil
+        if let numerical {
+            // One critic per outcome. v3 replaces the old strategy multiplier,
+            // retaining aggregate pressures and all prerequisite/action checks.
+            for (lane, adjustment) in numerical.laneAdjustments {
+                weights[lane] = clip(weights[lane, default: 0] + adjustment)
+            }
+        } else if !requiresNumerics {
+            for (lane, result) in signals.strategyResults where result.isValid {
+                if result.helpful > 0 || result.corrections > 0 {
+                    weights[lane] = clip(weights[lane, default: 0] * (0.5 + result.mean))
+                }
             }
         }
         let lane: HamptonQ2ELane
         let reason: String
-        if !signals.isValid || domain.isEmpty || contextID.isEmpty || !signals.prerequisitesSatisfied {
+        if !signals.isValid || domain.isEmpty || contextID.isEmpty || !signals.prerequisitesSatisfied
+            || (requiresNumerics && numerical == nil) {
             lane = .stop; reason = "The current inputs or prerequisites need review before another action."
         } else if signals.remainingBudget == 0 {
             lane = .stop; reason = "The authorized action budget is exhausted."
@@ -221,12 +249,13 @@ enum HamptonQ2EController {
         let revision = compatible.map { min(10_000, max(0, $0.revision)) + 1 } ?? 1
         let delta = q.mapValues { $0 }
             .map { (key: $0.key, value: $0.value - (compatible?.pressures[$0.key] ?? 0)) }
-        return HamptonQ2EDecision(version: version, domain: domain, contextID: contextID,
+        return HamptonQ2EDecision(version: requiresNumerics ? numericalVersion : version, domain: domain, contextID: contextID,
             revision: revision, signals: signals, pressures: q,
             delta: Dictionary(uniqueKeysWithValues: delta.map { ($0.key, $0.value) }),
             laneWeights: weights, lane: lane, reason: reason,
             coordinateSchema: HamptonQ2ECoordinateSchema.id,
-            predecessor: compatible.map(HamptonQ2EPredecessor.init), outcomeEvidence: outcomeEvidence)
+            predecessor: compatible.map(HamptonQ2EPredecessor.init), outcomeEvidence: outcomeEvidence,
+            numericalControl: numerical)
     }
 }
 

@@ -60,6 +60,10 @@ struct DocumentWorkHistory: View {
                             if let control = record.q2eDecision {
                                 Text("Approach: \(control.lane.title) · decision \(control.revision)")
                                     .font(.caption2).foregroundStyle(.secondary)
+                                if let numerical = control.numericalControl {
+                                    Text("Based on \(numerical.steps.count) attributed outcomes available when this request began.")
+                                        .font(.caption2).foregroundStyle(.secondary)
+                                }
                             }
                             if currentOutcome?.id != record.id {
                                 DocumentFeedbackControls(store: store, record: record)

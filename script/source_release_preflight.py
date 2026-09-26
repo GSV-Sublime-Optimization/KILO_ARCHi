@@ -46,6 +46,7 @@ EXACT = RELEASE_FILES | ARC_REPLAY_FILES | {
     "unity/ARCHi/Packages/manifest.json", "unity/ARCHi/Packages/packages-lock.json",
     "marketplace/.gitignore", "marketplace/README.md", "marketplace/API.md",
     "docs/unity-arena-and-creator-marketplace-2026-09-16.md",
+    "docs/native-numerical-adaptation.md",
 }
 SCOPES = {
     "desktop/Sources/ARCHiDesktop": {".swift"},

@@ -1346,7 +1346,7 @@ final class CompanionStore: ObservableObject {
         // Connection can suspend after Send. A changed review or method must
         // not dispatch the previously captured approach. Same-request provider
         // lanes are not prior outcomes and cannot invalidate one another.
-        if let control, control.version == HamptonQ2EController.version {
+        if let control, [HamptonQ2EController.version, HamptonQ2EController.numericalVersion].contains(control.version) {
             guard control == makeDocumentQ2EDecision(excludingRequestID: requestID) else {
                 throw DocumentWorkJournalError.changed
             }

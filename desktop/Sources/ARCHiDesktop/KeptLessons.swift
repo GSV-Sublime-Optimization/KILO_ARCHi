@@ -34,13 +34,27 @@ struct LessonOrigin: Codable, Equatable, Sendable {
     let requestID: String
     let inputDigest: String
     let readingSources: [ReadingSourceBinding]?
+    let knowledgePages: [KnowledgePageBinding]?
 
-    init(requestID: String, inputDigest: String, readingSources: [ReadingSourceBinding]? = nil) {
-        self.requestID = requestID; self.inputDigest = inputDigest; self.readingSources = readingSources
+    init(requestID: String, inputDigest: String, readingSources: [ReadingSourceBinding]? = nil, knowledgePages: [KnowledgePageBinding]? = nil) {
+        self.requestID = requestID; self.inputDigest = inputDigest; self.readingSources = readingSources; self.knowledgePages = knowledgePages
     }
     var isValid: Bool {
         UUID(uuidString: requestID) != nil && LessonValidation.isDigest(inputDigest)
-            && ReadingSourceBinding.valid(readingSources)
+            && ReadingSourceBinding.valid(readingSources) && KnowledgePageBinding.valid(knowledgePages)
+    }
+
+    private enum CodingKeys: String, CodingKey { case requestID, inputDigest, readingSources, knowledgePages }
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        requestID = try values.decode(String.self, forKey: .requestID)
+        inputDigest = try values.decode(String.self, forKey: .inputDigest)
+        readingSources = try values.decodeIfPresent([ReadingSourceBinding].self, forKey: .readingSources)
+        knowledgePages = values.contains(.knowledgePages)
+            ? try values.decode([KnowledgePageBinding].self, forKey: .knowledgePages) : nil
+        guard isValid else {
+            throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "Invalid lesson origin dependencies."))
+        }
     }
 }
 
@@ -80,6 +94,7 @@ struct KeptLesson: Codable, Equatable, Sendable, Identifiable {
         LessonSnapshot(lesson: self).isValid
             && reason.count <= 300 && reason.utf8.count <= 1200
             && (origin?.isValid ?? true)
+            && (origin?.knowledgePages == nil || taskScope == .conversation)
             && LessonValidation.isDate(createdAt) && LessonValidation.isDate(updatedAt)
             && updatedAt >= createdAt
             && (expiresAt.map { LessonValidation.isDate($0) && $0 > createdAt } ?? true)
@@ -230,7 +245,7 @@ struct NativePreferenceDocument: Codable, Equatable {
                     if let value = lesson[key], !(value is NSNull) {
                         guard let fields = value as? [String: Any] else { throw NativePreferenceError.invalidDocument }
                         try validateKeys(fields, required: required,
-                            optional: key == "origin" && schema == currentSchema ? ["readingSources"] : [])
+                            optional: key == "origin" && schema == currentSchema ? ["readingSources", "knowledgePages"] : [])
                         if key == "origin", let dependencies = fields["readingSources"], !(dependencies is NSNull) {
                             guard let entries = dependencies as? [[String: Any]] else { throw NativePreferenceError.invalidDocument }
                             for entry in entries { try validateKeys(entry, required: ["id", "revision", "digest"]) }

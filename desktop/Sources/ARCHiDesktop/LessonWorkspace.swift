@@ -97,19 +97,27 @@ struct LessonCorrectionEditor: View {
                 .font(.system(size: 22, weight: .medium, design: .rounded))
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
-                    Text("Keep a useful preference or correction. This saves your words on this Mac for local Qwen requests within the scope you choose.")
+                    Text("Keep a useful preference or correction. This saves your words on this Mac for local Qwen requests within the scope shown below.")
                         .font(.system(size: 12)).foregroundStyle(.secondary)
-                    Picker("Use for", selection: $draft.taskScope) {
-                        Text("Matching topic phrase").tag(HamptonTaskScope?.none)
-                        ForEach(HamptonTaskScope.allCases) { scope in
-                            Text(scope.title).tag(Optional(scope))
-                        }
-                    }
-                    .pickerStyle(.menu)
-                    .accessibilityIdentifier("lesson-task-scope")
-                    if let scope = draft.taskScope {
-                        Text("Used for \(scope.title.lowercased()). The topic becomes a label; it does not need to appear in the question. Exact-copy restrictions and expiry still apply.")
+                    if draft.origin?.knowledgePages != nil {
+                        Label("Use for · Local chat only", systemImage: "bubble.left.and.bubble.right")
+                            .font(.system(size: 12, weight: .medium))
+                            .accessibilityIdentifier("lesson-knowledge-chat-scope")
+                        Text("This lesson depends on the knowledge pages and passages used in that reply. It stays available only while those versions are current. The topic is a label; it need not appear in your question. Document questions and revisions do not use this lesson.")
                             .font(.system(size: 10)).foregroundStyle(.secondary)
+                    } else {
+                        Picker("Use for", selection: $draft.taskScope) {
+                            Text("Matching topic phrase").tag(HamptonTaskScope?.none)
+                            ForEach(HamptonTaskScope.allCases) { scope in
+                                Text(scope.title).tag(Optional(scope))
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .accessibilityIdentifier("lesson-task-scope")
+                        if let scope = draft.taskScope {
+                            Text("Used for \(scope.title.lowercased()). The topic becomes a label; it does not need to appear in the question. Exact-copy restrictions and expiry still apply.")
+                                .font(.system(size: 10)).foregroundStyle(.secondary)
+                        }
                     }
                     VStack(alignment: .leading, spacing: 5) {
                         Text(draft.taskScope == nil ? "Topic phrase" : "Topic label").font(.system(size: 12, weight: .medium))
@@ -141,13 +149,15 @@ struct LessonCorrectionEditor: View {
                     TextField("Why this helps you (optional)", text: $draft.reason)
                         .textFieldStyle(.roundedBorder).accessibilityLabel("Reason for lesson")
                         .focused($focusedField, equals: .reason)
-                    Toggle("Use only with this exact shared copy", isOn: Binding(
-                        get: { draft.source != nil },
-                        set: { draft.source = $0 ? store.currentLessonSource : nil }))
-                        .disabled(store.currentLessonSource == nil && draft.source == nil)
-                    if let source = draft.source {
-                        Text(source.name + " · changed content makes this lesson unavailable")
-                            .font(.system(size: 10)).foregroundStyle(.secondary)
+                    if draft.origin?.knowledgePages == nil {
+                        Toggle("Use only with this exact shared copy", isOn: Binding(
+                            get: { draft.source != nil },
+                            set: { draft.source = $0 ? store.currentLessonSource : nil }))
+                            .disabled(store.currentLessonSource == nil && draft.source == nil)
+                        if let source = draft.source {
+                            Text(source.name + " · changed content makes this lesson unavailable")
+                                .font(.system(size: 10)).foregroundStyle(.secondary)
+                        }
                     }
                     Toggle("Set an expiry", isOn: Binding(get: { draft.expiresAt != nil },
                         set: { draft.expiresAt = $0 ? Date().addingTimeInterval(30 * 24 * 3600) : nil }))

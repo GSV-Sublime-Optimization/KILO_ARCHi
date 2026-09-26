@@ -74,6 +74,8 @@ struct AssistantLaneReceipt: Equatable, Sendable {
     var readingControl: HamptonQ2EDecision? = nil
     var readingResult: DocumentReadingResult? = nil
     var readingDependencies: [ReadingSourceBinding]? = nil
+    var knowledgeDependencies: [KnowledgePageBinding]? = nil
+    var knowledgeContextDigest: String? = nil
 }
 
 struct AssistantLaneResult: Equatable, Sendable {

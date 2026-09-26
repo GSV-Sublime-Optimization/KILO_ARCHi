@@ -104,6 +104,7 @@ final class CompanionStore: ObservableObject {
     @Published var selectedReadingSourceIDs: Set<String> = []
     @Published var knowledgePageDraft: KnowledgePageDraft?
     @Published var selectedKnowledgePageID: String?
+    @Published var selectedKnowledgePages: [KnowledgePageBinding] = []
     @Published var knowledgePageMessage: String?
     @Published private(set) var preparedDocumentProcedure: DocumentProcedureUse?
     private var preparedProcedureSelection: DocumentSelection?
@@ -232,6 +233,7 @@ final class CompanionStore: ObservableObject {
     private var localConversationRequestIDs = Set<UUID>()
     private var localConversationExpiry: Date?
     private var localConversationReadingSources: [ReadingSourceBinding]?
+    private var localConversationKnowledgePages: [KnowledgePageBinding]?
     private var localContextTaskScope: HamptonTaskScope?
     @Published private(set) var hamptonSnapshot = HamptonAssistantSnapshot()
     @Published var rememberPreferences = false
@@ -465,7 +467,7 @@ final class CompanionStore: ObservableObject {
 
     var nextLocalExpertDecision: LocalExpertDecision {
         LocalExpertPolicy.decide(prompt: prompt,
-            requiresReasoning: sourceName != nil || !sharedText.isEmpty || textSelection != nil
+            requiresReasoning: !selectedKnowledgePages.isEmpty || sourceName != nil || !sharedText.isEmpty || textSelection != nil
                 || requestsRevision || !selectedReadingSourceIDs.isEmpty,
             preference: localWorkPreference, measurements: representationMeasurementsEnabled)
     }
@@ -477,10 +479,16 @@ final class CompanionStore: ObservableObject {
     }
 
     private func assistantBlockedReason(hasPointing: Bool) -> String? {
+        if !selectedKnowledgePages.isEmpty {
+            if requestsRevision || hasPointing || route == .codex || route == .compare {
+                return "Selected knowledge pages use local chat. Finish or detach the pages before revising, pointing, or using an external route. Nothing sent."
+            }
+            if let issue = selectedKnowledgePageIssue { return issue + " Nothing sent." }
+        }
         if representationMeasurementsEnabled && !route.providers.allSatisfy({ $0 == .qwen }) {
             return "Model measurements stay on this Mac. Choose a local route, or turn measurements off before using an external assistant. Nothing sent."
         }
-        if !selectedReadingSourceIDs.isEmpty,
+        if selectedKnowledgePages.isEmpty, !selectedReadingSourceIDs.isEmpty,
            requestsRevision || hasPointing || sourceName == nil || route == .codex || route == .compare {
             return "Kept reading copies use local Qwen for document questions. Choose a local route or deselect the copies. Nothing sent."
         }
@@ -490,9 +498,16 @@ final class CompanionStore: ObservableObject {
     /// This is a ceiling explanation, never permission to invoke fallback.
     /// The captured request still passes finishFailedAttempt's complete checks.
     var nextAssistantFallbackBlockedReason: String? {
+        if !selectedKnowledgePages.isEmpty { return "Selected knowledge pages stay local; external fallback is disabled." }
         if representationMeasurementsEnabled { return "Model measurements stay local; external fallback is disabled." }
         if !selectedReadingSourceIDs.isEmpty { return "Selected kept reading copies stay local; external fallback is disabled." }
         let lessons = nextReplyLessons
+        let knowledgeBackedLesson = keptLessons.contains { lesson in
+            !(lesson.origin?.knowledgePages?.isEmpty ?? true) && lessons.contains { $0.id == lesson.id }
+        }
+        if knowledgeBackedLesson || (!nextReplyConversation.isEmpty && !(localConversationKnowledgePages?.isEmpty ?? true)) {
+            return "Context supported by knowledge pages stays local; external fallback is disabled."
+        }
         let readingBackedLesson = keptLessons.contains { lesson in
             !(lesson.origin?.readingSources?.isEmpty ?? true) && lessons.contains { $0.id == lesson.id }
         }
@@ -551,6 +566,7 @@ final class CompanionStore: ObservableObject {
         localConversationEnabled && route != .codex
             && (localContextTaskScope == nil || localContextTaskScope == currentTaskScope)
             && readingDependenciesAreCurrent(localConversationReadingSources)
+            && knowledgeDependenciesAreCurrent(localConversationKnowledgePages)
             && (localConversationExpiry.map { $0 > wallClock() } ?? true) ? localConversation.exchanges : []
     }
 
@@ -591,6 +607,7 @@ final class CompanionStore: ObservableObject {
         if !localConversation.exchanges.isEmpty { localConversation.clear() }
         if localConversationExpiry != nil { localConversationExpiry = nil }
         localConversationReadingSources = nil
+        localConversationKnowledgePages = nil
         localConversationRequestIDs.removeAll()
         localContextTaskScope = nil
         let notice = "Recent Qwen exchanges stay in this visit only."
@@ -924,7 +941,7 @@ final class CompanionStore: ObservableObject {
     private func meetingNotesQuestionFitsLocalBudget(_ question: String, sourceName: String?,
                                                    sourceText: String, sourceRevision: UInt64) -> Bool {
         let lessons = keptLessons.filter {
-            readingDependenciesAreCurrent($0.origin?.readingSources) && $0.matches(question: question, sourceName: sourceName, sourceText: sourceText, now: wallClock(), taskScope: .documentQuestion)
+            lessonDependenciesAreCurrent($0.origin) && $0.matches(question: question, sourceName: sourceName, sourceText: sourceText, now: wallClock(), taskScope: .documentQuestion)
         }.map(LessonSnapshot.init(lesson:))
         let reading = prepareReading(question: question, text: sourceText, selection: nil)
         guard let reading, reading.control.lane != .stop else { return false }
@@ -1913,7 +1930,7 @@ final class CompanionStore: ObservableObject {
             clearLocalConversation()
             localConversationNotice = "Started fresh context after a long conversation; kept lessons remain available."
         }
-        if !readingDependenciesAreCurrent(localConversationReadingSources) {
+        if !readingDependenciesAreCurrent(localConversationReadingSources) || !knowledgeDependenciesAreCurrent(localConversationKnowledgePages) {
             clearSessionContext()
             localConversationNotice = "A supporting reading source changed. Temporary context was cleared."
         }
@@ -1953,7 +1970,7 @@ final class CompanionStore: ObservableObject {
         } else { procedureUse = nil }
         cancelWork(reason: "New request replaces prior work.")
         let selectedRoute = route
-        if !selectedReadingSourceIDs.isEmpty {
+        if selectedKnowledgePages.isEmpty, !selectedReadingSourceIDs.isEmpty {
             guard readingReferencesAreCurrent(currentReadingReferences),
                   currentReadingReferences.count == selectedReadingSourceIDs.count else {
                 invalidateReadingContext(reason: "Kept sources changed or need recovery. Reopen ARCHi before using them.")
@@ -1968,10 +1985,15 @@ final class CompanionStore: ObservableObject {
             return false
         }
         if selectedRoute.providers.contains(.qwen) { hamptonSnapshot.proposal = nil }
-        let request = AssistantRequest(prompt: question, sourceName: sourceName, sourceText: sharedText,
+        let knowledge = currentKnowledgeContext
+        guard selectedKnowledgePages.isEmpty || knowledge != nil else {
+            status = selectedKnowledgePageIssue ?? "Knowledge pages changed. Select current reviewed pages again. Nothing sent."
+            return false
+        }
+        let request = AssistantRequest(prompt: question, sourceName: knowledge == nil ? sourceName : nil, sourceText: knowledge == nil ? sharedText : "",
             sourceRevision: sourceRevision, placementRevision: placementRevision, settings: nextReplySettings,
-            selection: textSelection, revisionTarget: revisionTarget, companion: activeQiMon?.character,
-            localProfile: personalContext?.assistantSnapshot)
+            selection: knowledge == nil ? textSelection : nil, revisionTarget: revisionTarget, companion: activeQiMon?.character,
+            localProfile: personalContext?.assistantSnapshot, localKnowledge: knowledge)
         let requestTaskScope: HamptonTaskScope = revisionTarget != nil ? .passageRevision
             : request.sourceName != nil ? .documentQuestion : .conversation
         let requiresReading = revisionTarget == nil && request.sourceName != nil && !request.sourceText.isEmpty
@@ -2037,10 +2059,11 @@ final class CompanionStore: ObservableObject {
                 localConversation: provider == .qwen ? capturedConversation : [],
                 localProfile: provider == .qwen ? request.localProfile : nil,
                 localControl: provider == .qwen ? capturedControl : nil,
-                localReading: provider == .qwen ? reading?.plan : nil)
+                localReading: provider == .qwen ? reading?.plan : nil,
+                localKnowledge: provider == .qwen ? request.localKnowledge : nil)
             launchLane(provider, request: laneRequest, ticket: ticket, route: selectedRoute,
                        requestID: requestID, inputDigest: digest, pointing: pointing,
-                       routingReason: !(reading?.plan.references.isEmpty ?? true) ? "Local Qwen with selected kept copies; external fallback is disabled for this reading."
+                       routingReason: knowledge != nil ? "Selected reviewed pages and exact passages use local reasoning. Shared document is not sent; no external fallback." : !(reading?.plan.references.isEmpty ?? true) ? "Local Qwen with selected kept copies; external fallback is disabled for this reading."
                            : selectedRoute == .native ? (representationMeasurementsEnabled
                                ? "Local Qwen with read-only measurements; automatic external fallback is disabled."
                                : "ARCHi-managed local Qwen first; one external fallback only on an eligible failure.")
@@ -2068,11 +2091,19 @@ final class CompanionStore: ObservableObject {
         if let local = assistant as? HamptonReasonsAssistant { local.workPreference = localWorkPreference }
         let allowsExternalFallback = !(provider == .qwen
             && (assistant as? HamptonReasonsAssistant)?.requiresRepresentation == true)
-        var dependencies = request.localReading?.references.map(\.binding) ?? []
+        var dependencies = (request.localReading?.references.map(\.binding) ?? []) + (request.localKnowledge?.readingSources ?? [])
+        var knowledgeDependencies = request.localKnowledge?.bindings ?? []
         for lesson in request.localLessons {
-            dependencies += keptLessons.first(where: { LessonSnapshot(lesson: $0) == lesson })?.origin?.readingSources ?? []
+            let origin = keptLessons.first(where: { LessonSnapshot(lesson: $0) == lesson })?.origin
+            dependencies += origin?.readingSources ?? []
+            knowledgeDependencies += origin?.knowledgePages ?? []
         }
-        if !request.localConversation.isEmpty { dependencies += localConversationReadingSources ?? [] }
+        if !request.localConversation.isEmpty {
+            dependencies += localConversationReadingSources ?? []
+            knowledgeDependencies += localConversationKnowledgePages ?? []
+        }
+        let uniqueKnowledge = knowledgeDependencies.reduce(into: [KnowledgePageBinding]()) { if !$0.contains($1) { $0.append($1) } }.sorted { $0.id < $1.id }
+        let capturedKnowledgeDependencies: [KnowledgePageBinding]? = uniqueKnowledge.isEmpty ? nil : uniqueKnowledge
         let uniqueDependencies = dependencies.reduce(into: [ReadingSourceBinding]()) { result, item in
             if !result.contains(item) { result.append(item) }
         }.sorted { $0.id < $1.id }
@@ -2091,6 +2122,8 @@ final class CompanionStore: ObservableObject {
         compareResults[provider]?.receipt?.sourceDigest = request.sourceName == nil ? nil
             : SHA256.hash(data: Data(request.sourceText.utf8)).map { String(format: "%02x", $0) }.joined()
         compareResults[provider]?.receipt?.readingDependencies = capturedReadingDependencies
+        compareResults[provider]?.receipt?.knowledgeDependencies = capturedKnowledgeDependencies
+        compareResults[provider]?.receipt?.knowledgeContextDigest = request.localKnowledge?.digest
         compareResults[provider]?.receipt?.documentReading = request.localReading
         compareResults[provider]?.receipt?.readingControl = request.localReading == nil ? nil : request.localControl
         compareResults[provider]?.receipt?.localLessons = request.localLessons
@@ -2111,12 +2144,15 @@ final class CompanionStore: ObservableObject {
                 guard let self, let local else { return false }
                 return self.isCurrentLane(provider, owner: owner, epoch: epoch, client: local, ticket: ticket)
                     && self.readingDependenciesAreCurrent(capturedReadingDependencies)
+                    && self.knowledgeDependenciesAreCurrent(capturedKnowledgeDependencies)
                     && self.readingContinuationIsCurrent(conversationParents)
             }
             local.onSnapshot = { [weak self, weak local] snapshot in
                 guard let self, let local,
                       self.isCurrentLane(provider, owner: owner, epoch: epoch, client: local, ticket: ticket),
-                      self.compareResults[provider]?.receipt?.requestStarted == true else { return }
+                      self.compareResults[provider]?.receipt?.requestStarted == true,
+                      self.knowledgeDependenciesAreCurrent(capturedKnowledgeDependencies),
+                      self.readingDependenciesAreCurrent(capturedReadingDependencies) else { return }
                 self.hamptonSnapshot = snapshot
                 if let decision = snapshot.expertDecision {
                     self.compareResults[provider]?.receipt?.localExpertDecision = decision
@@ -2169,7 +2205,8 @@ final class CompanionStore: ObservableObject {
                     self.connectionMessages[provider] = "\(provider.name) connected for this request."
                     self.refreshRouteConnection()
                 }
-                guard self.readingDependenciesAreCurrent(capturedReadingDependencies),
+                guard self.knowledgeDependenciesAreCurrent(capturedKnowledgeDependencies),
+                      self.readingDependenciesAreCurrent(capturedReadingDependencies),
                       self.readingContinuationIsCurrent(conversationParents) else { throw QwenFailure.invalidResponse }
                 if let target = request.revisionTarget {
                     try self.beginDocumentWork(requestID: requestID, provider: provider, target: target,
@@ -2192,6 +2229,12 @@ final class CompanionStore: ObservableObject {
                 self.compareResults[provider]?.receipt?.requestStarted = true
                 try await assistant.reply(to: request) { [weak self] event in
                     guard let self, self.isCurrentLane(provider, owner: owner, epoch: epoch, client: assistant, ticket: ticket) else { return }
+                    guard self.knowledgeDependenciesAreCurrent(capturedKnowledgeDependencies),
+                          self.readingDependenciesAreCurrent(capturedReadingDependencies) else {
+                        self.clearSessionContext()
+                        self.failLane(provider, message: "Supporting knowledge changed. This reply is no longer current.")
+                        return
+                    }
                     switch event {
                     case .text(let text):
                         guard request.revisionTarget == nil else {
@@ -2215,7 +2258,8 @@ final class CompanionStore: ObservableObject {
                 }
                 guard self.isCurrentLane(provider, owner: owner, epoch: epoch, client: assistant, ticket: ticket), !Task.isCancelled else { return }
                 guard self.readingContinuationIsCurrent(conversationParents) else { throw QwenFailure.invalidResponse }
-                guard self.readingDependenciesAreCurrent(capturedReadingDependencies) else {
+                guard self.knowledgeDependenciesAreCurrent(capturedKnowledgeDependencies),
+                      self.readingDependenciesAreCurrent(capturedReadingDependencies) else {
                     self.clearSessionContext()
                     throw QwenFailure.invalidResponse
                 }
@@ -2257,6 +2301,7 @@ final class CompanionStore: ObservableObject {
                         } else { self.localConversationRequestIDs = conversationParents }
                         self.localConversationExpiry = self.localConversation.exchanges.isEmpty ? nil : conversationExpiry
                         self.localConversationReadingSources = self.localConversation.exchanges.isEmpty ? nil : capturedReadingDependencies
+                        self.localConversationKnowledgePages = self.localConversation.exchanges.isEmpty ? nil : capturedKnowledgeDependencies
                     }
                 }
                 if request.revisionTarget != nil {
@@ -2266,7 +2311,7 @@ final class CompanionStore: ObservableObject {
                 self.record("\(provider.name) reply received for shared source revision \(ticket.source)")
             } catch {
                 guard let self, self.isCurrentLane(provider, owner: owner, epoch: epoch, client: assistant, ticket: ticket), !Task.isCancelled else { return }
-                if !self.readingDependenciesAreCurrent(capturedReadingDependencies) {
+                if !self.readingDependenciesAreCurrent(capturedReadingDependencies) || !self.knowledgeDependenciesAreCurrent(capturedKnowledgeDependencies) {
                     self.clearSessionContext()
                 }
                 if provider == .qwen, self.compareResults[provider]?.receipt?.admissionOutcome == nil {
@@ -2663,6 +2708,8 @@ final class CompanionStore: ObservableObject {
             && !optionalContextFailure
             && (request.localReading?.references.isEmpty ?? true)
             && compareResults[provider]?.receipt?.readingDependencies == nil
+            && compareResults[provider]?.receipt?.knowledgeDependencies == nil
+            && request.localKnowledge == nil
             && NativeAssistantFallback.isEligible(error) && compareResults[.codex] == nil
         failLane(provider, message: message)
         guard eligible, !isShuttingDown, isCurrentContent(ticket) else { return }
@@ -3120,7 +3167,8 @@ final class CompanionStore: ObservableObject {
     /// A pointing receipt retains its additional placement and live geometry
     /// requirements, including when a completed answer is reviewed later.
     func isCurrentReplyContext(_ receipt: AssistantLaneReceipt) -> Bool {
-        guard isCurrentContent(receipt.context) else { return false }
+        guard isCurrentContent(receipt.context), readingDependenciesAreCurrent(receipt.readingDependencies),
+              knowledgeDependenciesAreCurrent(receipt.knowledgeDependencies) else { return false }
         guard let pointing = receipt.pointing else { return true }
         return isCurrent(receipt.context, requireVisible: false) && isCurrentPointing(pointing)
     }
@@ -3135,6 +3183,7 @@ final class CompanionStore: ObservableObject {
 // Model clients receive immutable snapshots and have no way to keep a lesson.
 extension CompanionStore {
     var currentTaskScope: HamptonTaskScope {
+        if !selectedKnowledgePages.isEmpty { return .conversation }
         if requestsRevision { return .passageRevision }
         return sourceName == nil ? .conversation : .documentQuestion
     }
@@ -3149,19 +3198,66 @@ extension CompanionStore {
     }
 
     func matchingLessons(question: String, taskScope: HamptonTaskScope? = nil) -> [LessonSnapshot] {
-        keptLessons.filter { readingDependenciesAreCurrent($0.origin?.readingSources) && $0.matches(question: question, sourceName: sourceName,
-            sourceText: sharedText, now: wallClock(), taskScope: taskScope ?? currentTaskScope) }.map(LessonSnapshot.init(lesson:))
+        dependencyBoundedLessons(question: question, taskScope: taskScope ?? currentTaskScope).snapshots
+    }
+
+    /// Separate from a blocked-request reason: an otherwise valid local reply
+    /// can proceed with the lessons that fit its exact dependency envelope.
+    var nextReplyKnowledgeOmissionMessage: String? {
+        guard route != .codex else { return nil }
+        let count = dependencyBoundedLessons(question: prompt, taskScope: currentTaskScope).omissionCount
+        guard count > 0 else { return nil }
+        let subject = count == 1 ? "1 saved lesson will" : "\(count) saved lessons will"
+        return subject + " be left out of this reply to keep its combined page and source references within the local context limit. Your saved lessons are unchanged."
+    }
+
+    private func dependencyBoundedLessons(question: String, taskScope: HamptonTaskScope)
+        -> (snapshots: [LessonSnapshot], omissionCount: Int) {
+        func union<T: Equatable>(_ lhs: [T], _ rhs: [T]) -> [T] {
+            rhs.reduce(into: lhs) { if !$0.contains($1) { $0.append($1) } }
+        }
+        var pages = selectedKnowledgePages
+        var sources = currentKnowledgeContext?.readingSources ?? []
+        if selectedKnowledgePages.isEmpty, taskScope == .documentQuestion,
+           sourceName != nil, !sharedText.isEmpty {
+            sources = union(sources, currentReadingReferences.map(\.binding))
+        }
+        if !nextReplyConversation.isEmpty {
+            pages = union(pages, localConversationKnowledgePages ?? [])
+            sources = union(sources, localConversationReadingSources ?? [])
+        }
+        let now = wallClock()
+        var snapshots: [LessonSnapshot] = []
+        var omissionCount = 0
+        // Retain persisted lesson order. Exact duplicates share a binding;
+        // differing versions of one identity remain a conflict, never a merge.
+        for lesson in keptLessons where (selectedKnowledgePages.isEmpty || lesson.source == nil)
+            && lessonDependenciesAreCurrent(lesson.origin)
+            && lesson.matches(question: question, sourceName: sourceName,
+                sourceText: sharedText, now: now, taskScope: taskScope) {
+            let nextPages = union(pages, lesson.origin?.knowledgePages ?? [])
+            let nextSources = union(sources, lesson.origin?.readingSources ?? [])
+            guard KnowledgePageBinding.valid(nextPages.isEmpty ? nil : nextPages),
+                  ReadingSourceBinding.valid(nextSources.isEmpty ? nil : nextSources) else {
+                omissionCount += 1
+                continue
+            }
+            pages = nextPages
+            sources = nextSources
+            snapshots.append(LessonSnapshot(lesson: lesson))
+        }
+        return (snapshots, omissionCount)
     }
 
     func currentKeptLesson(matching snapshot: LessonSnapshot) -> KeptLesson? {
         keptLessons.first {
-            LessonSnapshot(lesson: $0) == snapshot && $0.isValid && readingDependenciesAreCurrent($0.origin?.readingSources)
+            LessonSnapshot(lesson: $0) == snapshot && $0.isValid && lessonDependenciesAreCurrent($0.origin)
                 && ($0.expiresAt == nil || $0.expiresAt! > wallClock())
         }
     }
 
     func lessonAvailability(_ lesson: KeptLesson) -> String {
-        if !readingDependenciesAreCurrent(lesson.origin?.readingSources) { return "Supporting reading copy changed or was forgotten · review this lesson before reuse" }
+        if !lessonDependenciesAreCurrent(lesson.origin) { return "Supporting reading copy changed or was forgotten · review this lesson before reuse" }
         if let expiry = lesson.expiresAt, expiry <= wallClock() { return "Expired · revise to use again" }
         if let source = lesson.source, source != currentLessonSource {
             return "Waiting for the same shared copy · \(source.name)"
@@ -3178,15 +3274,18 @@ extension CompanionStore {
             guard let prior = keptLessons.first(where: { $0.id == revisingID }) else { return }
             lessonDraft = LessonCorrectionDraft(lessonID: prior.id, expectedRevision: lessonRevision,
                 prior: prior, topic: prior.topic, text: prior.text, reason: prior.reason,
-                source: prior.source, origin: prior.origin, expiresAt: prior.expiresAt, taskScope: prior.taskScope)
+                source: prior.origin?.knowledgePages == nil ? prior.source : nil,
+                origin: prior.origin, expiresAt: prior.expiresAt,
+                taskScope: prior.origin?.knowledgePages == nil ? prior.taskScope : .conversation)
         } else {
             var origin: LessonOrigin?
             if let provider, let result = compareResults[provider], result.state == .complete,
                !result.text.isEmpty, let receipt = result.receipt {
                 origin = LessonOrigin(requestID: receipt.requestID, inputDigest: receipt.inputDigest,
-                    readingSources: receipt.readingDependencies)
+                    readingSources: receipt.readingDependencies, knowledgePages: receipt.knowledgeDependencies)
             }
-            lessonDraft = LessonCorrectionDraft(expectedRevision: lessonRevision, prior: nil, origin: origin)
+            lessonDraft = LessonCorrectionDraft(expectedRevision: lessonRevision, prior: nil, origin: origin,
+                taskScope: origin?.knowledgePages == nil ? nil : .conversation)
         }
         lessonMessage = "Review the lesson and when to use it. Nothing is saved until you press Keep."
         open(.memory)
@@ -3209,8 +3308,12 @@ extension CompanionStore {
             lessonMessage = "The shared copy changed. Share the original copy again, or remove its scope before keeping."
             return false
         }
-        guard readingDependenciesAreCurrent(draft.origin?.readingSources) else {
+        guard lessonDependenciesAreCurrent(draft.origin) else {
             lessonMessage = "A supporting reading copy changed or was forgotten. Start a fresh review using current sources."
+            return false
+        }
+        if draft.origin?.knowledgePages != nil, draft.taskScope != .conversation || draft.source != nil {
+            lessonMessage = "A lesson supported by knowledge pages must use local chat without an exact shared-copy restriction. Review a fresh Chat draft before keeping."
             return false
         }
         let now = wallClock()
@@ -3424,6 +3527,7 @@ extension CompanionStore {
         cancelWork(reason: "Saved profile restored. Earlier replies and references cleared.")
         selectedReadingSourceIDs = []
         selectedKnowledgePageID = nil
+        selectedKnowledgePages = []
         knowledgePageMessage = nil
         documentReadingPreview = nil
         arc3.resetForProfile()
@@ -3483,6 +3587,7 @@ extension CompanionStore {
         clearPreparedDocumentProcedure()
         selectedReadingSourceIDs = []
         selectedKnowledgePageID = nil
+        selectedKnowledgePages = []
         knowledgePageMessage = nil
         documentReadingPreview = nil
         status = reason

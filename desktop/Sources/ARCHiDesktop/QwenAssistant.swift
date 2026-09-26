@@ -110,7 +110,7 @@ final class QwenAssistant: AssistantClient, LocalRoleClient {
     func reply(to request: AssistantRequest, onEvent: @escaping @MainActor (AssistantEvent) -> Void) async throws {
         guard request.hasValidSelection, request.hasValidRevisionTarget else { throw QwenFailure.invalidResponse }
         guard request.hasValidLocalLessons, request.hasValidLocalConversation, request.hasValidLocalProfile,
-              request.hasValidLocalControl else { throw QwenFailure.invalidResponse }
+              request.hasValidLocalControl, request.hasValidLocalKnowledge else { throw QwenFailure.invalidResponse }
         guard metadata != nil else { throw QwenFailure.unavailable }
         guard !busy else { throw QwenFailure.busy }
         let input = request.localInput
@@ -118,6 +118,7 @@ final class QwenAssistant: AssistantClient, LocalRoleClient {
             + (request.localReading == nil ? "" : "\n" + AssistantInstructions.documentReadingText)
             + (request.localLessons.isEmpty ? "" : "\n" + LocalLessonGuidance.text)
             + (request.localConversation.isEmpty ? "" : "\n" + LocalConversationGuidance.text)
+            + (request.localKnowledge == nil ? "" : "\n" + LocalKnowledgeGuidance.text)
         guard !request.prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               input.utf8.count + system.utf8.count <= Self.maximumInputBytes else {
             throw QwenFailure.contextLimit

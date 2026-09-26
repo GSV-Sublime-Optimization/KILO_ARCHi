@@ -18,6 +18,7 @@ struct AssistantRequest: Sendable {
     let localConversation: [AssistantConversationExchange]
     let localControl: HamptonQ2EDecision?
     let localReading: DocumentReadingPlan?
+    let localKnowledge: KnowledgePageContext?
     let revisionTarget: RevisionTarget?
     let companion: LocalQiMon.Character?
     var selection: DocumentSelection? = nil
@@ -31,13 +32,13 @@ struct AssistantRequest: Sendable {
          localLessons: [LessonSnapshot] = [], revisionTarget: RevisionTarget? = nil,
          companion: LocalQiMon.Character? = nil, localConversation: [AssistantConversationExchange] = [],
          localProfile: PersonalContextSnapshot? = nil, localControl: HamptonQ2EDecision? = nil,
-         localReading: DocumentReadingPlan? = nil) {
+         localReading: DocumentReadingPlan? = nil, localKnowledge: KnowledgePageContext? = nil) {
         self.init(prompt: prompt, sourceName: sourceName, sourceText: sourceText,
             sourceRevision: sourceRevision, placementRevision: placementRevision,
             settings: AssistantSettingsSnapshot(tone: tone, replyLength: replyLength, role: role, helpStyle: helpStyle),
             selection: selection, localLessons: localLessons, revisionTarget: revisionTarget, companion: companion,
             localConversation: localConversation, localProfile: localProfile, localControl: localControl,
-            localReading: localReading)
+            localReading: localReading, localKnowledge: localKnowledge)
     }
 
     init(prompt: String, sourceName: String?, sourceText: String, sourceRevision: UInt64,
@@ -45,7 +46,7 @@ struct AssistantRequest: Sendable {
          localLessons: [LessonSnapshot] = [], revisionTarget: RevisionTarget? = nil,
          companion: LocalQiMon.Character? = nil, localConversation: [AssistantConversationExchange] = [],
          localProfile: PersonalContextSnapshot? = nil, localControl: HamptonQ2EDecision? = nil,
-         localReading: DocumentReadingPlan? = nil) {
+         localReading: DocumentReadingPlan? = nil, localKnowledge: KnowledgePageContext? = nil) {
         self.prompt = prompt
         self.sourceName = sourceName
         self.sourceText = sourceText
@@ -58,6 +59,7 @@ struct AssistantRequest: Sendable {
         self.localConversation = localConversation
         self.localControl = localControl
         self.localReading = localReading
+        self.localKnowledge = localKnowledge
         self.revisionTarget = revisionTarget
         self.companion = companion
     }
@@ -69,6 +71,14 @@ struct AssistantRequest: Sendable {
     var hasValidLocalLessons: Bool { NativePreferenceDocument.validateLessonSnapshots(localLessons) }
     var hasValidLocalProfile: Bool { localProfile?.isValid ?? true }
     var hasValidLocalConversation: Bool { AssistantConversation.validate(localConversation) }
+    var hasValidLocalKnowledge: Bool {
+        guard let localKnowledge else { return true }
+        guard localKnowledge.isValid, sourceName == nil, sourceText.isEmpty, selection == nil,
+              revisionTarget == nil, localReading == nil, localControl == nil else { return false }
+        let ids = sourceIDs + (localReading?.sourceIDs ?? [])
+            + AssistantConversation.sourceIDs(for: localConversation) + localKnowledge.sourceIDs
+        return Set(ids).count == ids.count
+    }
     var hasValidLocalControl: Bool {
         if let localReading {
             guard revisionTarget == nil, sourceName != nil,
@@ -94,6 +104,7 @@ struct AssistantRequest: Sendable {
     var localConversationUTF8Bytes: Int { AssistantConversation.utf8ByteCount(for: localConversation) }
     var localSourceIDs: [String] {
         sourceIDs + (localReading?.sourceIDs ?? []) + AssistantConversation.sourceIDs(for: localConversation)
+            + (localKnowledge?.sourceIDs ?? [])
     }
 
     func replacingLocalConversation(_ exchanges: [AssistantConversationExchange]) -> AssistantRequest {
@@ -101,12 +112,13 @@ struct AssistantRequest: Sendable {
             sourceRevision: sourceRevision, placementRevision: placementRevision, settings: settings,
             selection: selection, localLessons: localLessons, revisionTarget: revisionTarget,
             companion: companion, localConversation: exchanges, localProfile: localProfile, localControl: localControl,
-            localReading: localReading)
+            localReading: localReading, localKnowledge: localKnowledge)
     }
 
     /// The common v4 input is unchanged. Local context and the fixed native work
     /// instruction stay on the local route; none of them cross to Codex.
     var localContextInput: String {
+        guard hasValidLocalKnowledge else { return "" }
         guard var value = try? JSONDecoder().decode(JSONValue.self, from: Data(input.utf8)).object else { return input }
         if let conversation = AssistantConversation.modelInput(for: localConversation) { value["localConversation"] = conversation }
         if let localProfile { value["localProfile"] = localProfile.modelInput }
@@ -134,7 +146,11 @@ struct AssistantRequest: Sendable {
                 ]) })
             ])
         }
-        if localProfile == nil && localConversation.isEmpty && workControl == nil && localReading == nil { return input }
+        if let localKnowledge {
+            value["localKnowledge"] = localKnowledge.modelInput
+            value["sources"] = .array(localSourceIDs.map { .object(["id": .string($0), "label": .string($0)]) })
+        }
+        if localProfile == nil && localConversation.isEmpty && workControl == nil && localReading == nil && localKnowledge == nil { return input }
         let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
         return String(decoding: (try? encoder.encode(JSONValue.object(value))) ?? Data(), as: UTF8.self)
     }
@@ -424,7 +440,11 @@ final class CodexAssistant: AssistantClient {
     }
 
     func reply(to request: AssistantRequest, onEvent: @escaping @MainActor (AssistantEvent) -> Void) async throws {
-        guard request.hasValidSelection, request.hasValidRevisionTarget else { throw AssistantFailure.protocolError }
+        // Selected knowledge pages authorize a local-only request, including
+        // its question. A direct client call cannot turn that into cloud fallback.
+        guard request.localKnowledge == nil, request.hasValidSelection, request.hasValidRevisionTarget else {
+            throw AssistantFailure.protocolError
+        }
         guard connected, !busy, activeThread == nil, let directory else { throw AssistantFailure.unavailable }
         busy = true
         let owner = ownership

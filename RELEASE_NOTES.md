@@ -1,8 +1,18 @@
+# Reviewed knowledge in local chat — 26 September 2026
+
+Explicitly selected reviewed pages and their exact source passages now feed local Qwen Chat inside the existing ARCHi app. Page/source versions stay attached to replies, continuation and explicitly kept Chat lessons. Changed dependencies block stale use. Codex/Compare and external fallback cannot send selected-page requests; the existing shared document remains intact and is excluded while page context is selected. Up to four pages and 16 KiB of encoded knowledge material are admitted as a whole. Excess lesson dependencies are visibly omitted rather than overfilling a request.
+
+The existing five-file backup already included the source archive and page history. This update corrects the reading-source size bound to 8 MiB, accounts for base64 expansion, and shows page-version counts. Exact restore, undo and interrupted recovery preserve source/page bytes together.
+
+Eleven focused in-process checks passed, with no live model, paid API, training or puzzle run. The same installed app reopened with Liminal and Local only. Eleven tracked profile slots, 218 Unity resources and eight representation resources were preserved. Native empty-library/retention controls were observed; a populated personal page chat and real-model answer quality were not exercised. [Use and limits](docs/native-knowledge-chat.md).
+
+Page-derived lessons remain explicitly authored Chat lessons. Page-dependent replies receive no document-method or development admission. Automatic synthesis, qualified transfer and full-framework efficacy remain separate work.
+
 # Source-linked knowledge pages — 26 September 2026
 
 Memories now contains authored claims and concepts linked to exact retained passages, with draft/review/withdraw revisions, stale-source invalidation and Activity map backlinks. The existing source library owns both copies and page history; source withdrawal never reconstructs forgotten prose. Navigation, profile changes and Quit protect unfinished drafts.
 
-Eight focused checks pass, with a two-case final navigation recheck. No model, API or puzzle run. [Mechanism, bounds and migration](docs/native-knowledge-pages.md). User review is not factual certification; automatic page synthesis/retrieval and knowledge-page backup inclusion remain unfinished.
+Eight focused checks pass, with a two-case final navigation recheck. No model, API or puzzle run. [Mechanism, bounds and migration](docs/native-knowledge-pages.md). User review is not factual certification; automatic page synthesis/retrieval remains unfinished. Correction: page history already traveled with the reading-source backup entry; the newer delivery below fixes its limits and display.
 
 # Supplied method dependencies and knowledge navigation — 25 September 2026
 

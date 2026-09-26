@@ -75,7 +75,7 @@ struct DesktopRecoveryControls: View {
             Text("\(summary.lessonCount) kept lessons · \(summary.companionName.map { "\($0) retained" } ?? "No saved companion")")
             Text(summary.evolutionPresent ? "Development: \(summary.bodyLabel ?? "saved choices")" : "No saved development in this backup.")
             if summary.includesDocumentWork {
-                Text("\(summary.documentRecordCount) document records · \(summary.procedureCount) method versions · \(summary.readingSourceCount) kept reading copies")
+                Text("\(summary.documentRecordCount) document records · \(summary.procedureCount) method versions · \(summary.readingSourceCount) kept reading copies · \(summary.knowledgePageVersionCount) knowledge page versions")
                 Text("Restoring replaces five saved files: settings, development, document history, methods and reading copies. A file absent from the backup will be removed from this profile. Kept reading copies include private source text.")
                     .foregroundStyle(.secondary).lineSpacing(3)
             } else {
@@ -110,7 +110,7 @@ struct DesktopRecoveryControls: View {
         do {
             let result = try store.createProfileBackup(at: url)
             artifact = url
-            message = "Backup verified · \(result.lessonCount) kept lessons\(result.companionName.map { ", \($0)" } ?? "")\(result.evolutionPresent ? ", saved development" : ""), \(result.documentRecordCount) document records, \(result.procedureCount) method versions and \(result.readingSourceCount) kept reading copies. Your current profile is unchanged."
+            message = "Backup verified · \(result.lessonCount) kept lessons\(result.companionName.map { ", \($0)" } ?? "")\(result.evolutionPresent ? ", saved development" : ""), \(result.documentRecordCount) document records, \(result.procedureCount) method versions and \(result.readingSourceCount) kept reading copies, with \(result.knowledgePageVersionCount) knowledge page versions. Your current profile is unchanged."
         } catch { message = error.localizedDescription }
     }
 

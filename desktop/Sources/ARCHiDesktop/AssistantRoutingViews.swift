@@ -18,6 +18,7 @@ struct AssistantRouteSelector: View {
     }
 
     private var disclosure: String {
+        if !store.selectedKnowledgePages.isEmpty { return "Selected knowledge pages and passages stay with local Qwen. Your shared document is not sent. External routes are blocked until you detach the pages." }
         if store.arcCommandSelected || store.isARCWorking {
             return "ARC uses its native local task capability. Only an explicit Qwen proposal invokes the local model."
         }

@@ -53,6 +53,7 @@ struct LocalRoleRequest: Sendable {
             \(AssistantInstructions.groundingAndAgencyText)
             Answer the question using the supplied current source and the explicitly approved session context when relevant. The current request takes precedence over historical context. If selection is present, focus on that exact passage. Use only supplied sourceIDs and memoryIDs to cite material actually used; return empty arrays for a general answer. These IDs identify sources, not proof that a source is true. Return ANSWER, CLARIFY or ABSTAIN. Ask a concise clarification or state what is unavailable when needed.
             \(LocalLessonGuidance.text)
+            \(LocalKnowledgeGuidance.text)
             \(input["context"]?["localConversation"] == nil ? "" : LocalConversationGuidance.text)
             \(AssistantPreferenceGuidance.text)
             Keep answer under 1200 characters and uncertainty under 320 characters. You cannot see the desktop or a camera; a placement revision is not visual observation. Do not claim external actions or persistent learning. Return the final answer and a short uncertainty statement, never hidden reasoning.

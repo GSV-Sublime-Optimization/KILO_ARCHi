@@ -9,7 +9,11 @@ import Darwin
 enum DesktopProfileBackup {
     enum ProfileKind: String, Codable, Sendable { case review, preview, custom }
     static let journalFilename = ".archi-desktop-profile-restore.json"
-    static let maximumArchiveBytes = 8 * 1024 * 1024
+    // Entries preserve exact bytes as base64. Permit every owner at its bound,
+    // plus bounded entry/digest/date metadata, without truncating a large library.
+    static var maximumArchiveBytes: Int {
+        4_096 + Slot.allCases.reduce(0) { $0 + (($1.limit + 2) / 3) * 4 }
+    }
 
     struct ArchiveSummary: Equatable, Sendable {
         let profile: ProfileKind
@@ -25,6 +29,7 @@ enum DesktopProfileBackup {
         let documentRecordCount: Int
         let procedureCount: Int
         let readingSourceCount: Int
+        let knowledgePageVersionCount: Int
     }
     struct RestorePreview: Sendable {
         let summary: ArchiveSummary
@@ -307,7 +312,8 @@ enum DesktopProfileBackup {
             case .evolution: EvolutionStore.maximumSaveBytes
             case .documentWork: 1_048_576
             case .documentProcedures: 512 * 1_024
-            case .readingSources: 3 * 1_024 * 1_024
+            // Source copies and page history are one ReadingSourceLibrary archive.
+            case .readingSources: 8 * 1_024 * 1_024
             }
         }
         func url(_ preferenceURL: URL) -> URL {
@@ -394,7 +400,8 @@ enum DesktopProfileBackup {
             byteCount: archive.pair.slots.reduce(0) { $0 + archive.pair[$1].byteCount },
             includesDocumentWork: archive.pair.includesDocumentWork,
             documentRecordCount: work.records.count, procedureCount: methods.procedures.count,
-            readingSourceCount: sources.sources.count)
+            readingSourceCount: sources.sources.count,
+            knowledgePageVersionCount: sources.knowledgePages.count)
     }
     private static func replacePairSlot(_ slot: Slot, with entry: Entry, expected: Pair, preferenceURL: URL) throws {
         guard try readPair(preferenceURL, includingWork: expected.includesDocumentWork) == expected else { throw Failure.stalePreview }

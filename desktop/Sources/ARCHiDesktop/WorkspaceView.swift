@@ -285,7 +285,8 @@ private struct AssistantWorkspace: View {
                         AssistantTaskCue(activity: store.assistantActivity, quiet: store.preferences.quiet,
                             reduceMotion: store.preferences.reduceMotion)
                     }
-                    attachmentSummary
+                    if store.selectedKnowledgePages.isEmpty { attachmentSummary }
+                    KnowledgeChatContextView(store: store)
                     VoiceTranscriptPreview(voice: store.voiceInput)
                     AssistantReplyContent(store: store)
                 }
@@ -728,7 +729,7 @@ private struct MemoryWorkspace: View {
             WorkspaceCard {
                 Label("Your choices are the starting point", systemImage: "hand.raised")
                     .font(.system(size: 15, weight: .medium))
-                Text("ARCHi saves the appearance, rhythm and lessons you explicitly keep in its settings file. Kept lessons go only to local Qwen when their scope matches. Temporary session context is separate. Send shares your message, the full shared document copy, and any selected passage with your connected assistant.")
+                Text("ARCHi saves the appearance, rhythm and lessons you explicitly keep in its settings file. Kept lessons go only to local Qwen when their scope matches. Temporary session context is separate. Send uses the context shown in Chat. With selected knowledge pages, only those pages and their passages supply source material to local Qwen; otherwise your shared document and selected passage accompany the message.")
                     .font(.system(size: 13)).foregroundStyle(.secondary).lineSpacing(5).padding(.top, 7)
                 Text("Turning the switch off does not erase saved choices. Forget saved preferences removes saved appearance and rhythm; withdraw lessons individually above.")
                     .font(.system(size: 11)).foregroundStyle(.secondary).padding(.top, 8)

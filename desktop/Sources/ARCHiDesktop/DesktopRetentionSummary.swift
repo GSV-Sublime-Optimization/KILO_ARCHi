@@ -52,8 +52,8 @@ struct DesktopRetentionSummary: View {
                         detail: "Keep procedure saves your authored instruction and review references in a separate local file. Document history retains outcomes and counterexamples, without passage or reply text. New companion backups include both files. Select a method explicitly before sending it through your chosen assistant route.",
                         destination: .context, action: "Review procedures", id: "procedures")
                     Divider()
-                    retentionRow("Reading library", state: "\(store.readingSources.sources.count) kept text copies",
-                        detail: "Keep current copy or Add text file retains explicit local text snapshots. New companion backups include these private source texts. Selections are temporary; originals are not watched or backed up. Replace or Forget invalidates dependent reading context and prevents reuse of linked lessons.",
+                    retentionRow("Reading library", state: "\(store.readingSources.sources.count) text copies · \(store.readingSources.knowledgePages.count) page versions",
+                        detail: "Keep current copy or Add text file retains explicit local text snapshots. Companion backups include these private source texts and all authored claim/concept page versions. Explicitly selected pages can be used in local chat; they do not automatically become facts or lessons. Selections are temporary; originals are not watched or backed up. Replace or Forget invalidates dependent reading context and prevents reuse of linked lessons.",
                         destination: .context, action: "Review reading copies", id: "reading-sources")
                     Divider()
                     retentionRow("ARC evidence", state: "\(store.arcCapabilities.records.count) retained evaluations",

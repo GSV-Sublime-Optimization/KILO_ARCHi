@@ -22,7 +22,7 @@ enum LocalExpertPolicy {
     static func decide(request: AssistantRequest, preference: LocalWorkPreference,
                        measurements: Bool) -> LocalExpertDecision {
         decide(prompt: request.prompt,
-               requiresReasoning: request.revisionTarget != nil || request.localControl != nil || request.localReading != nil
+               requiresReasoning: request.revisionTarget != nil || request.localControl != nil || request.localReading != nil || request.localKnowledge != nil
                    || request.sourceName != nil || !request.sourceText.isEmpty || request.selection != nil,
                preference: preference, measurements: measurements)
     }

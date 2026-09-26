@@ -8,7 +8,7 @@ extension CompanionStore {
         guard !isShuttingDown,
               let lane = compareResults[provider], lane.state == .complete,
               !lane.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              let receipt = lane.receipt, receipt.state == .complete,
+              let receipt = lane.receipt, receipt.state == .complete, receipt.knowledgeDependencies == nil,
               receipt.provider == provider, receipt.requestID == requestID,
               isCurrentReplyContext(receipt) else { return nil }
         if let sourceDigest = receipt.sourceDigest {

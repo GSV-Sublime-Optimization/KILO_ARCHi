@@ -102,6 +102,9 @@ struct KnowledgePagesCard: View {
                 }
                 KnowledgePageEvidence(store: store, anchors: page.anchors)
                 HStack {
+                    Button("Use in local chat") { store.useKnowledgePageInChat(page) }
+                        .disabled(store.readingSources.availability(of: page) != nil)
+                        .accessibilityIdentifier("knowledge.use.\(page.id)")
                     Button("Revise…") { store.beginKnowledgePage(page) }
                         .accessibilityIdentifier("knowledge.revise.\(page.id)")
                     if page.state == .draft {

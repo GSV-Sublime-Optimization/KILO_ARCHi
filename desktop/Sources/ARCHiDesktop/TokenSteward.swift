@@ -258,6 +258,10 @@ final class TokenStewardStore: ObservableObject {
             guard lane.state == "pending", lane.dispatched else {
                 throw TokenStewardError.conflict("document reading result outside the pending Qwen dispatch")
             }
+            guard Set((trace.conversationRequestIDs ?? []).compactMap(UUID.init(uuidString:)))
+                .isDisjoint(with: HamptonMemoryDependencies.invalidatedReadings(tasks: state.tasks)) else {
+                throw TokenStewardError.conflict("a parent answer was corrected during this reading")
+            }
             state.tasks[index].documentReadingResult = result
         }
     }
@@ -783,6 +787,11 @@ final class TokenStewardStore: ObservableObject {
 
     private static func requireCurrentReadingEvidence(_ trace: DocumentReadingTrace,
         tasks: [TokenStewardTask], excludingRequestID: String) throws {
+        guard HamptonMemoryDependencies.validParents(trace, before: excludingRequestID, tasks: tasks),
+              Set((trace.conversationRequestIDs ?? []).compactMap(UUID.init(uuidString:)))
+                .isDisjoint(with: HamptonMemoryDependencies.invalidatedReadings(tasks: tasks)) else {
+            throw TokenStewardError.conflict("reading context was corrected; start a fresh answer")
+        }
         guard trace.control.version == HamptonQ2EController.readingNumericalVersion else { return }
         let current = HamptonReadingOutcomeAdapter.project(tasks: tasks, sourceDigest: trace.sourceDigest,
             excludingRequestID: excludingRequestID)
@@ -990,7 +999,8 @@ final class TokenStewardStore: ObservableObject {
             default: throw TokenStewardError.invalid("task route")
             }
             if let trace = task.documentReading {
-                guard trace.isValid, permitsDocumentReading(task) else {
+                guard trace.isValid, permitsDocumentReading(task),
+                      HamptonMemoryDependencies.validParents(trace, before: task.id, tasks: state.tasks) else {
                     throw TokenStewardError.invalid("saved document reading trace or route")
                 }
             }

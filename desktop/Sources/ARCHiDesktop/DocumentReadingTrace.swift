@@ -29,16 +29,23 @@ struct DocumentReadingTrace: Codable, Equatable, Sendable {
     let sectionIDs: [String]
     let control: HamptonQ2EDecision
     let references: [ReadingSourceBinding]?
+    /// Prior generated reading requests supplied as context; never source text.
+    let conversationRequestIDs: [String]?
 
     init(sourceDigest: String, questionDigest: String, planDigest: String, sectionIDs: [String],
-         control: HamptonQ2EDecision, references: [ReadingSourceBinding]? = nil) {
+         control: HamptonQ2EDecision, references: [ReadingSourceBinding]? = nil,
+         conversationRequestIDs: [String]? = nil) {
         self.sourceDigest = sourceDigest; self.questionDigest = questionDigest
         self.planDigest = planDigest; self.sectionIDs = sectionIDs; self.control = control
         self.references = references
+        self.conversationRequestIDs = conversationRequestIDs
     }
 
     var isValid: Bool {
-        (references?.count ?? 0) <= 4 && ReadingSourceBinding.valid(references) && Self.isDigest(sourceDigest) && Self.isDigest(questionDigest) && Self.isDigest(planDigest)
+        (conversationRequestIDs.map { ids in
+            (1...128).contains(ids.count) && ids.allSatisfy { UUID(uuidString: $0) != nil }
+                && Set(ids.compactMap(UUID.init(uuidString:))).count == ids.count
+        } ?? true) && (references?.count ?? 0) <= 4 && ReadingSourceBinding.valid(references) && Self.isDigest(sourceDigest) && Self.isDigest(questionDigest) && Self.isDigest(planDigest)
             && (1...6).contains(sectionIDs.count)
             && Set(sectionIDs).count == sectionIDs.count
             && sectionIDs.allSatisfy(Self.isSectionID)

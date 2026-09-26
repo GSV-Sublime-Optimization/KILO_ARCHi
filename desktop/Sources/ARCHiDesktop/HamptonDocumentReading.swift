@@ -82,8 +82,9 @@ extension CompanionStore {
         guard canReviewReading(receipt) else { return }
         do {
             try tokenSteward.recordDocumentReadingFeedback(requestID: receipt.requestID, useful: useful)
+            if !useful { invalidateCorrectedReadingContinuation() }
             documentReadingPreview = nil
-            documentReadingMessage = useful ? "Helpful reading recorded for this source." : "Correction recorded. The next reading will reconsider its passage choices."
+            documentReadingMessage = useful ? "Helpful reading recorded for this source." : "Correction recorded. Earlier generated answers were removed from follow-up context. The next reading will reconsider its passage choices."
         } catch { documentReadingMessage = error.localizedDescription }
     }
 }

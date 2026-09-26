@@ -133,6 +133,8 @@ enum HamptonReadingOutcomeAdapter {
                 guard prior == task else { return result([], "conflicting-task") }
             } else { unique[task.id] = task }
         }
+        let dependencyWithdrawals = HamptonMemoryDependencies.invalidatedReadings(tasks: tasks)
+            .subtracting(HamptonMemoryDependencies.correctedReadings(tasks: tasks))
         var candidates: [HamptonReadingOutcomeBinding] = []
         var reviews: Set<String> = []
         // Reconcile the whole matching source before taking eight. A corrupted
@@ -145,6 +147,8 @@ enum HamptonReadingOutcomeAdapter {
             guard task.documentReadingResult?.kind == "ANSWER",
                   task.lanes.contains(where: { $0.provider == AssistantProvider.qwen.name && $0.dispatched && $0.state == "complete" }) else { continue }
             guard let binding = HamptonReadingOutcomeBinding(task: task) else { return result([], "invalid-task") }
+            // Withdraw dependent support; do not invent a new negative review.
+            if let id = UUID(uuidString: task.id), dependencyWithdrawals.contains(id) { continue }
             candidates.append(binding)
         }
         let projected = result(Array(candidates.sorted(by: newestFirst).prefix(8)))

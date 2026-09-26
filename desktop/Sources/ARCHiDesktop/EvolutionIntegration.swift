@@ -20,7 +20,12 @@ extension CompanionStore {
             // Also reject direct source mutation that bypassed the context owner.
             guard provider == .qwen, sourceName == nil, sharedText.isEmpty else { return nil }
         }
-        guard EvolutionRequestBinding(receipt: receipt).isValid else { return nil }
+        // Reload the actual feedback owner at the use boundary. Historical
+        // positive activity cannot outrank a later persisted reading correction.
+        do { try tokenSteward.refresh() } catch { return nil }
+        guard let id = UUID(uuidString: requestID),
+              !HamptonMemoryDependencies.withdrawnDevelopmentReadings(tasks: tokenSteward.tasks).contains(id),
+              EvolutionRequestBinding(receipt: receipt).isValid else { return nil }
         return receipt
     }
 

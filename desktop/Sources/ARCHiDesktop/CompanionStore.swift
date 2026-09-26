@@ -220,6 +220,7 @@ final class CompanionStore: ObservableObject {
     @Published private(set) var localConversation = AssistantConversation()
     @Published private(set) var localConversationEnabled = true
     @Published private(set) var localConversationNotice = "Recent Qwen exchanges stay in this visit only."
+    private var localConversationRequestIDs = Set<UUID>()
     private var localConversationExpiry: Date?
     private var localConversationReadingSources: [ReadingSourceBinding]?
     private var localContextTaskScope: HamptonTaskScope?
@@ -562,12 +563,26 @@ final class CompanionStore: ObservableObject {
         if !isWorking { status = localConversationNotice }
     }
 
+    /// A reading correction retires generated continuation, not exact source
+    /// spans or explicitly kept lessons. Preserve the visible answer for review.
+    func invalidateCorrectedReadingContinuation() {
+        clearLocalConversation()
+        localConversationNotice = "The corrected answer was removed from follow-up context. Your shared copy and kept lessons are unchanged."
+    }
+
+    private func readingContinuationIsCurrent(_ parents: Set<UUID>) -> Bool {
+        guard !parents.isEmpty else { return true }
+        do { try tokenSteward.refresh() } catch { return false }
+        return parents.isDisjoint(with: HamptonMemoryDependencies.invalidatedReadings(tasks: tokenSteward.tasks))
+    }
+
     private func clearLocalConversation() {
         // Document detachment can retire an already-empty selection during a
         // native view update. Do not publish a change when nothing changed.
         if !localConversation.exchanges.isEmpty { localConversation.clear() }
         if localConversationExpiry != nil { localConversationExpiry = nil }
         localConversationReadingSources = nil
+        localConversationRequestIDs.removeAll()
         localContextTaskScope = nil
         let notice = "Recent Qwen exchanges stay in this visit only."
         if localConversationNotice != notice { localConversationNotice = notice }
@@ -1882,6 +1897,16 @@ final class CompanionStore: ObservableObject {
             status = "Finish or cancel voice input before sending. Your draft is unchanged."
             return false
         }
+        if !localConversationRequestIDs.isEmpty {
+            do { try tokenSteward.refresh() } catch {
+                status = "Reading history is unavailable. Nothing was sent."
+                return false
+            }
+        }
+        if localConversationRequestIDs.count >= 128 {
+            clearLocalConversation()
+            localConversationNotice = "Started fresh context after a long conversation; kept lessons remain available."
+        }
         if !readingDependenciesAreCurrent(localConversationReadingSources) {
             clearSessionContext()
             localConversationNotice = "A supporting reading source changed. Temporary context was cleared."
@@ -2046,6 +2071,7 @@ final class CompanionStore: ObservableObject {
             if !result.contains(item) { result.append(item) }
         }.sorted { $0.id < $1.id }
         let capturedReadingDependencies: [ReadingSourceBinding]? = uniqueDependencies.isEmpty ? nil : uniqueDependencies
+        let conversationParents = request.localConversation.isEmpty ? Set<UUID>() : localConversationRequestIDs
         let owner = UUID(), epoch = connectionGenerations[provider, default: 0]
         let seconds = provider == .qwen ? 180 : 90
         let deadline = Date().addingTimeInterval(Double(seconds))
@@ -2079,6 +2105,7 @@ final class CompanionStore: ObservableObject {
                 guard let self, let local else { return false }
                 return self.isCurrentLane(provider, owner: owner, epoch: epoch, client: local, ticket: ticket)
                     && self.readingDependenciesAreCurrent(capturedReadingDependencies)
+                    && self.readingContinuationIsCurrent(conversationParents)
             }
             local.onSnapshot = { [weak self, weak local] snapshot in
                 guard let self, let local,
@@ -2136,7 +2163,8 @@ final class CompanionStore: ObservableObject {
                     self.connectionMessages[provider] = "\(provider.name) connected for this request."
                     self.refreshRouteConnection()
                 }
-                guard self.readingDependenciesAreCurrent(capturedReadingDependencies) else { throw QwenFailure.invalidResponse }
+                guard self.readingDependenciesAreCurrent(capturedReadingDependencies),
+                      self.readingContinuationIsCurrent(conversationParents) else { throw QwenFailure.invalidResponse }
                 if let target = request.revisionTarget {
                     try self.beginDocumentWork(requestID: requestID, provider: provider, target: target,
                                                control: request.localControl)
@@ -2147,12 +2175,14 @@ final class CompanionStore: ObservableObject {
                         trace: DocumentReadingTrace(sourceDigest: reading.sourceDigest,
                             questionDigest: reading.questionDigest, planDigest: reading.digest,
                             sectionIDs: reading.sourceIDs, control: control,
-                            references: reading.references.isEmpty ? nil : reading.references.map(\.binding)))
+                            references: reading.references.isEmpty ? nil : reading.references.map(\.binding),
+                            conversationRequestIDs: conversationParents.isEmpty ? nil : conversationParents.map(\.uuidString).sorted()))
                 }
                 if let reading = request.localReading {
                     guard self.readingReferencesAreCurrent(reading.references) else { throw QwenFailure.invalidResponse }
                 }
                 try self.tokenSteward.recordDispatch(requestID: requestID, provider: provider)
+                guard self.readingContinuationIsCurrent(conversationParents) else { throw QwenFailure.invalidResponse }
                 self.compareResults[provider]?.receipt?.requestStarted = true
                 try await assistant.reply(to: request) { [weak self] event in
                     guard let self, self.isCurrentLane(provider, owner: owner, epoch: epoch, client: assistant, ticket: ticket) else { return }
@@ -2178,6 +2208,7 @@ final class CompanionStore: ObservableObject {
                     }
                 }
                 guard self.isCurrentLane(provider, owner: owner, epoch: epoch, client: assistant, ticket: ticket), !Task.isCancelled else { return }
+                guard self.readingContinuationIsCurrent(conversationParents) else { throw QwenFailure.invalidResponse }
                 guard self.readingDependenciesAreCurrent(capturedReadingDependencies) else {
                     self.clearSessionContext()
                     throw QwenFailure.invalidResponse
@@ -2213,6 +2244,11 @@ final class CompanionStore: ObservableObject {
                         self.localConversationNotice = "A supplied lesson expired during this reply. This answer was not retained for follow-up."
                     } else {
                         self.localConversationNotice = self.localConversation.retain(question: request.prompt, answer: answer).status
+                        if !self.localConversation.exchanges.isEmpty,
+                           self.compareResults[provider]?.receipt?.readingResult?.kind == "ANSWER",
+                           let id = UUID(uuidString: requestID) {
+                            self.localConversationRequestIDs = conversationParents.union([id])
+                        } else { self.localConversationRequestIDs = conversationParents }
                         self.localConversationExpiry = self.localConversation.exchanges.isEmpty ? nil : conversationExpiry
                         self.localConversationReadingSources = self.localConversation.exchanges.isEmpty ? nil : capturedReadingDependencies
                     }
@@ -3309,6 +3345,17 @@ extension CompanionStore {
 
     private func bindDocumentDataOwners() {
         documentDataSubscriptions.removeAll()
+        // Token Steward installs its immutable journal before publishing revision.
+        // Read that owner's fresh task projection, not a duplicate feedback store.
+        self.tokenSteward.$revision.sink { [weak self] _ in
+            guard let self else { return }
+            let excluded = HamptonMemoryDependencies.invalidatedReadings(tasks: self.tokenSteward.tasks)
+            self.evolution.setReadingFeedbackExclusions(
+                HamptonMemoryDependencies.withdrawnDevelopmentReadings(tasks: self.tokenSteward.tasks))
+            if !self.localConversationRequestIDs.isDisjoint(with: excluded) {
+                self.invalidateCorrectedReadingContinuation()
+            }
+        }.store(in: &documentDataSubscriptions)
         self.documentWork.$records.sink { [weak self] records in
             self?.evolution.setDocumentFeedbackExclusions(Set(records.compactMap { record in
                 guard let feedback = record.feedback, feedback.verdict != .helpful else { return nil }

@@ -1,3 +1,9 @@
+## Shared memory correction — 25 September 2026
+
+Specific reading corrections now invalidate generated follow-up context and descendant evidence through native task provenance. The existing reading strategy and development owners consume the withdrawals, including changes from another journal writer and reloading an older development save. Helpful reversal cannot resurrect withdrawn development credit; a fresh answer and explicit review are required. Kept lessons, source spans and chosen companion bodies retain their existing ownership.
+
+Six focused native fixture cases pass. The actual app was built and installed with no new model, API or puzzle run. This implements the supplied Stack R2 correction path for one ordinary document workflow, not a universal memory graph or qualified latent quotient model. See `docs/native-memory-correction.md`.
+
 # Development source update after v0.7.0-alpha.1
 
 14 September 2026 · source package version remains **0.7.0** · no new release tag is assigned by this preparation.

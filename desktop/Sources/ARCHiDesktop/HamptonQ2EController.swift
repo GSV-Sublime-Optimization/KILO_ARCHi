@@ -126,6 +126,9 @@ struct HamptonQ2EDecision: Codable, Equatable, Sendable {
     /// recursive copies of earlier controller decisions or source text.
     var readingEvidence: HamptonReadingOutcomeEvidence? = nil
     var readingNumericalControl: HamptonReadingNumericalControl.Receipt? = nil
+    /// V5 binds task-local environment evidence to numerical approach choices.
+    var arc3Evidence: HamptonARC3OutcomeEvidence? = nil
+    var arc3NumericalControl: HamptonARC3NumericalControl.Receipt? = nil
 
     var isValid: Bool {
         guard HamptonQ2EController.supportedVersions.contains(version), signals.isValid,
@@ -150,14 +153,23 @@ struct HamptonQ2EDecision: Codable, Equatable, Sendable {
                   let evidence = readingEvidence, evidence.sourceDigest == contextID,
                   evidence.matches(signals), readingNumericalControl != nil else { return false }
         } else if readingEvidence != nil || readingNumericalControl != nil { return false }
+        let usesARC3Numerics = version == HamptonQ2EController.arc3NumericalVersion
+        if usesARC3Numerics {
+            guard domain == "arc3", outcomeEvidence == nil, readingEvidence == nil,
+                  let evidence = arc3Evidence, evidence.contextID == contextID,
+                  evidence.reconciliationIssue == nil, evidence.matches(signals),
+                  arc3NumericalControl != nil else { return false }
+        } else if arc3Evidence != nil || arc3NumericalControl != nil { return false }
         let expected = HamptonQ2EController.decide(domain: domain, contextID: contextID, signals: signals,
             outcomeEvidence: usesNumerics ? outcomeEvidence : nil,
             readingEvidence: usesReadingNumerics ? readingEvidence : nil,
-            useNumericalControl: usesNumerics || usesReadingNumerics)
+            arc3Evidence: usesARC3Numerics ? arc3Evidence : nil,
+            useNumericalControl: usesNumerics || usesReadingNumerics || usesARC3Numerics)
         guard pressures == expected.pressures && laneWeights == expected.laneWeights,
               lane == expected.lane && reason == expected.reason,
               numericalControl == expected.numericalControl,
-              readingNumericalControl == expected.readingNumericalControl else { return false }
+              readingNumericalControl == expected.readingNumericalControl,
+              arc3NumericalControl == expected.arc3NumericalControl else { return false }
         if version == HamptonQ2EController.legacyVersion {
             // The old format never recorded a predecessor. Preserve its former
             // read contract; do not claim reconstructed delta lineage for it.
@@ -190,7 +202,8 @@ enum HamptonQ2EController {
     static let legacyVersion = "hampton-native-qstate-control/v1"
     static let numericalVersion = "hampton-native-qstate-control/v3"
     static let readingNumericalVersion = "hampton-native-qstate-control/v4"
-    static let supportedVersions = [legacyVersion, version, numericalVersion, readingNumericalVersion]
+    static let arc3NumericalVersion = "hampton-native-qstate-control/v5"
+    static let supportedVersions = [legacyVersion, version, numericalVersion, readingNumericalVersion, arc3NumericalVersion]
 
     /// Q(t+1) is recomputed from the current admitted observations. Delta is
     /// retained for explanation; stale feedback is not compounded or counted
@@ -200,6 +213,7 @@ enum HamptonQ2EController {
                        previous: HamptonQ2EDecision? = nil,
                        outcomeEvidence: HamptonQ2EOutcomeEvidence? = nil,
                        readingEvidence: HamptonReadingOutcomeEvidence? = nil,
+                       arc3Evidence: HamptonARC3OutcomeEvidence? = nil,
                        useNumericalControl: Bool = true) -> HamptonQ2EDecision {
         let compatible = previous.flatMap {
             $0.isValid && $0.domain == domain && $0.contextID == contextID ? $0 : nil
@@ -233,13 +247,17 @@ enum HamptonQ2EController {
         let readingNumerical = requiresReadingNumerics ? readingEvidence.flatMap {
             $0.sourceDigest == contextID && $0.matches(signals) ? HamptonReadingNumericalControl.replay(evidence: $0) : nil
         } : nil
-        if let adjustments = numerical?.laneAdjustments ?? readingNumerical?.laneAdjustments {
-            // One critic per outcome. v3 replaces the old strategy multiplier,
+        let requiresARC3Numerics = useNumericalControl && domain == "arc3" && arc3Evidence != nil
+        let arc3Numerical = requiresARC3Numerics ? arc3Evidence.flatMap {
+            $0.contextID == contextID && $0.matches(signals) ? HamptonARC3NumericalControl.replay(evidence: $0) : nil
+        } : nil
+        if let adjustments = numerical?.laneAdjustments ?? readingNumerical?.laneAdjustments ?? arc3Numerical?.laneAdjustments {
+            // One critic per outcome. Numerical domain versions replace the old strategy multiplier,
             // retaining aggregate pressures and all prerequisite/action checks.
             for (lane, adjustment) in adjustments {
                 weights[lane] = clip(weights[lane, default: 0] + adjustment)
             }
-        } else if !requiresNumerics && !requiresReadingNumerics {
+        } else if !requiresNumerics && !requiresReadingNumerics && !requiresARC3Numerics {
             for (lane, result) in signals.strategyResults where result.isValid {
                 if result.helpful > 0 || result.corrections > 0 {
                     weights[lane] = clip(weights[lane, default: 0] * (0.5 + result.mean))
@@ -249,7 +267,8 @@ enum HamptonQ2EController {
         let lane: HamptonQ2ELane
         let reason: String
         if !signals.isValid || domain.isEmpty || contextID.isEmpty || !signals.prerequisitesSatisfied
-            || (requiresNumerics && numerical == nil) || (requiresReadingNumerics && readingNumerical == nil) {
+            || (requiresNumerics && numerical == nil) || (requiresReadingNumerics && readingNumerical == nil)
+            || (requiresARC3Numerics && arc3Numerical == nil) {
             lane = .stop; reason = "The current inputs or prerequisites need review before another action."
         } else if signals.remainingBudget == 0 {
             lane = .stop; reason = "The authorized action budget is exhausted."
@@ -268,14 +287,16 @@ enum HamptonQ2EController {
         let revision = compatible.map { min(10_000, max(0, $0.revision)) + 1 } ?? 1
         let delta = q.mapValues { $0 }
             .map { (key: $0.key, value: $0.value - (compatible?.pressures[$0.key] ?? 0)) }
-        let outputVersion = requiresReadingNumerics ? readingNumericalVersion : (requiresNumerics ? numericalVersion : version)
+        let outputVersion = requiresARC3Numerics ? arc3NumericalVersion
+            : (requiresReadingNumerics ? readingNumericalVersion : (requiresNumerics ? numericalVersion : version))
         return HamptonQ2EDecision(version: outputVersion, domain: domain, contextID: contextID,
             revision: revision, signals: signals, pressures: q,
             delta: Dictionary(uniqueKeysWithValues: delta.map { ($0.key, $0.value) }),
             laneWeights: weights, lane: lane, reason: reason,
             coordinateSchema: HamptonQ2ECoordinateSchema.id,
             predecessor: compatible.map(HamptonQ2EPredecessor.init), outcomeEvidence: outcomeEvidence,
-            numericalControl: numerical, readingEvidence: readingEvidence, readingNumericalControl: readingNumerical)
+            numericalControl: numerical, readingEvidence: readingEvidence, readingNumericalControl: readingNumerical,
+            arc3Evidence: arc3Evidence, arc3NumericalControl: arc3Numerical)
     }
 }
 

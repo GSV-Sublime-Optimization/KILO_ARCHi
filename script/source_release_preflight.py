@@ -48,6 +48,7 @@ EXACT = RELEASE_FILES | ARC_REPLAY_FILES | {
     "docs/unity-arena-and-creator-marketplace-2026-09-16.md",
     "docs/native-numerical-adaptation.md",
     "docs/native-numerical-reading.md",
+    "docs/native-numerical-arc3.md",
 }
 SCOPES = {
     "desktop/Sources/ARCHiDesktop": {".swift"},

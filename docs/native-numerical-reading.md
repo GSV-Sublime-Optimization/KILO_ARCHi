@@ -74,7 +74,7 @@ Source-copy freshness and request ownership are checked separately. A kept sourc
 | `hampton-reading-numerical-control/v1` | Reading update configuration and replay rule |
 | `hampton-reading-approach-usefulness/v1` | Ordered reading usefulness coordinates |
 
-Existing v1/v2 decisions and v3 document-revision decisions retain their historical read and recomputation behavior; old records are not rewritten or awarded missing feedback. ARC3 and other domains retain their own policies.
+Existing v1/v2 decisions and v3 document-revision decisions retain their historical read and recomputation behavior; old records are not rewritten or awarded missing feedback. ARC3 has its separately scoped [v5 numerical adapter](native-numerical-arc3.md); other domains retain their own policies.
 
 ## Research placement and remaining work
 

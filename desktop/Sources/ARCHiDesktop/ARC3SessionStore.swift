@@ -196,8 +196,9 @@ final class ARC3SessionStore: ObservableObject {
             do {
                 for index in 0..<maxActions {
                     guard self.ownerID == id, !Task.isCancelled, let current = self.observation else { return }
+                    let previousPlan = self.latestPlan
                     let decision = ARC3Planner.plan(current: current, transitions: self.transitions,
-                        previous: self.latestPlan, remainingBatch: maxActions - index, attempts: self.attempts)
+                        previous: previousPlan, remainingBatch: maxActions - index, attempts: self.attempts)
                     self.latestPlan = decision
                     guard let choice = decision.action else {
                         // A planning pause keeps the episode open for explicit
@@ -209,7 +210,7 @@ final class ARC3SessionStore: ObservableObject {
                     }
                     self.status = "\(choice.title) · \(decision.reason)"
                     try await self.perform(action: choice.action, x: choice.x, y: choice.y,
-                        id: id, client: client, decision: decision)
+                        id: id, client: client, decision: decision, previousPlan: previousPlan)
                 }
                 guard self.ownerID == id else { return }
                 self.isWorking = false; self.operation = nil
@@ -244,7 +245,7 @@ final class ARC3SessionStore: ObservableObject {
     }
 
     private func perform(action: Int, x: Int?, y: Int?, id: UUID, client: any ARC3Transport,
-                         decision: ARC3PlanDecision? = nil) async throws {
+                         decision: ARC3PlanDecision? = nil, previousPlan: ARC3PlanDecision? = nil) async throws {
         guard ownerID == id, !Task.isCancelled, let before = observation else { throw ARC3RuntimeError.stopped }
         try validateAction(action, x: x, y: y, current: before)
         if let decision {
@@ -253,14 +254,18 @@ final class ARC3SessionStore: ObservableObject {
                   decision.controller.lane != .stop, decision.gameID == before.gameID,
                   decision.level == before.levelsCompleted, decision.baseFrameDigest == before.frameDigest,
                   decision.baseDispatches == before.dispatches,
-                  decision.action == ARC3PlannedAction(action: action, x: x, y: y) else {
+                  decision.action == ARC3PlannedAction(action: action, x: x, y: y),
+                  ARC3Planner.matchesCurrent(decision, current: before, transitions: transitions,
+                    attempts: attempts, previous: previousPlan) else {
                 throw ARC3RuntimeError.invalid("The ARC3 plan no longer matches this observation or action.")
             }
         }
         // Freeze the expectation and source observation before dispatch. This
         // remains in the episode even if no trustworthy response ever arrives.
         let key = predictionKey(before, action: action, x: x, y: y)
-        let predicted = decision?.expectedDigest ?? predictions[key]
+        // A v5 plan owns its complete expectation, including an explicit absence.
+        // Do not silently substitute a cached prediction after plan validation.
+        let predicted = decision.map { $0.expectedDigest } ?? predictions[key]
         let request = ARC3Request(command: "step", action: action, x: x, y: y)
         attempts.append(ARC3ActionAttempt(id: request.id, proposedAt: Date(), baseFrameDigest: before.frameDigest,
             baseDispatches: before.dispatches, action: action, x: x, y: y, predictedDigest: predicted,

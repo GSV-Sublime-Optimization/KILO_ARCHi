@@ -148,8 +148,12 @@ final class HamptonNumericalReadingControlTests: XCTestCase {
         XCTAssertTrue(request(plan: correctedPlan, control: corrected).hasValidLocalControl)
         XCTAssertFalse(request(plan: supportedPlan, control: corrected).hasValidLocalControl,
             "Exact source spans can still be stale relative to the current reading policy.")
-        XCTAssertEqual(request(plan: supportedPlan, control: supported).codexInput,
-                       request(plan: correctedPlan, control: corrected).codexInput)
+        // JSON object key order is not part of the external-provider contract.
+        let originalInput = try JSONSerialization.jsonObject(with: Data(
+            request(plan: supportedPlan, control: supported).codexInput.utf8)) as? NSDictionary
+        let correctedInput = try JSONSerialization.jsonObject(with: Data(
+            request(plan: correctedPlan, control: corrected).codexInput.utf8)) as? NSDictionary
+        XCTAssertEqual(try XCTUnwrap(originalInput), try XCTUnwrap(correctedInput))
     }
 
     func testNumericalPreferencesDoNotBypassPrerequisitesOrRequiredRepair() throws {

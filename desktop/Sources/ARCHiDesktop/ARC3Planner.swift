@@ -24,6 +24,9 @@ struct ARC3PlanDecision: Codable, Equatable, Sendable {
     let reason: String
     let action: ARC3PlannedAction?
     let expectedDigest: String?
+    /// Captured batch allowance enables an exact owner replan before dispatch.
+    /// Missing on historical plans; no old episode is rewritten.
+    var remainingBatch: Int? = nil
 }
 
 /// Bounded planning over validated public observations only. Visible color
@@ -37,6 +40,7 @@ enum ARC3Planner {
     static func plan(current: ARC3Observation, transitions: [ARC3Transition],
                      previous: ARC3PlanDecision? = nil, remainingBatch: Int = 8,
                      attempts: [ARC3ActionAttempt] = []) -> ARC3PlanDecision {
+        let evidence = HamptonARC3OutcomeAdapter.project(current: current, transitions: transitions, attempts: attempts)
         let history = currentLevelHistory(current, transitions: transitions)
         let episode = Array(transitions.suffix(maximumHistory))
         let sinceReset = episode.dropFirst(episode.lastIndex(where: { $0.action == 0 }).map { $0 + 1 } ?? 0)
@@ -62,28 +66,29 @@ enum ARC3Planner {
             depthLimit: min(maximumRouteDepth, max(0, min(remainingBatch, current.remainingActions) - 1)))
         let unchanged = stalledSteps(history)
         let alternatives = novel.count + (route == nil ? 0 : 1)
-        let signals = HamptonQ2ESignals(observations: history.count + 1,
-            retainedSupport: history.filter { !$0.invalidated && $0.verdict == .supported && $0.beforeDigest != $0.afterDigest }.count,
-            contradictions: history.filter { $0.verdict == .refuted }.count,
-            unchangedSteps: unchanged, availableAlternatives: alternatives,
-            remainingBudget: current.remainingActions, totalBudget: current.budget,
-            prerequisitesSatisfied: !current.isTerminal && remainingBatch > 0,
-            strategyResults: strategyResults(history: sinceReset, attempts: attempts))
+        let signals = HamptonQ2ESignals(observations: evidence.observations,
+            retainedSupport: evidence.retainedSupport, contradictions: evidence.contradictions,
+            unchangedSteps: evidence.unchangedSteps, availableAlternatives: alternatives,
+            remainingBudget: evidence.remainingBudget, totalBudget: evidence.totalBudget,
+            prerequisitesSatisfied: evidence.isValid && evidence.reconciliationIssue == nil
+                && !current.isTerminal && (1...8).contains(remainingBatch),
+            strategyResults: evidence.strategyResults)
         let compatible = previous.flatMap {
             $0.gameID == current.gameID && $0.level == current.levelsCompleted &&
                 $0.baseDispatches >= (history.first?.before.dispatches ?? current.dispatches) &&
                 $0.baseDispatches <= current.dispatches ? $0.controller : nil
         }
         let control = HamptonQ2EController.decide(domain: "arc3", contextID: "\(current.gameID)|level:\(current.levelsCompleted)",
-            signals: signals, previous: compatible)
+            signals: signals, previous: compatible, arc3Evidence: evidence)
         func decision(_ action: ARC3PlannedAction?, strategy: String, reason: String,
                       expected: String? = nil) -> ARC3PlanDecision {
             ARC3PlanDecision(gameID: current.gameID, level: current.levelsCompleted,
                 baseFrameDigest: current.frameDigest, baseDispatches: current.dispatches, controller: control,
                 goal: "Discover a new transition and seek environment-reported level progress.",
-                strategy: strategy, reason: control.reason + " " + reason, action: action, expectedDigest: expected)
+                strategy: strategy, reason: control.reason + " " + reason, action: action, expectedDigest: expected,
+                remainingBatch: remainingBatch)
         }
-        guard control.lane != .stop, unchanged < 8 else {
+        guard control.isValid, control.lane != .stop, unchanged < 8 else {
             return decision(nil, strategy: "paused", reason: "No action dispatched. Manual review or an explicit reset can establish a new starting point.")
         }
         // Retain reuses a concrete observed route; expand/repair first try an
@@ -109,6 +114,17 @@ enum ARC3Planner {
                     : "Try a legal action not yet observed at this frame. Visible change alone will not count as level progress.")
         }
         return decision(nil, strategy: "paused", reason: "No untried candidate or bounded observed route remains. Known no-ops, contradictions and repeated cycles are excluded.")
+    }
+
+    /// Exact native comparison, including evidence, candidates and allowance.
+    /// This is called before transport and creates no observations or actions.
+    static func matchesCurrent(_ decision: ARC3PlanDecision, current: ARC3Observation,
+                               transitions: [ARC3Transition], attempts: [ARC3ActionAttempt],
+                               previous: ARC3PlanDecision? = nil) -> Bool {
+        guard decision.controller.isValid, decision.controller.version == HamptonQ2EController.arc3NumericalVersion,
+              let remaining = decision.remainingBatch, (1...8).contains(remaining) else { return false }
+        return decision == plan(current: current, transitions: transitions, previous: previous,
+            remainingBatch: remaining, attempts: attempts)
     }
 
     private static func currentLevelHistory(_ current: ARC3Observation, transitions: [ARC3Transition]) -> [ARC3Transition] {
@@ -158,33 +174,6 @@ enum ARC3Planner {
             if transition.beforeDigest == transition.afterDigest { return value - 2 }
             return value + (transition.verdict == .supported ? 4 : 1)
         }
-    }
-
-    private static func strategyResults(history: [ARC3Transition], attempts: [ARC3ActionAttempt]) -> [String: HamptonQ2EStrategyEvidence] {
-        var counts: [String: (helpful: Int, corrections: Int)] = [:]
-        var counted = Set<String>()
-        for attempt in attempts.suffix(64) {
-            guard counted.insert(attempt.id).inserted, attempt.state == "observed", let proposal = attempt.decision,
-                  proposal.controller.isValid, proposal.controller.domain == "arc3",
-                  proposal.controller.contextID == "\(proposal.gameID)|level:\(proposal.level)",
-                  proposal.controller.lane != .stop,
-                  let transition = history.first(where: {
-                      $0.before.dispatches == attempt.baseDispatches && $0.beforeDigest == attempt.baseFrameDigest &&
-                      $0.afterDigest == attempt.actualDigest && $0.predictedDigest == attempt.predictedDigest &&
-                      $0.action == attempt.action && $0.x == attempt.x && $0.y == attempt.y &&
-                      $0.before.gameID == proposal.gameID && $0.before.levelsCompleted == proposal.level &&
-                      proposal.baseFrameDigest == $0.beforeDigest && proposal.baseDispatches == $0.before.dispatches &&
-                      proposal.action == choice($0)
-                  }) else { continue }
-            let helpful = transition.after.levelsCompleted > transition.before.levelsCompleted || transition.after.state == "WIN"
-            let correction = transition.verdict == .refuted || transition.after.state == "GAME_OVER"
-            guard helpful || correction else { continue }
-            let lane = proposal.controller.lane.rawValue
-            var value = counts[lane] ?? (helpful: 0, corrections: 0)
-            if correction { value.corrections += 1 } else { value.helpful += 1 }
-            counts[lane] = value
-        }
-        return counts.mapValues { HamptonQ2EStrategyEvidence(helpful: $0.helpful, corrections: $0.corrections) }
     }
 
     private static func stalledSteps(_ history: [ARC3Transition]) -> Int {

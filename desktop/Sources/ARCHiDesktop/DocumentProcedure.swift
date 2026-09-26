@@ -115,8 +115,13 @@ final class DocumentProcedureLibrary: ObservableObject {
         let procedures: [DocumentProcedure]
     }
 
-    init(url: URL) {
+    init(url: URL, recoveryBlocked: Bool = false) {
         self.url = url
+        guard !recoveryBlocked else {
+            requiresRecovery = true
+            loadError = "Profile recovery must finish before document data can be loaded or changed."
+            return
+        }
         do {
             if let bytes = try Self.readBounded(url) {
                 procedures = try Self.decode(bytes).procedures

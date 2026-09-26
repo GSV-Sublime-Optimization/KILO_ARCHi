@@ -358,7 +358,7 @@ final class TokenStewardStore: ObservableObject {
                         id: Self.nativeObservationID(receipt.requestID, receipt.provider.name, invocation.id),
                         taskID: receipt.requestID, provider: receipt.provider.name,
                         resource: .localInference, observedAt: observedAt,
-                        model: invocation.model?.name ?? receipt.modelIdentity, role: invocation.role.rawValue,
+                        model: invocation.model?.name, role: invocation.role.rawValue,
                         outcome: invocation.outcome.rawValue, inputDigest: invocation.inputDigest,
                         inputTokens: metrics?.inputTokens.flatMap(Int64.init(exactly:)),
                         outputTokens: metrics?.outputTokens.flatMap(Int64.init(exactly:)),

@@ -249,7 +249,7 @@ struct ARCSolverPanel: View {
         DisclosureGroup("How this works", isExpanded: $showHowItWorks) {
             VStack(alignment: .leading, spacing: 10) {
                 Text("The local solver searches a fixed catalog of grid rules. Each fitting rule must pass every training pair, and all fitting rules must agree on every test prediction. A partial search or disagreement produces no prediction.")
-                Text("Hampton feedback uses training falsifications to choose which example to check first. Counts reset for each run. Supplied test answers stay outside the solver and are used only by the independent checker.")
+                Text("Hampton feedback uses observed training failures and their measured cell work to choose which example to check first. Learning resets for each run. Older records replay their original scheduler. Supplied test answers stay outside the solver and are used only by the independent checker.")
                 Text("Import standard ARC JSON with 1–20 train and test examples. Grids must be rectangular, up to 30 × 30, with integer colors 0–9. Training outputs are required; test outputs are optional. Files are limited to 2 MiB; extra fields are rejected.")
                 Text("Cell work is an abstract search budget; elapsed time describes this run. No model calls are made, and local CPU/energy cost is unmeasured. Synthetic or imported-file checks are not benchmark certification or permission for companion growth.")
             }
@@ -273,6 +273,10 @@ struct ARCSolverPanel: View {
                                     .foregroundStyle(.secondary)
                                 Text("Example order: " + entry.checkedTrainingIndices.map { String($0 + 1) }.joined(separator: " → "))
                                     .foregroundStyle(.secondary)
+                                if let costs = entry.checkedTrainingCellOperations {
+                                    Text("Cell work by visit: " + costs.map(String.init).joined(separator: ", "))
+                                        .foregroundStyle(.secondary)
+                                }
                                 if (entry.status == .trainingMismatch || entry.status == .trainingUndefined), let failed = entry.checkedTrainingIndices.last {
                                     Text("Counterexample: training pair \(failed + 1)").foregroundStyle(.orange)
                                 }

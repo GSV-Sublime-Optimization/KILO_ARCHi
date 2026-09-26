@@ -20,6 +20,8 @@ final class NativeAssistantPolicyTests: XCTestCase {
         let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
         defer { defaults.removePersistentDomain(forName: name) }
         let preference = NativeAssistantRoutePreference(defaults: defaults)
+        XCTAssertEqual(preference.load(), .automatic)
+        preference.save(.native)
         XCTAssertEqual(preference.load(), .native)
         preference.save(.automatic)
         XCTAssertEqual(NativeAssistantRoutePreference(defaults: defaults).load(), .automatic)

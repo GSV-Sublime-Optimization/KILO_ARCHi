@@ -98,8 +98,10 @@ final class CompanionStore: ObservableObject {
     let tokenSteward: TokenStewardStore
     let arcCapabilities: ARCCapabilitiesStore
     let arc3: ARC3SessionStore
-    let documentWork: DocumentWorkJournal
-    let documentProcedures: DocumentProcedureLibrary
+    @Published private(set) var documentWork: DocumentWorkJournal
+    @Published private(set) var documentProcedures: DocumentProcedureLibrary
+    @Published private(set) var readingSources: ReadingSourceLibrary
+    @Published var selectedReadingSourceIDs: Set<String> = []
     @Published private(set) var preparedDocumentProcedure: DocumentProcedureUse?
     private var preparedProcedureSelection: DocumentSelection?
     private var preparedProcedureSourceDigest: String?
@@ -108,6 +110,9 @@ final class CompanionStore: ObservableObject {
     @Published var documentReadingPreview: DocumentReadingPreview?
     @Published var documentReadingMessage: String?
     @Published private(set) var showsARC3Reply = false
+    /// Transient navigation only. Everyday reasoning never starts a solver or world.
+    @Published var showsReasoningTools = false
+    @Published private(set) var reasoningToolsShowWorlds = false
     @Published private(set) var lastARC3Summary: ARC3SessionSummary?
     @Published private(set) var stewardMessage: String?
     /// Navigation focus is transient and never enters a profile or usage journal.
@@ -202,11 +207,21 @@ final class CompanionStore: ObservableObject {
     @Published private var connectionMessages: [AssistantProvider: String] = [:]
     @Published private(set) var qwenModel = QwenAssistant.defaultModel
     @Published private(set) var qwenContextModel = HamptonReasonsAssistant.defaultContextModel
+    @Published private(set) var localWorkPreference: LocalWorkPreference = .automatic
+    @Published private(set) var installedLocalModels: [QwenModelMetadata]?
+    @Published private(set) var modelInventoryNotice = "Refresh to inspect installed local models."
+    @Published private(set) var isRefreshingModels = false
+    private var modelInventoryTask: Task<Void, Never>?
+    // Reader selection belongs to this visit, never to a Seed or retained memory.
+    @Published private(set) var representationReader: GGUFReaderArtifact?
+    @Published private(set) var representationMeasurementsEnabled = false
+    @Published private(set) var representationNotice = "Import a model-specific reader to enable read-only measurements."
     @Published private(set) var sessionContextEnabled = false
     @Published private(set) var localConversation = AssistantConversation()
     @Published private(set) var localConversationEnabled = true
     @Published private(set) var localConversationNotice = "Recent Qwen exchanges stay in this visit only."
     private var localConversationExpiry: Date?
+    private var localConversationReadingSources: [ReadingSourceBinding]?
     private var localContextTaskScope: HamptonTaskScope?
     @Published private(set) var hamptonSnapshot = HamptonAssistantSnapshot()
     @Published var rememberPreferences = false
@@ -273,6 +288,7 @@ final class CompanionStore: ObservableObject {
     let unityPresentation = UnityPresentationConnection()
     let marketplaceCatalog = MarketplaceCatalogStore()
     private var evolutionSubscriptions = Set<AnyCancellable>()
+    private var documentDataSubscriptions = Set<AnyCancellable>()
     private var lastEvolutionAppearanceID: String?
 
     /// Ordinary settings have their own explicit Save. Remember controls that
@@ -311,6 +327,11 @@ final class CompanionStore: ObservableObject {
     }
 
     var assistantActivity: AssistantActivity {
+        if showsARC3Reply {
+            if arc3.isWorking { return .working }
+            if arc3.error != nil { return .failed }
+            if arc3.observation != nil { return .ready }
+        }
         if let answer = activeARCAnswer {
             return answer.isWorking ? .working : answer.cancelled ? .stopped : answer.error == nil ? .ready : .failed
         }
@@ -431,9 +452,12 @@ final class CompanionStore: ObservableObject {
                 ? "At most 1 local Qwen proposal call · no external requests"
                 : "0 model calls · native ARC rules and checker"
         }
-        let local = sessionContextEnabled ? "1 local answer call, plus up to 2 context calls" : "1 local answer call"
+        if !selectedReadingSourceIDs.isEmpty { return "Local Qwen only · kept copies never enter external fallback" }
+        let answerCalls = localWorkPreference == .reasoning || representationMeasurementsEnabled
+            ? "1 local answer attempt" : "Up to 2 local answer attempts (compact + recovery)"
+        let local = answerCalls + (sessionContextEnabled ? ", plus up to 2 context calls" : "")
         switch route {
-        case .native: return local + " · at most 1 Codex fallback request"
+        case .native: return local + (representationMeasurementsEnabled ? " · no external requests" : " · at most 1 Codex fallback request")
         case .local: return local
         case .codex: return "1 Codex request"
         case .compare: return local + " · 1 Codex request"
@@ -465,6 +489,7 @@ final class CompanionStore: ObservableObject {
     var nextReplyConversation: [AssistantConversationExchange] {
         localConversationEnabled && route != .codex
             && (localContextTaskScope == nil || localContextTaskScope == currentTaskScope)
+            && readingDependenciesAreCurrent(localConversationReadingSources)
             && (localConversationExpiry.map { $0 > wallClock() } ?? true) ? localConversation.exchanges : []
     }
 
@@ -491,6 +516,7 @@ final class CompanionStore: ObservableObject {
         // native view update. Do not publish a change when nothing changed.
         if !localConversation.exchanges.isEmpty { localConversation.clear() }
         if localConversationExpiry != nil { localConversationExpiry = nil }
+        localConversationReadingSources = nil
         localContextTaskScope = nil
         let notice = "Recent Qwen exchanges stay in this visit only."
         if localConversationNotice != notice { localConversationNotice = notice }
@@ -521,11 +547,11 @@ final class CompanionStore: ObservableObject {
         self.tokenSteward = tokenSteward ?? TokenStewardStore(url: resolvedPreferenceURL.deletingPathExtension().appendingPathExtension("steward.json"))
         self.arcCapabilities = arcCapabilities ?? ARCCapabilitiesStore(storageURL: resolvedPreferenceURL.deletingPathExtension().appendingPathExtension("arc.json"))
         self.arc3 = arc3 ?? ARC3SessionStore(outputDirectory: resolvedPreferenceURL.deletingLastPathComponent().appendingPathComponent("ARC3Episodes", isDirectory: true))
-        self.documentWork = DocumentWorkJournal(url: resolvedPreferenceURL.deletingPathExtension().appendingPathExtension("document-work.json"))
-        self.documentProcedures = DocumentProcedureLibrary(url: resolvedPreferenceURL.deletingPathExtension().appendingPathExtension("document-procedures.json"))
-        // A prepared recovery journal is resolved before either saved owner is
-        // admitted. A conflicting interrupted restore leaves both owners closed.
+        // Resolve all five files before admitting any dependent document owner.
         let startupRecoveryBlock = DesktopRecoveryStartup.recoverIfNeeded(at: resolvedPreferenceURL)
+        self.documentWork = DocumentWorkJournal(url: resolvedPreferenceURL.deletingPathExtension().appendingPathExtension("document-work.json"), recoveryBlocked: startupRecoveryBlock != nil)
+        self.documentProcedures = DocumentProcedureLibrary(url: resolvedPreferenceURL.deletingPathExtension().appendingPathExtension("document-procedures.json"), recoveryBlocked: startupRecoveryBlock != nil)
+        self.readingSources = ReadingSourceLibrary(url: resolvedPreferenceURL.deletingPathExtension().appendingPathExtension("reading-sources.json"), recoveryBlocked: startupRecoveryBlock != nil)
         self.profileRecoveryBlock = startupRecoveryBlock
         do {
             if let startupRecoveryBlock { throw DesktopRecoveryError.blocked(startupRecoveryBlock) }
@@ -559,16 +585,7 @@ final class CompanionStore: ObservableObject {
             .store(in: &evolutionSubscriptions)
         self.arcCapabilities.objectWillChange.sink { [weak self] in self?.objectWillChange.send() }
             .store(in: &evolutionSubscriptions)
-        self.documentWork.$records.sink { [weak self] records in
-            self?.evolution.setDocumentFeedbackExclusions(Set(records.compactMap { record in
-                guard let feedback = record.feedback, feedback.verdict != .helpful else { return nil }
-                return UUID(uuidString: record.requestID)
-            }))
-        }.store(in: &evolutionSubscriptions)
-        self.documentWork.objectWillChange.sink { [weak self] in self?.objectWillChange.send() }
-            .store(in: &evolutionSubscriptions)
-        self.documentProcedures.objectWillChange.sink { [weak self] in self?.objectWillChange.send() }
-            .store(in: &evolutionSubscriptions)
+        bindDocumentDataOwners()
         self.arc3.objectWillChange.receive(on: RunLoop.main).sink { [weak self] in
             guard let self else { return }
             self.objectWillChange.send()
@@ -628,8 +645,15 @@ final class CompanionStore: ObservableObject {
         voiceInput.cancel()
         if workspaceRoutingNotice != nil { workspaceRoutingNotice = nil }
         let destination = section == .play && !allowsPlay ? .assistant : section
+        if destination == .capabilities { showsReasoningTools = false }
         if self.section != destination { self.section = destination }
         onOpenWorkspace?(destination)
+    }
+
+    func openReasoningTools(worlds: Bool = false) {
+        open(.capabilities)
+        reasoningToolsShowWorlds = worlds
+        showsReasoningTools = true
     }
 
     func dismissWorkspaceRoutingNotice() { workspaceRoutingNotice = nil }
@@ -685,7 +709,7 @@ final class CompanionStore: ObservableObject {
             return false
         }
         let selected = arcCapabilities.selectRecord(id: record.id)
-        open(.capabilities)
+        openReasoningTools()
         workspaceRoutingNotice = selected ? nil : arcCapabilities.selectionNotice
         return selected
     }
@@ -826,7 +850,7 @@ final class CompanionStore: ObservableObject {
     private func meetingNotesQuestionFitsLocalBudget(_ question: String, sourceName: String?,
                                                    sourceText: String, sourceRevision: UInt64) -> Bool {
         let lessons = keptLessons.filter {
-            $0.matches(question: question, sourceName: sourceName, sourceText: sourceText, now: wallClock(), taskScope: .documentQuestion)
+            readingDependenciesAreCurrent($0.origin?.readingSources) && $0.matches(question: question, sourceName: sourceName, sourceText: sourceText, now: wallClock(), taskScope: .documentQuestion)
         }.map(LessonSnapshot.init(lesson:))
         let reading = prepareReading(question: question, text: sourceText, selection: nil)
         guard let reading, reading.control.lane != .stop else { return false }
@@ -955,6 +979,18 @@ final class CompanionStore: ObservableObject {
     }
 
     func clearTextSelection() { invalidateTextSelection(reason: "Passage selection cleared.") }
+
+    /// Layout is a spatial dependency, not a change to the selected source bytes.
+    /// A history card, resize or scroll must retire old pointing coordinates
+    /// without cancelling an ordinary document question or reviewed revision.
+    func invalidateDocumentGeometry(reason: String) {
+        stopKinLightPreview()
+        stopHarmonyTheme()
+        invalidatePlacementPreview(reason: reason)
+        guard compareResults.values.contains(where: { $0.state != .cancelled && $0.receipt?.pointing != nil }) else { return }
+        clearLocalConversation()
+        cancelWork(reason: reason)
+    }
 
     func invalidateTextSelection(reason: String) {
         clearLocalConversation()
@@ -1208,6 +1244,21 @@ final class CompanionStore: ObservableObject {
         guard let undo = workingCopyUndo, undo.canUndo(text: sharedText, revision: sourceRevision),
               let id = undo.documentWorkID else { return false }
         return documentWork.records.contains { $0.id == id && $0.state == .applied }
+    }
+
+    /// Follow-through belongs to the exact edit still visible in this session,
+    /// never whichever historical record happens to sort first. Read-only;
+    /// opening the card cannot keep a method, rate work or restore a document.
+    var currentDocumentOutcome: DocumentWorkRecord? {
+        guard profileRecoveryBlock == nil, pendingDocumentReceipt == nil,
+              documentWork.isCurrentOnDisk,
+              let edit = workingCopyUndo, edit.canUndo(text: sharedText, revision: sourceRevision),
+              let id = edit.documentWorkID,
+              let record = documentWork.records.first(where: { $0.id == id }),
+              record.state == .applied, canReviewDocument(record),
+              record.afterRevision == sourceRevision,
+              record.actualAfterDigest == edit.afterDigest else { return nil }
+        return record
     }
 
     func documentVerification(_ proposal: PassageRevisionProposal) -> DocumentWorkVerification {
@@ -1609,7 +1660,7 @@ final class CompanionStore: ObservableObject {
         switch command {
         case .open:
             showsARC3Reply = true
-            open(.capabilities)
+            openReasoningTools(worlds: true)
             if arc3.games.isEmpty, !arc3.isWorking, !arc3.isSessionActive { arc3.discover() }
         case .explore:
             guard !arc3.isWorking else { return false }
@@ -1768,12 +1819,23 @@ final class CompanionStore: ObservableObject {
             status = "Finish or cancel voice input before sending. Your draft is unchanged."
             return false
         }
+        if !readingDependenciesAreCurrent(localConversationReadingSources) {
+            clearSessionContext()
+            localConversationNotice = "A supporting reading source changed. Temporary context was cleared."
+        }
         if let expiry = localConversationExpiry, expiry <= wallClock() {
             clearLocalConversation()
             localConversationNotice = "A lesson used earlier expired. Recent conversation was cleared before this request."
         }
         guard !question.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
         guard question.utf8.count <= 16_000 else { status = "Keep the message below 16 KB. Nothing was sent."; return false }
+        // A measurement visit cannot also dispatch the same material through an
+        // external/compare lane. This guard precedes every connection, budget
+        // reservation and provider dispatch, including explicitly chosen routes.
+        guard !representationMeasurementsEnabled || route.providers.allSatisfy({ $0 == .qwen }) else {
+            status = "Model measurements stay on this Mac. Choose a local route, or turn measurements off before using an external assistant. Nothing sent."
+            return false
+        }
         guard textSelection == nil || textSelection?.matches(text: sharedText, sourceRevision: sourceRevision) == true else {
             invalidateTextSelection(reason: "The selected passage is no longer current. Nothing was sent.")
             return false
@@ -1797,6 +1859,18 @@ final class CompanionStore: ObservableObject {
         } else { procedureUse = nil }
         cancelWork(reason: "New request replaces prior work.")
         let selectedRoute = route
+        if !selectedReadingSourceIDs.isEmpty {
+            guard readingReferencesAreCurrent(currentReadingReferences),
+                  currentReadingReferences.count == selectedReadingSourceIDs.count else {
+                invalidateReadingContext(reason: "Kept sources changed or need recovery. Reopen ARCHi before using them.")
+                return false
+            }
+            guard revisionTarget == nil, pointing == nil, sourceName != nil,
+                  selectedRoute != .codex && selectedRoute != .compare else {
+                status = "Kept reading copies use local Qwen for document questions. Choose a local route or deselect the copies. Nothing sent."
+                return false
+            }
+        }
         guard selectedRoute.connectsAutomatically || selectedRoute.providers.allSatisfy({ connection(for: $0) == .ready }) else {
             replySourceSelection = nil
             compareResults = [:]
@@ -1876,7 +1950,10 @@ final class CompanionStore: ObservableObject {
                 localReading: provider == .qwen ? reading?.plan : nil)
             launchLane(provider, request: laneRequest, ticket: ticket, route: selectedRoute,
                        requestID: requestID, inputDigest: digest, pointing: pointing,
-                       routingReason: selectedRoute == .native ? "ARCHi-managed local Qwen first; one external fallback only on an eligible failure."
+                       routingReason: !(reading?.plan.references.isEmpty ?? true) ? "Local Qwen with selected kept copies; external fallback is disabled for this reading."
+                           : selectedRoute == .native ? (representationMeasurementsEnabled
+                               ? "Local Qwen with read-only measurements; automatic external fallback is disabled."
+                               : "ARCHi-managed local Qwen first; one external fallback only on an eligible failure.")
                            : selectedRoute == .automatic ? "Local Qwen · connects when needed; failures stay on this Mac." : nil,
                        conversationExpiry: provider == .qwen ? conversationExpiry.min() : nil)
         }
@@ -1898,6 +1975,18 @@ final class CompanionStore: ObservableObject {
         // A manual connection check cannot race an automatically owned check.
         if route.connectsAutomatically, connection(for: provider) != .ready { closeConnection(provider) }
         let assistant = client(for: provider)
+        if let local = assistant as? HamptonReasonsAssistant { local.workPreference = localWorkPreference }
+        let allowsExternalFallback = !(provider == .qwen
+            && (assistant as? HamptonReasonsAssistant)?.requiresRepresentation == true)
+        var dependencies = request.localReading?.references.map(\.binding) ?? []
+        for lesson in request.localLessons {
+            dependencies += keptLessons.first(where: { LessonSnapshot(lesson: $0) == lesson })?.origin?.readingSources ?? []
+        }
+        if !request.localConversation.isEmpty { dependencies += localConversationReadingSources ?? [] }
+        let uniqueDependencies = dependencies.reduce(into: [ReadingSourceBinding]()) { result, item in
+            if !result.contains(item) { result.append(item) }
+        }.sorted { $0.id < $1.id }
+        let capturedReadingDependencies: [ReadingSourceBinding]? = uniqueDependencies.isEmpty ? nil : uniqueDependencies
         let owner = UUID(), epoch = connectionGenerations[provider, default: 0]
         let seconds = provider == .qwen ? 180 : 90
         let deadline = Date().addingTimeInterval(Double(seconds))
@@ -1910,6 +1999,7 @@ final class CompanionStore: ObservableObject {
                 localInvocations: assistant is HamptonReasonsAssistant ? [] : nil))
         compareResults[provider]?.receipt?.sourceDigest = request.sourceName == nil ? nil
             : SHA256.hash(data: Data(request.sourceText.utf8)).map { String(format: "%02x", $0) }.joined()
+        compareResults[provider]?.receipt?.readingDependencies = capturedReadingDependencies
         compareResults[provider]?.receipt?.documentReading = request.localReading
         compareResults[provider]?.receipt?.readingControl = request.localReading == nil ? nil : request.localControl
         compareResults[provider]?.receipt?.localLessons = request.localLessons
@@ -1929,12 +2019,17 @@ final class CompanionStore: ObservableObject {
             local.mayAdmitResponse = { [weak self, weak local] in
                 guard let self, let local else { return false }
                 return self.isCurrentLane(provider, owner: owner, epoch: epoch, client: local, ticket: ticket)
+                    && self.readingDependenciesAreCurrent(capturedReadingDependencies)
             }
             local.onSnapshot = { [weak self, weak local] snapshot in
                 guard let self, let local,
                       self.isCurrentLane(provider, owner: owner, epoch: epoch, client: local, ticket: ticket),
                       self.compareResults[provider]?.receipt?.requestStarted == true else { return }
                 self.hamptonSnapshot = snapshot
+                if let decision = snapshot.expertDecision {
+                    self.compareResults[provider]?.receipt?.localExpertDecision = decision
+                    self.compareResults[provider]?.receipt?.routingReason = decision.reason + " " + (routingReason ?? "")
+                }
                 self.compareResults[provider]?.receipt?.localConversationCount = snapshot.localConversationCount
                 self.compareResults[provider]?.receipt?.localConversationBytes = snapshot.localConversationBytes
                 self.compareResults[provider]?.receipt?.localConversationDigest = snapshot.localConversationDigest
@@ -1965,7 +2060,7 @@ final class CompanionStore: ObservableObject {
             self.finishFailedAttempt(provider, error: QwenFailure.timedOut,
                 message: "\(provider.name) reached its \(seconds)-second reply limit.",
                 request: request, ticket: ticket, route: route, requestID: requestID,
-                inputDigest: inputDigest, pointing: pointing)
+                inputDigest: inputDigest, pointing: pointing, allowsExternalFallback: allowsExternalFallback)
         }
         replyTasks[provider] = Task { [weak self, assistant] in
             do {
@@ -1982,6 +2077,7 @@ final class CompanionStore: ObservableObject {
                     self.connectionMessages[provider] = "\(provider.name) connected for this request."
                     self.refreshRouteConnection()
                 }
+                guard self.readingDependenciesAreCurrent(capturedReadingDependencies) else { throw QwenFailure.invalidResponse }
                 if let target = request.revisionTarget {
                     try self.beginDocumentWork(requestID: requestID, provider: provider, target: target,
                                                control: request.localControl)
@@ -1991,7 +2087,11 @@ final class CompanionStore: ObservableObject {
                     try self.tokenSteward.recordDocumentReading(requestID: requestID,
                         trace: DocumentReadingTrace(sourceDigest: reading.sourceDigest,
                             questionDigest: reading.questionDigest, planDigest: reading.digest,
-                            sectionIDs: reading.sourceIDs, control: control))
+                            sectionIDs: reading.sourceIDs, control: control,
+                            references: reading.references.isEmpty ? nil : reading.references.map(\.binding)))
+                }
+                if let reading = request.localReading {
+                    guard self.readingReferencesAreCurrent(reading.references) else { throw QwenFailure.invalidResponse }
                 }
                 try self.tokenSteward.recordDispatch(requestID: requestID, provider: provider)
                 self.compareResults[provider]?.receipt?.requestStarted = true
@@ -2019,6 +2119,10 @@ final class CompanionStore: ObservableObject {
                     }
                 }
                 guard self.isCurrentLane(provider, owner: owner, epoch: epoch, client: assistant, ticket: ticket), !Task.isCancelled else { return }
+                guard self.readingDependenciesAreCurrent(capturedReadingDependencies) else {
+                    self.clearSessionContext()
+                    throw QwenFailure.invalidResponse
+                }
                 if request.revisionTarget != nil && self.compareResults[provider]?.revision == nil {
                     self.failLane(provider, message: "No validated revision completed. Your copy is unchanged."); return
                 }
@@ -2028,7 +2132,8 @@ final class CompanionStore: ObservableObject {
                 if let reading = request.localReading, provider == .qwen {
                     // Capture the exact displayed result while this lane still
                     // owns the request. A citation is membership, not entailment.
-                    guard let proposal = self.hamptonSnapshot.proposal,
+                    guard self.readingReferencesAreCurrent(reading.references),
+                          let proposal = self.hamptonSnapshot.proposal,
                           let answer = self.compareResults[provider]?.text, !answer.isEmpty else {
                         throw QwenFailure.invalidResponse
                     }
@@ -2050,6 +2155,7 @@ final class CompanionStore: ObservableObject {
                     } else {
                         self.localConversationNotice = self.localConversation.retain(question: request.prompt, answer: answer).status
                         self.localConversationExpiry = self.localConversation.exchanges.isEmpty ? nil : conversationExpiry
+                        self.localConversationReadingSources = self.localConversation.exchanges.isEmpty ? nil : capturedReadingDependencies
                     }
                 }
                 if request.revisionTarget != nil {
@@ -2059,6 +2165,9 @@ final class CompanionStore: ObservableObject {
                 self.record("\(provider.name) reply received for shared source revision \(ticket.source)")
             } catch {
                 guard let self, self.isCurrentLane(provider, owner: owner, epoch: epoch, client: assistant, ticket: ticket), !Task.isCancelled else { return }
+                if !self.readingDependenciesAreCurrent(capturedReadingDependencies) {
+                    self.clearSessionContext()
+                }
                 if provider == .qwen, self.compareResults[provider]?.receipt?.admissionOutcome == nil {
                     self.compareResults[provider]?.receipt?.admissionOutcome = HamptonAdmissionOutcome.failure(error,
                         stage: self.compareResults[provider]?.receipt?.requestStarted == true ? .generation : .connection,
@@ -2067,7 +2176,7 @@ final class CompanionStore: ObservableObject {
                 self.finishFailedAttempt(provider, error: error,
                     message: (error as? LocalizedError)?.errorDescription ?? "The assistant connection stopped. Try connecting again.",
                     request: request, ticket: ticket, route: route, requestID: requestID,
-                    inputDigest: inputDigest, pointing: pointing)
+                    inputDigest: inputDigest, pointing: pointing, allowsExternalFallback: allowsExternalFallback)
             }
         }
     }
@@ -2105,7 +2214,9 @@ final class CompanionStore: ObservableObject {
                       self.connectionGenerations[provider] == generation, !Task.isCancelled else { return }
                 self.connectionStates[provider] = .ready; self.connectionTasks[provider] = nil
                 self.connectionMessages[provider] = provider == .qwen
-                    ? "\(self.qwenModel) is available locally. Send runs inference on this Mac; the first reply may take longer to load."
+                    ? (self.representationMeasurementsEnabled
+                       ? "\(self.qwenModel) reader and local runtime are ready. Send loads the CPU model for a measured reply; no inference has run yet."
+                       : "\(self.qwenModel) is available locally. Send runs inference on this Mac; the first reply may take longer to load.")
                     : "Connected through your ChatGPT login. Send includes only your message and shared copy."
                 self.refreshRouteConnection()
                 if self.route.providers.contains(provider), !self.isWorking { self.status = "\(provider.name) connected · nothing sent yet" }
@@ -2148,12 +2259,98 @@ final class CompanionStore: ObservableObject {
         setAssistantRoute(provider == .qwen ? .local : .codex)
     }
 
+    func setLocalWorkPreference(_ preference: LocalWorkPreference) {
+        guard !isShuttingDown, preference != localWorkPreference else { return }
+        cancelLocalWork(reason: "Local work preference changed.")
+        localWorkPreference = preference
+        (assistants[.qwen] as? HamptonReasonsAssistant)?.workPreference = preference
+        status = "Local work preference changed · nothing sent"
+    }
+
+    func refreshInstalledLocalModels() {
+        guard !isShuttingDown, !isRefreshingModels else { return }
+        isRefreshingModels = true
+        modelInventoryTask = Task { [weak self] in
+            do {
+                let models = try await QwenAssistant.discoverInstalledModels()
+                guard let self, !self.isShuttingDown, !Task.isCancelled else { return }
+                self.installedLocalModels = models
+                self.modelInventoryNotice = models.isEmpty ? "No supported local model was found. Nothing was downloaded."
+                    : "Installed models found. Each connection still verifies the selected model."
+                self.isRefreshingModels = false
+                self.modelInventoryTask = nil
+            } catch {
+                guard let self, !self.isShuttingDown, !Task.isCancelled else { return }
+                self.installedLocalModels = nil
+                self.modelInventoryNotice = "Local model inventory is unavailable. Start Ollama and refresh. Nothing was downloaded."
+                self.isRefreshingModels = false
+                self.modelInventoryTask = nil
+            }
+        }
+    }
+
+    var localModelChoices: [String] {
+        let installed = installedLocalModels?.map(\.name) ?? QwenAssistant.supportedModels
+        return Array(Set(installed + [qwenModel, qwenContextModel])).sorted()
+    }
+
+    func localModelLabel(_ name: String) -> String {
+        guard let models = installedLocalModels else { return name + " · not checked" }
+        return name + (models.contains { $0.name == name } ? " · installed" : " · unavailable")
+    }
+
     func selectQwenModel(_ model: String) {
         guard !isShuttingDown, QwenAssistant.supportedModels.contains(model), model != qwenModel else { return }
         cancelActiveARC(reason: "Local Qwen model changed.")
         arcCapabilities.stopQwenProposal(reason: "Local Qwen model changed.")
         qwenModel = model
+        if representationReader?.modelName != model {
+            representationMeasurementsEnabled = false
+            representationReader = nil
+            representationNotice = "Model changed. Import a reader fitted for \(model) to enable measurements."
+        }
         replaceLocalAssistant()
+    }
+
+    func importRepresentationReader(from url: URL) {
+        guard !isShuttingDown else { return }
+        do {
+            let reader = try GGUFReaderArtifact.load(from: url)
+            guard reader.modelName == qwenModel else {
+                representationNotice = "This reader is for \(reader.modelName). Select that reasoning model before importing it."
+                return
+            }
+            representationMeasurementsEnabled = false
+            representationReader = reader
+            replaceLocalAssistant()
+            representationNotice = "Reader imported for this visit. Its supplied calibration history is not independently qualified by importing it."
+        } catch {
+            representationNotice = "Reader was not imported: \(error.localizedDescription)"
+        }
+    }
+
+    func setRepresentationMeasurementsEnabled(_ enabled: Bool) {
+        guard !isShuttingDown, enabled != representationMeasurementsEnabled else { return }
+        if enabled {
+            guard representationReader?.modelName == qwenModel,
+                  GGUFRepresentationClient.bundledWorkerAvailable else {
+                representationNotice = "A matching reader and the bundled local measurement runtime are required."
+                return
+            }
+        }
+        representationMeasurementsEnabled = enabled
+        replaceLocalAssistant()
+        representationNotice = enabled
+            ? "Read-only measurements selected for local replies this visit. No steering or automatic external fallback. Connect checks readiness; Send loads the model."
+            : "Standard local Qwen selected. Measurements are off."
+    }
+
+    func removeRepresentationReader() {
+        guard !isShuttingDown else { return }
+        representationMeasurementsEnabled = false
+        representationReader = nil
+        replaceLocalAssistant()
+        representationNotice = "Reader removed from this visit. Standard local Qwen selected."
     }
 
     func selectQwenContextModel(_ model: String) {
@@ -2194,6 +2391,7 @@ final class CompanionStore: ObservableObject {
         guard let client = assistants[.qwen] as? HamptonReasonsAssistant else { return }
         client.setContextModel(qwenContextModel)
         client.setContextEnabled(sessionContextEnabled)
+        client.workPreference = localWorkPreference
         hamptonSnapshot = client.snapshot
         // Each reply installs a callback bound to its own operation and ticket.
         client.onSnapshot = nil
@@ -2206,7 +2404,7 @@ final class CompanionStore: ObservableObject {
         closeConnection(.qwen)
         (previous as? HamptonReasonsAssistant)?.onSnapshot = nil
         (previous as? HamptonReasonsAssistant)?.clearSessionContext()
-        assistants[.qwen] = assistantFactory(.qwen, qwenModel)
+        assistants[.qwen] = makeAssistant(.qwen)
         bindHamptonAssistant()
         if route == .local {
             invalidateTextSelection(reason: "Local model changed. Select the passage again to restore its reference.")
@@ -2230,6 +2428,7 @@ final class CompanionStore: ObservableObject {
         desktopInterest.cancel(reason: "ARCHi is closing.")
         clearLocalConversation()
         isShuttingDown = true
+        modelInventoryTask?.cancel(); modelInventoryTask = nil; isRefreshingModels = false
         cancelWork(reason: "App is shutting down.")
         let current = Array(assistants.values)
         for provider in Array(assistants.keys) { closeConnection(provider) }
@@ -2243,10 +2442,18 @@ final class CompanionStore: ObservableObject {
 
     private func client(for provider: AssistantProvider) -> any AssistantClient {
         if let existing = assistants[provider] { return existing }
-        let created = assistantFactory(provider, qwenModel)
+        let created = makeAssistant(provider)
         assistants[provider] = created
         if provider == .qwen { bindHamptonAssistant() }
         return created
+    }
+
+    private func makeAssistant(_ provider: AssistantProvider) -> any AssistantClient {
+        if provider == .qwen, representationMeasurementsEnabled, let reader = representationReader {
+            return HamptonReasonsAssistant(model: qwenModel,
+                reasoner: GGUFRepresentationClient(model: qwenModel, reader: reader), nativeRuntime: .shared)
+        }
+        return assistantFactory(provider, qwenModel)
     }
 
     private func isCurrentLane(_ provider: AssistantProvider, owner: UUID, epoch: UInt64,
@@ -2325,8 +2532,8 @@ final class CompanionStore: ObservableObject {
     }
 
     private func failLane(_ provider: AssistantProvider, message: String) {
-        // A local failure never authorizes external processing. The user can
-        // choose an external route and Send a new, visible request instead.
+        // This cleanup never starts external work. Only finishFailedAttempt
+        // can apply the captured route's explicit fallback permission.
         replyTasks[provider]?.cancel()
         finishOwnership(provider)
         closeConnection(provider)
@@ -2345,8 +2552,16 @@ final class CompanionStore: ObservableObject {
     /// Invalid proposals, storage failures and cancellations never grant fallback.
     private func finishFailedAttempt(_ provider: AssistantProvider, error: any Error, message: String,
                                      request: AssistantRequest, ticket: ContextTicket, route: AssistantRoute,
-                                     requestID: String, inputDigest: String, pointing: AssistantPointingSnapshot?) {
-        let eligible = provider == .qwen && route == .native && self.route == .native
+                                     requestID: String, inputDigest: String, pointing: AssistantPointingSnapshot?,
+                                     allowsExternalFallback: Bool) {
+        let local = assistants[provider] as? HamptonReasonsAssistant
+        let failedRole = local?.snapshot.admissionOutcome?.role
+        let optionalContextFailure = local?.optionalContextActive == true
+            || failedRole == .memorySelection || failedRole == .memoryReminder
+        let eligible = allowsExternalFallback && provider == .qwen && route == .native && self.route == .native
+            && !optionalContextFailure
+            && (request.localReading?.references.isEmpty ?? true)
+            && compareResults[provider]?.receipt?.readingDependencies == nil
             && NativeAssistantFallback.isEligible(error) && compareResults[.codex] == nil
         failLane(provider, message: message)
         guard eligible, !isShuttingDown, isCurrent(ticket, requireVisible: false) else { return }
@@ -2816,18 +3031,19 @@ extension CompanionStore {
     }
 
     func matchingLessons(question: String, taskScope: HamptonTaskScope? = nil) -> [LessonSnapshot] {
-        keptLessons.filter { $0.matches(question: question, sourceName: sourceName,
+        keptLessons.filter { readingDependenciesAreCurrent($0.origin?.readingSources) && $0.matches(question: question, sourceName: sourceName,
             sourceText: sharedText, now: wallClock(), taskScope: taskScope ?? currentTaskScope) }.map(LessonSnapshot.init(lesson:))
     }
 
     func currentKeptLesson(matching snapshot: LessonSnapshot) -> KeptLesson? {
         keptLessons.first {
-            LessonSnapshot(lesson: $0) == snapshot && $0.isValid
+            LessonSnapshot(lesson: $0) == snapshot && $0.isValid && readingDependenciesAreCurrent($0.origin?.readingSources)
                 && ($0.expiresAt == nil || $0.expiresAt! > wallClock())
         }
     }
 
     func lessonAvailability(_ lesson: KeptLesson) -> String {
+        if !readingDependenciesAreCurrent(lesson.origin?.readingSources) { return "Supporting reading copy changed or was forgotten · review this lesson before reuse" }
         if let expiry = lesson.expiresAt, expiry <= wallClock() { return "Expired · revise to use again" }
         if let source = lesson.source, source != currentLessonSource {
             return "Waiting for the same shared copy · \(source.name)"
@@ -2849,7 +3065,8 @@ extension CompanionStore {
             var origin: LessonOrigin?
             if let provider, let result = compareResults[provider], result.state == .complete,
                !result.text.isEmpty, let receipt = result.receipt {
-                origin = LessonOrigin(requestID: receipt.requestID, inputDigest: receipt.inputDigest)
+                origin = LessonOrigin(requestID: receipt.requestID, inputDigest: receipt.inputDigest,
+                    readingSources: receipt.readingDependencies)
             }
             lessonDraft = LessonCorrectionDraft(expectedRevision: lessonRevision, prior: nil, origin: origin)
         }
@@ -2872,6 +3089,10 @@ extension CompanionStore {
         }
         if let source = draft.source, source != currentLessonSource {
             lessonMessage = "The shared copy changed. Share the original copy again, or remove its scope before keeping."
+            return false
+        }
+        guard readingDependenciesAreCurrent(draft.origin?.readingSources) else {
+            lessonMessage = "A supporting reading copy changed or was forgotten. Start a fresh review using current sources."
             return false
         }
         let now = wallClock()
@@ -3010,6 +3231,22 @@ extension CompanionStore {
         }
     }
 
+    private func bindDocumentDataOwners() {
+        documentDataSubscriptions.removeAll()
+        self.documentWork.$records.sink { [weak self] records in
+            self?.evolution.setDocumentFeedbackExclusions(Set(records.compactMap { record in
+                guard let feedback = record.feedback, feedback.verdict != .helpful else { return nil }
+                return UUID(uuidString: record.requestID)
+            }))
+        }.store(in: &documentDataSubscriptions)
+        self.documentWork.objectWillChange.sink { [weak self] in self?.objectWillChange.send() }
+            .store(in: &documentDataSubscriptions)
+        self.documentProcedures.objectWillChange.sink { [weak self] in self?.objectWillChange.send() }
+            .store(in: &documentDataSubscriptions)
+        self.readingSources.objectWillChange.sink { [weak self] in self?.objectWillChange.send() }
+            .store(in: &documentDataSubscriptions)
+    }
+
     // Recovery is a file operation followed by admission through these existing
     // owners. The backup view never becomes a second source of companion state.
     var recoveryPreferenceURL: URL { preferenceURL }
@@ -3018,6 +3255,7 @@ extension CompanionStore {
         if isShuttingDown { return "ARCHi is closing. Reopen before managing backups." }
         if isWorking { return "Finish or stop the current reply before managing backups." }
         if voiceInput.isActive { return "Finish or cancel dictation before managing backups." }
+        if pendingDocumentReceipt != nil { return "Save the pending document receipt before managing backups." }
         if connectionStates.values.contains(.connecting) { return "Wait for the current connection attempt to finish." }
         return nil
     }
@@ -3047,13 +3285,31 @@ extension CompanionStore {
     /// No provider invocation, new identity, or save is performed during reload.
     func admitRestoredProfile() throws {
         let loaded = try NativePreferencePersistence.read(preferenceURL)
+        let restoredWork = DocumentWorkJournal(url: preferenceURL.deletingPathExtension().appendingPathExtension("document-work.json"))
+        let restoredMethods = DocumentProcedureLibrary(url: preferenceURL.deletingPathExtension().appendingPathExtension("document-procedures.json"))
+        let restoredSources = ReadingSourceLibrary(url: preferenceURL.deletingPathExtension().appendingPathExtension("reading-sources.json"))
+        guard restoredWork.loadError == nil, restoredMethods.loadError == nil, restoredSources.loadError == nil else {
+            throw DesktopRecoveryError.blocked("The restored document work could not be loaded.")
+        }
         cancelWork(reason: "Saved profile restored. Earlier replies and references cleared.")
+        selectedReadingSourceIDs = []
+        documentReadingPreview = nil
         arc3.resetForProfile()
         lastARC3Summary = nil
         clearSessionContext()
         compareResults = [:]
         invalidateTextSelection(reason: "Saved profile restored. Select a passage again.")
         requestsRevision = false
+        workingCopyUndo = nil
+        clearPreparedDocumentProcedure()
+        documentProcedureRequests = [:]
+        documentWorkMessage = nil
+        documentReadingMessage = nil
+        documentWork = restoredWork
+        documentProcedures = restoredMethods
+        readingSources = restoredSources
+        bindDocumentDataOwners()
+        evolution.historicalEvidenceUnavailableReason = nil
         stopFocusGesture()
         reactor.stop(reason: "Saved profile restored. Local artwork is active.")
         evolution.persistenceBlockedReason = nil
@@ -3086,6 +3342,15 @@ extension CompanionStore {
         profileRecoveryBlock = reason
         preferenceFileReadable = false
         evolution.persistenceBlockedReason = reason
+        documentWork = DocumentWorkJournal(url: preferenceURL.deletingPathExtension().appendingPathExtension("document-work.json"), recoveryBlocked: true)
+        documentProcedures = DocumentProcedureLibrary(url: preferenceURL.deletingPathExtension().appendingPathExtension("document-procedures.json"), recoveryBlocked: true)
+        readingSources = ReadingSourceLibrary(url: preferenceURL.deletingPathExtension().appendingPathExtension("reading-sources.json"), recoveryBlocked: true)
+        bindDocumentDataOwners()
+        evolution.historicalEvidenceUnavailableReason = reason
+        workingCopyUndo = nil
+        clearPreparedDocumentProcedure()
+        selectedReadingSourceIDs = []
+        documentReadingPreview = nil
         status = reason
     }
 
@@ -3241,4 +3506,20 @@ extension CompanionStore {
         }
         return true
     }
+}
+
+// Shared request ownership also owns invalidation after reading-copy changes.
+extension CompanionStore {
+    /// Invalidate the request owner and all indirect transient context too.
+    /// Persistent lessons retain their provenance and become unavailable through
+    /// their exact source-version dependency checks, rather than being erased.
+    func invalidateReadingContext(reason: String) {
+        cancelWork(reason: reason)
+        clearSessionContext()
+        compareResults = [:]
+        documentReadingPreview = nil
+        documentReadingMessage = reason
+        clearPreparedDocumentProcedure()
+    }
+
 }

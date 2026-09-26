@@ -61,11 +61,7 @@ struct WorkspaceView: View {
                         onOpenEvidence: { _ = store.openARCEvidenceForUsage(taskID: $0) },
                         canOpenEvidence: store.canOpenARCEvidenceForUsage)
                 } else if store.section == .capabilities {
-                    ARCCapabilitiesWorkspace(store: store.arcCapabilities, onEvaluation: store.recordARCEvaluation,
-                        onOpenUsage: { _ = store.openARCUsage(taskID: $0) },
-                        onOpenGraph: { _ = store.openARCGraph(evidenceID: $0) }, qwenModel: store.qwenModel,
-                        interactive: AnyView(ARC3Workspace(owner: store, session: store.arc3)),
-                        prefersInteractive: store.showsARC3Reply)
+                    ReasoningWorkspace(store: store, session: store.arc3)
                 } else if store.section == .play && store.allowsPlay {
                     PlayWorkspace(store: store, host: playHost)
                 } else {
@@ -802,7 +798,7 @@ private struct ConnectionsWorkspace: View {
             WorkspaceCard {
                 Text("Qwen at the core. Your choice of help.")
                     .font(.system(size: 21, weight: .medium, design: .rounded))
-                Text("Local Qwen is the default. Use Codex deliberately for an external reference, second opinion or alternative. A local failure never sends your work outside this Mac. Changing the route sends nothing.")
+                Text("Qwen runs locally. Choose a local-only route, Qwen-first fallback, or a comparison with Codex. The route description below explains what may leave this Mac. Changing the route sends nothing.")
                     .font(.system(size: 13)).foregroundStyle(.secondary).lineSpacing(4).padding(.top, 6)
                 Divider().padding(.vertical, 12)
                 AssistantRouteSelector(store: store)

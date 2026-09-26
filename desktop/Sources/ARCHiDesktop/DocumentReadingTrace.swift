@@ -1,5 +1,22 @@
 import Foundation
 
+/// Text-free dependency on one explicitly retained source version.
+struct ReadingSourceBinding: Codable, Equatable, Sendable {
+    let id: String
+    let revision: UInt64
+    let digest: String
+    var isValid: Bool { UUID(uuidString: id) != nil && revision > 0 && DocumentReadingTrace.isDigest(digest) }
+    static func valid(_ values: [Self]?) -> Bool {
+        guard let values else { return true }
+        return (1...8).contains(values.count) && values.allSatisfy(\.isValid)
+            && Set(values.map(\.id)).count == values.count
+    }
+}
+
+extension ReadingSourceSnapshot {
+    var binding: ReadingSourceBinding { ReadingSourceBinding(id: id, revision: revision, digest: digest) }
+}
+
 /// Frozen reading provenance retained by Token Steward's existing task journal.
 /// Only digests, section identities and the native decision are stored here;
 /// source text, questions and answers remain outside the accounting journal.
@@ -11,9 +28,17 @@ struct DocumentReadingTrace: Codable, Equatable, Sendable {
     let planDigest: String
     let sectionIDs: [String]
     let control: HamptonQ2EDecision
+    let references: [ReadingSourceBinding]?
+
+    init(sourceDigest: String, questionDigest: String, planDigest: String, sectionIDs: [String],
+         control: HamptonQ2EDecision, references: [ReadingSourceBinding]? = nil) {
+        self.sourceDigest = sourceDigest; self.questionDigest = questionDigest
+        self.planDigest = planDigest; self.sectionIDs = sectionIDs; self.control = control
+        self.references = references
+    }
 
     var isValid: Bool {
-        Self.isDigest(sourceDigest) && Self.isDigest(questionDigest) && Self.isDigest(planDigest)
+        (references?.count ?? 0) <= 4 && ReadingSourceBinding.valid(references) && Self.isDigest(sourceDigest) && Self.isDigest(questionDigest) && Self.isDigest(planDigest)
             && (1...6).contains(sectionIDs.count)
             && Set(sectionIDs).count == sectionIDs.count
             && sectionIDs.allSatisfy(Self.isSectionID)
@@ -21,7 +46,7 @@ struct DocumentReadingTrace: Codable, Equatable, Sendable {
             && control.contextID == sourceDigest && control.lane != .stop
     }
 
-    fileprivate static func isDigest(_ value: String) -> Bool {
+    static func isDigest(_ value: String) -> Bool {
         value.utf8.count == 64 && value.utf8.allSatisfy {
             (48...57).contains($0) || (65...70).contains($0) || (97...102).contains($0)
         }

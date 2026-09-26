@@ -203,18 +203,37 @@ struct ARC3AssistantReply: View {
     @ObservedObject var session: ARC3SessionStore
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Label("ARCHi · Interactive ARC3", systemImage: "square.grid.3x3.fill").font(.headline)
-            Text(session.status).textSelection(.enabled)
+            Label(store.activeQiMon?.name ?? "ARCHi", systemImage: "viewfinder").font(.headline)
+            Text(session.isWorking ? "I'm observing what changes as I explore this environment."
+                 : session.observation == nil ? "Choose a connected environment to explore together."
+                 : session.isSessionActive ? "Here's where we are in this environment. You can choose when to continue."
+                 : "This visit has paused or ended. The available observations are below.")
+                .textSelection(.enabled)
             if let plan = session.latestPlan {
-                ARC3PlanView(plan: plan, outcome: session.attempts.last(where: { $0.decision == plan })?.outcome)
-            }
-            if let observation = session.observation {
-                ARC3FrameView(frame: observation.frame).frame(width: 220, height: 220)
-                Text("\(observation.state) · \(observation.dispatches)/\(observation.budget) actions · \(observation.levelsCompleted)/\(observation.winLevels) levels").font(.caption)
+                Text(plan.goal).font(.callout.weight(.medium))
+                Text(plan.reason).font(.callout).foregroundStyle(.secondary)
+                if let outcome = session.attempts.last(where: { $0.decision == plan })?.outcome {
+                    Text("Observed result: \(outcome.replacingOccurrences(of: "-", with: " "))")
+                        .font(.callout).accessibilityIdentifier("assistant.world-observation")
+                }
             }
             if let error = session.error { Text(error).foregroundStyle(.orange) }
+            DisclosureGroup("Environment view and details") {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(session.status).font(.caption).textSelection(.enabled)
+                    if let observation = session.observation {
+                        ARC3FrameView(frame: observation.frame).frame(width: 220, height: 220)
+                        Text("\(observation.state) · \(observation.dispatches)/\(observation.budget) actions · \(observation.levelsCompleted)/\(observation.winLevels) levels").font(.caption)
+                    }
+                }.padding(.top, 8)
+            }.accessibilityIdentifier("assistant.world-details")
             HStack {
-                Button("Open ARC3 controls") { store.runARC3(.open) }
+                Button("Environment controls") { store.openReasoningTools(worlds: true) }
+                if session.isSessionActive {
+                    Button("Continue exploring") { store.runARC3(.explore) }
+                        .disabled(session.isWorking || store.isWorking || store.voiceInput.isActive || store.isShuttingDown)
+                        .help("Uses up to eight environment actions within the current session limit.")
+                }
                 if session.isWorking || session.isSessionActive { Button("Stop") { store.runARC3(.stop) } }
             }
         }.padding(12).modifier(WorkspaceSurface()).accessibilityIdentifier("assistant.arc3-result")

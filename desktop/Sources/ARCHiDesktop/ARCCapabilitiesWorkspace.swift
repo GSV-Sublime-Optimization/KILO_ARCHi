@@ -21,8 +21,8 @@ struct ARCCapabilitiesWorkspace: View {
                 VStack(alignment: .leading, spacing: 20) {
                     heading
                     HStack(spacing: 8) {
-                        pageButton("Solve a puzzle", page: .solve, identifier: "capabilities.page.solve")
-                        if interactive != nil { pageButton("Interactive ARC3", page: .interactive, identifier: "capabilities.page.arc3") }
+                        pageButton("Grid tools", page: .solve, identifier: "capabilities.page.solve")
+                        if interactive != nil { pageButton("Local environments", page: .interactive, identifier: "capabilities.page.arc3") }
                         pageButton("Saved results · \(store.records.count)", page: .results, identifier: "capabilities.page.results")
                         Spacer(minLength: 0)
                     }
@@ -92,10 +92,10 @@ struct ARCCapabilitiesWorkspace: View {
 
     private var heading: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("ARC").font(.system(size: 28, weight: .medium, design: .rounded))
-            Text("ARCHi’s reasoning capabilities. Solve grids, explore environments, and review results.")
+            Text("Reasoning tools").font(.system(size: 28, weight: .medium, design: .rounded))
+            Text("Inspect the examples, environment controls, and evidence behind a task.")
                 .foregroundStyle(WorkspaceTheme.muted)
-            Text("Use ARC from Chat or your Seed’s chat bubble. Share an ARC JSON task and ask “solve this ARC puzzle”, or choose ARC task beside your message.")
+            Text("Everyday work stays in Chat and Work together. These controls are available when you want to inspect or run a specific grid or environment task.")
                 .font(.callout).foregroundStyle(.secondary)
             Label("Local rule search · Optional Qwen proposals", systemImage: "desktopcomputer")
                 .font(.caption).foregroundStyle(WorkspaceTheme.accent)

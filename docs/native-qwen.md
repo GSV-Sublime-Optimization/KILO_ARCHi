@@ -1,60 +1,17 @@
-# Native Qwen and bounded fallback
+# Native local models and bounded fallback
 
-ARCHi manages local Qwen as its default language engine. Identity, memory,
-document ownership, ARC tools, permissions and accepted state remain native app
-responsibilities. Qwen itself is a local language model, not a replacement for
-these services.
+ARCHi keeps assistance, documents, identity, memory, development and permissions in the native app. Local Qwen supplies language-model results to those owners. Local ARC and document tools remain ordinary application capabilities.
 
-On launch, **ARCHi · Qwen first** checks local readiness without sending a
-question. It reuses loopback Ollama or starts the installed runtime with cloud
-disabled. Qwen's existing checks still require an installed supported model and
-verify its identity before generation. This feature does not install Ollama,
-download model weights or bundle them in ARCHi.
+**Send to** controls where a request may go. First-run and unreadable delivery preferences default to **Local only**. Existing explicit choices survive restart. **Local + Codex fallback** permits at most one eligible Codex attempt after local availability failure. Cancellation, invalid results, storage failures and changed source context do not authorize fallback. Codex and Compare remain explicit destinations.
 
-## Sending and fallback
+**Local work** controls local allocation: Auto, Compact or Reasoning. Auto uses a small exact greeting allowlist; it is not a trained difficulty predictor. Document revisions, source reading, passage selections and representation measurements require Reasoning. Compact may serve bounded plain prompts. A failed eligible Compact attempt can recover through Reasoning within the same overall deadline. Role and delivery choices are separate from companion identity.
 
-Each Send begins with Qwen. A connection, technical generation or timeout failure
-can admit **one Codex fallback** through the existing Codex account integration.
-Cancellation, changed context, invalid proposals, input limits and storage errors
-do not authorize fallback. A failed fallback ends the request; it never retries
-or loops between models.
+ARCHi can reuse or start an installed loopback Ollama runtime with cloud disabled. Readiness checks inspect local metadata without generating an answer. The app does not download model weights on startup. Settings lists supported installed models and saves separate Compact/context and Reasoning assignments on this Mac. Supported tags are verified again when used; a configured tag is not proof of readiness or quality.
 
-The fallback carries the captured question, explicitly shared document copy,
-selected passage, reply settings and companion presentation. It excludes kept
-lessons, personal profile context, prior local conversation and incomplete Qwen
-output. A captured desktop window requires permission for its exact current copy
-before that copy can enter the external route.
+External requests carry the captured question, explicitly shared current source and reply settings. The ordinary Codex path omits local conversation, kept lessons and personal-profile context. Desktop-window context requires permission for its exact captured copy. Kept multi-source reading and local representation measurements prevent automatic external fallback. Result admission still checks the captured task and source; a revision remains a proposal until explicit Apply.
 
-The original request identifier, current-context ticket and document target remain
-bound to both attempts. Stop, changed source, route or local context invalidates
-the work. A revision remains a proposal until the existing checks and explicit
-Apply action succeed.
+Usage records local attempts separately from Codex subscription requests. Unknown external token counts, prices and quota remain unknown. This integration does not add paid OpenAI API, Claude or Gemini adapters, and does not convert subscription access into API credits.
 
-## User choices
+The optional representation route is described in [representation source](representation-source.md). It remains off until an explicitly imported compatible reader satisfies its scoped checks. Installing Qwen alone does not qualify a reader.
 
-- **ARCHi · Qwen first:** managed local startup and one eligible Codex fallback.
-- **Local Qwen · auto-connect:** managed local connection, no external fallback.
-- **Local Qwen · manual:** explicit local connection, no external fallback.
-- **Codex / Compare:** the existing explicit external-reference routes.
-
-The chosen route is saved on this Mac separately from companion identity and
-survives restart/profile switching. An unreadable saved choice uses local-only
-auto-connect. Automatic preparation never sends a prompt or connects to Codex.
-
-## Accounting and current limits
-
-Usage records one task. Its local lane exists first; the external lane is admitted
-only after the eligible local failure has been retained. Accounting failure stops
-handoff. Local token metrics remain separate from Codex subscription requests;
-unknown external token counts, costs and quota remain unknown. This route is not
-a new paid API integration and does not claim to enforce subscription quotas.
-
-Only app-launched runtime children receive a termination signal. Existing Ollama
-services remain under their original owner's control. Shutdown requests graceful
-termination; it does not force-kill the service. ARC's optional local Qwen proposer uses this same runtime manager. Local ARC commands still execute
-through their native task services without automatically invoking either model.
-
-This is an initial managed-runtime integration. A bundled inference engine,
-model installation UI, Claude/Gemini fallback adapters and live cloud fallback
-qualification remain separate work. Focused fake-client checks establish routing
-and context boundaries, not external model quality or full release readiness.
+See [the current source checkpoint](native-alpha-checkpoint-2026-09-25.md) for scope and distribution limits.

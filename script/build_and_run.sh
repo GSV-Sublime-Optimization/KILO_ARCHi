@@ -114,6 +114,26 @@ cp "$REPO_ROOT/desktop/Sources/ARCHiDesktop/Resources/ReactorBridge/worker.py" "
 mkdir -p "$BUNDLE_DIR/Contents/Resources/ARC3Bridge"
 cp "$REPO_ROOT/desktop/Sources/ARCHiDesktop/Resources/ARC3Bridge/archi_arc3_bridge.py" "$BUNDLE_DIR/Contents/Resources/ARC3Bridge/archi_arc3_bridge.py"
 test -s "$BUNDLE_DIR/Contents/Resources/ARC3Bridge/archi_arc3_bridge.py"
+# Use a previously built runtime only. Installation never fetches code, weights
+# or readers. Preserve the optional helper on subsequent native-only upgrades.
+if [[ -n "${ARCHI_REPRESENTATION_RUNTIME:-}" ]]; then
+    REPRESENTATION_RUNTIME="$ARCHI_REPRESENTATION_RUNTIME"
+elif [[ -d "/Applications/ARCHi.app/Contents/Resources/RepresentationBridge" ]]; then
+    # Preserve the installed helper on native-only updates. A historical build
+    # directory must not silently downgrade a later calibrated-reader runtime.
+    REPRESENTATION_RUNTIME="/Applications/ARCHi.app/Contents/Resources/RepresentationBridge"
+else
+    REPRESENTATION_RUNTIME="$REPO_ROOT/output/gguf-calibration-runtime-2026-09-25/runtime"
+fi
+if [[ -d "$REPRESENTATION_RUNTIME" ]]; then
+    python3 "$REPO_ROOT/script/package_representation_runtime.py" "$REPRESENTATION_RUNTIME" "$BUNDLE_DIR/Contents/Resources/RepresentationBridge"
+    for native_helper in "$BUNDLE_DIR/Contents/Resources/RepresentationBridge/"*.dylib "$BUNDLE_DIR/Contents/Resources/RepresentationBridge/archi-gguf-shadow"; do
+        codesign --verify --strict "$native_helper"
+    done
+elif [[ -n "${ARCHI_REPRESENTATION_RUNTIME:-}" ]]; then
+    echo "The explicitly selected representation runtime is missing. Nothing was installed." >&2
+    exit 2
+fi
 if [[ -n "$UNITY_PLAYER" ]]; then
     [[ -d "$UNITY_PLAYER" && "$UNITY_PLAYER" == *.app ]] || { echo "Unity player must be an existing app bundle." >&2; exit 2; }
     # The qualified player may be exposed through an output symlink. Resolve
@@ -150,7 +170,7 @@ cat > "$BUNDLE_DIR/Contents/Info.plist" <<PLIST
 <key>CFBundleDisplayName</key><string>$APP_NAME</string>
 <key>CFBundleIconFile</key><string>AppIcon</string>
 <key>CFBundleVersion</key><string>1</string>
-<key>CFBundleShortVersionString</key><string>0.1.0</string>
+<key>CFBundleShortVersionString</key><string>0.7.0</string>
 <key>LSMinimumSystemVersion</key><string>14.0</string>
 <key>NSPrincipalClass</key><string>NSApplication</string>
 <key>NSHighResolutionCapable</key><true/>

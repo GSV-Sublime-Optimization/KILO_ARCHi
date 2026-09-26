@@ -52,8 +52,9 @@ final class AutomaticAssistantRoutingTests: XCTestCase {
     func testNativeUnavailableConnectFallsBackOnceWithLocalContextRemoved() async throws {
         let f = AutomaticRoutingFixture(), store = f.store
         defer { f.drain() }
-        store.share(text: "First. Café is the selected passage.", name: "source.txt")
-        store.selectText(range: NSRange(location: 7, length: 4), sourceRevision: store.sourceRevision)
+        // This plain AssistantClient fixture can complete conversation replies.
+        // Document reading requires a typed Hampton proposal; cover forwarding
+        // of shared source separately with a connection failure before reply.
         store.beginLessonCorrection()
         var lesson = try XCTUnwrap(store.lessonDraft)
         lesson.topic = "selected passage"
@@ -122,6 +123,32 @@ final class AutomaticAssistantRoutingTests: XCTestCase {
         XCTAssertEqual(f.local.replies.count, 1)
         XCTAssertEqual(f.cloud.connectCount, 1)
         XCTAssertEqual(f.cloud.replies.count, 1)
+    }
+
+    @MainActor
+    func testNativeFallbackPreservesCurrentSharedSourceAndSelection() async throws {
+        let f = AutomaticRoutingFixture(), store = f.store
+        defer { f.drain() }
+        store.share(text: "First. Café is the selected passage.", name: "source.txt")
+        store.selectText(range: NSRange(location: 7, length: 4), sourceRevision: store.sourceRevision)
+        store.setAssistantRoute(.native)
+        store.prompt = "Explain the selected passage."
+        let selected = store.textSelection
+        store.submit()
+        try await wait("Local connection starts") { f.local.connectCount == 1 }
+        f.local.resolveConnection(0, result: .failure(QwenFailure.unavailable))
+        try await wait("Fallback connects once") { f.cloud.connectCount == 1 }
+        f.cloud.resolveConnection(0)
+        try await wait("External request starts") { f.cloud.replies.count == 1 }
+        let external = f.cloud.replies[0].request
+        XCTAssertEqual(external.sourceName, "source.txt")
+        XCTAssertEqual(external.sourceText, store.sharedText)
+        XCTAssertEqual(external.selection, selected)
+        XCTAssertNil(external.localReading)
+        XCTAssertNil(external.localControl)
+        XCTAssertNil(external.localProfile)
+        XCTAssertTrue(external.localLessons.isEmpty)
+        XCTAssertTrue(external.localConversation.isEmpty)
     }
 
     @MainActor
@@ -309,9 +336,11 @@ final class AutomaticAssistantRoutingTests: XCTestCase {
         XCTAssertEqual(store.assistantProvider, .qwen)
         store.setAssistantRoute(.automatic)
         XCTAssertEqual(store.resultProviders, [.qwen])
-        XCTAssertEqual(store.nextCallBudget, "1 local answer call · no external requests")
+        XCTAssertEqual(store.nextCallBudget, "Up to 2 local answer attempts (compact + recovery) · no external requests")
         store.setSessionContextEnabled(true)
-        XCTAssertEqual(store.nextCallBudget, "1 local answer call, plus up to 2 context calls · no external requests")
+        XCTAssertEqual(store.nextCallBudget, "Up to 2 local answer attempts (compact + recovery), plus up to 2 context calls · no external requests")
+        store.setLocalWorkPreference(.reasoning)
+        XCTAssertEqual(store.nextCallBudget, "1 local answer attempt, plus up to 2 context calls · no external requests")
     }
 
     @MainActor

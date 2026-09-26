@@ -12,7 +12,9 @@ extension CompanionStore {
     /// usefulness never acquire a section-retrieval judgment by implication.
     func prepareReading(question: String, text: String, selection: DocumentSelection?) -> DocumentReadingPreview? {
         guard let initial = DocumentReadingPlan.make(text: text, question: question,
-            selection: selection, lane: .expand) else { return nil }
+            selection: selection, lane: .expand, references: currentReadingReferences) else { return nil }
+        guard currentReadingReferences.count == selectedReadingSourceIDs.count,
+              readingReferencesAreCurrent(currentReadingReferences) else { return nil }
         let records = Array(tokenSteward.tasks.filter {
             $0.documentReading?.sourceDigest == initial.sourceDigest
                 && $0.documentReadingResult?.kind == "ANSWER"
@@ -38,14 +40,15 @@ extension CompanionStore {
         let preferred = positive.first { $0.documentReading?.questionDigest == initial.questionDigest }?
             .documentReading?.sectionIDs ?? []
         guard let plan = DocumentReadingPlan.make(text: text, question: question, selection: selection,
-            lane: control.lane, preferredSectionIDs: preferred) else { return nil }
+            lane: control.lane, preferredSectionIDs: preferred, references: currentReadingReferences) else { return nil }
         return DocumentReadingPreview(plan: plan, control: control, sourceRevision: sourceRevision)
     }
 
     var currentReadingPreview: DocumentReadingPreview? {
         guard let preview = documentReadingPreview, preview.sourceRevision == sourceRevision,
               !requestsRevision, sourceName != nil,
-              preview.plan.matches(text: sharedText, question: prompt, selection: textSelection) else { return nil }
+              readingReferencesAreCurrent(preview.plan.references),
+              preview.plan.matches(text: sharedText, question: prompt, selection: textSelection, references: currentReadingReferences) else { return nil }
         return preview
     }
 
@@ -64,7 +67,8 @@ extension CompanionStore {
               let plan = receipt.documentReading, let lane = compareResults[.qwen],
               lane.state == .complete, lane.receipt?.requestID == receipt.requestID,
               LessonSource.digest(of: lane.text) == result.answerDigest,
-              receipt.context.source == sourceRevision, plan.sourceDigest == LessonSource.digest(of: sharedText),
+              receipt.context.source == sourceRevision, plan.primarySourceDigest == LessonSource.digest(of: sharedText),
+              plan.references == currentReadingReferences, readingReferencesAreCurrent(plan.references),
               let task = tokenSteward.tasks.first(where: { $0.id == receipt.requestID }),
               task.documentReading?.planDigest == plan.digest, task.documentReadingResult == result,
               task.lanes.contains(where: { $0.provider == AssistantProvider.qwen.name && $0.dispatched && $0.state == "complete" })
@@ -90,6 +94,7 @@ struct DocumentReadingTools: View {
             Label("Read with context", systemImage: "text.book.closed").font(.caption.weight(.medium))
             Text("Ask about a document or meeting notes. ARCHi finds passages locally before the next Qwen reply.")
                 .foregroundStyle(.secondary)
+            ReadingSourceLibraryView(store: store)
             Button("Find relevant passages") { store.previewDocumentReading() }
                 .disabled(store.isWorking || store.sourceName == nil || store.prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 .accessibilityIdentifier("work.reading.prepare")
@@ -98,7 +103,9 @@ struct DocumentReadingTools: View {
                 DocumentReadingSections(plan: preview.plan, citedIDs: nil)
             }
             if let message = store.documentReadingMessage { Text(message).foregroundStyle(.secondary) }
-            Text("Local Qwen uses selected excerpts. An external route still uses the shared copy described by your route settings.")
+            Text(store.selectedReadingSourceIDs.isEmpty
+                 ? "Local Qwen uses selected excerpts. An external route still uses the shared copy described by your route settings."
+                 : "Selected kept copies stay local. Local Qwen uses bounded excerpts across these sources.")
                 .foregroundStyle(.secondary)
         }.font(.caption2).padding(10).frame(maxWidth: .infinity, alignment: .leading)
             .background(WorkspaceTheme.accent.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
@@ -113,12 +120,16 @@ struct DocumentReadingSections: View {
         DisclosureGroup("\(plan.sections.count) of \(plan.totalSections) source sections · \(plan.isPartial ? "partial context" : "full context")") {
             ForEach(plan.sections, id: \.id) { section in
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(section.title + (citedIDs?.contains(section.id) == true ? " · cited" : " · supplied"))
+                    Text(section.sourceTitle + " · " + section.title + (citedIDs?.contains(section.id) == true ? " · cited" : " · supplied"))
                         .font(.caption.weight(.medium))
                     Text(section.text).font(.caption2).textSelection(.enabled)
                     Text("Source range \(section.location)–\(section.location + section.length) · \(section.sha256.prefix(10))")
                         .font(.caption2).foregroundStyle(.secondary)
                 }.padding(.vertical, 4)
+            }
+            if plan.totalSources > 1 {
+                Text("\(plan.totalSources) sources considered · \(plan.omittedSourceIDs.count) sources have no supplied passage.")
+                    .font(.caption2).foregroundStyle(.secondary)
             }
             Text("Citations identify supplied text. They do not verify the answer. \(plan.isPartial ? "Other sections were not included in this reply." : "")")
                 .font(.caption2).foregroundStyle(.secondary)

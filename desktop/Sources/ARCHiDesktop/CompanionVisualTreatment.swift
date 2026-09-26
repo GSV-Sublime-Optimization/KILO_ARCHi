@@ -43,13 +43,13 @@ enum CompanionVisualAsset {
     static let lumenFilename = "archi-lumen-pearl-v1"
     static let maximumBytes = 1_400_000
     static let lightSeedFilename = "archi-ball-of-light-v1"
-    static let lightSeedDigest = "bc8b05e36156af6bb28459fa160b118315c14d1d319e04c23d861b7416d3018b"
+    static let lightSeedDigest = "867b75f54b17619c9eaca563515221e5f7b5e49385b9f29cad8b5216213dd9c4"
     static let lightSeedImage = load(name: lightSeedFilename, digest: lightSeedDigest)
     static let hamptonSeedFilename = "hampton-liminal-seed-v1"
-    static let hamptonSeedDigest = "2f8ac5d79dae36bed3e91cbd55f53b2f86d5317b464c119d9c14d37512044c18"
+    static let hamptonSeedDigest = "9ffb19a74959c29fd1ff46848937c2745c08b543b0c70871e99c4c5c606916a1"
     static let hamptonSeedImage = load(name: hamptonSeedFilename, digest: hamptonSeedDigest)
     static let hamptonGarnetFilename = "hampton-liminal-garnet-v1"
-    static let hamptonGarnetDigest = "4926755798476430159df3923399242d0f564ea11fa3f8895f769f60655128a9"
+    static let hamptonGarnetDigest = "6a60509d41e00d8dd6b204dd894b988498b6e38dabbc29349db058046e7228d0"
     static let hamptonGarnetImage = load(name: hamptonGarnetFilename, digest: hamptonGarnetDigest)
     static let kinSeedFilename = "kin-core-seed-blender-v2"
     static let kinSeedDigest = "02066c89c597edf6b0f9d3c9f5706323cfefa8163c94b8407ec48cd7e57bf5e6"
@@ -59,7 +59,7 @@ enum CompanionVisualAsset {
     static let kinFirstLightDigest = "96dcfec5654287a22c5d53357dcc47dc7a6a92cd4458da381c45fe074f32de2d"
     static let kinFirstLightImage = load(name: kinFirstLightFilename, digest: kinFirstLightDigest)
     static let protoFilename = "archi-proto-blender-v1"
-    static let protoDigest = "c1de08a1afb9532d3cd459f9d166dcc58f4d05852ba3fb98d6c3f4bb3319b338"
+    static let protoDigest = "f64051b207446340c9e813c35e89087afc6fac068ca0d7ec38d22d86e56ac688"
     static let protoImage = load(name: protoFilename, digest: protoDigest)
     static func firstLightImage(treatment: CompanionVisualTreatment) -> NSImage? {
         treatment == .protoStudy ? (protoImage ?? kinFirstLightImage) : kinFirstLightImage

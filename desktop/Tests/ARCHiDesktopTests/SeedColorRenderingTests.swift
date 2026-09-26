@@ -66,7 +66,7 @@ final class SeedColorRenderingTests: XCTestCase {
         let authored = try XCTUnwrap(CompanionVisualAsset.hamptonGarnetImage)
         XCTAssertTrue(authored === SeedColorRendering.image(for: .hamptonSeed, color: .garnet))
         XCTAssertEqual(CompanionVisualAsset.hamptonGarnetDigest,
-                       "4926755798476430159df3923399242d0f564ea11fa3f8895f769f60655128a9")
+                       "6a60509d41e00d8dd6b204dd894b988498b6e38dabbc29349db058046e7228d0")
         let pixels = try XCTUnwrap(SeedColorRendering.rgba(authored))
         XCTAssertEqual(pixels.width, 512)
         XCTAssertEqual(pixels.height, 512)

@@ -95,8 +95,13 @@ final class DocumentWorkJournal: ObservableObject {
         var records: [DocumentWorkRecord]
     }
 
-    init(url: URL) {
+    init(url: URL, recoveryBlocked: Bool = false) {
         self.url = url
+        guard !recoveryBlocked else {
+            requiresRecovery = true
+            loadError = "Profile recovery must finish before document data can be loaded or changed."
+            return
+        }
         do {
             guard url.isFileURL else { throw DocumentWorkJournalError.unreadable }
             guard let bytes = try Self.readBounded(url) else { return }

@@ -22,6 +22,7 @@ struct HamptonAdmissionOutcome: Equatable, Sendable {
         case invalidShape, invalidText, unknownReference, repeatedReference, inconsistentDecision
         case staleContext, cancelled, timedOut, unavailable, unsupportedModel, nonLocalModel, modelChanged
         case invalidResponse, outputLimit, generationFailed, internalFailure
+        case representationUnavailable, representationMismatch
 
         var explanation: String {
             switch self {
@@ -48,6 +49,8 @@ struct HamptonAdmissionOutcome: Equatable, Sendable {
             case .outputLimit: "The model reached its reply limit."
             case .generationFailed: "The model could not complete its response."
             case .internalFailure: "The local workflow could not complete this stage."
+            case .representationUnavailable: "The explicitly selected representation capability was unavailable. No replacement provider was selected."
+            case .representationMismatch: "The representation result did not match this request and its configured model basis."
             }
         }
     }
@@ -86,6 +89,11 @@ struct HamptonAdmissionOutcome: Equatable, Sendable {
             case .unknownReference: reason = .unknownReference
             case .repeatedReference: reason = .repeatedReference
             case .inconsistentDecision: reason = .inconsistentDecision
+            }
+        } else if let representation = error as? LocalRepresentationContractError {
+            switch representation {
+            case .unavailable: reason = .representationUnavailable
+            case .mismatched: reason = .representationMismatch
             }
         } else if error is SessionContextError { reason = .staleContext }
         else if error is LocalQwenRuntimeFailure { reason = .unavailable }

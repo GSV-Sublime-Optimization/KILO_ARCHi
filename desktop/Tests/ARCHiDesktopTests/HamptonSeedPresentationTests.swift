@@ -50,7 +50,7 @@ final class HamptonSeedPresentationTests: XCTestCase {
     @MainActor
     func testVerifiedAssetHasDistinctCacheAndNativeSnapshotWithoutChangingKIN() throws {
         XCTAssertNotNil(CompanionVisualAsset.hamptonSeedImage)
-        XCTAssertEqual(CompanionVisualAsset.hamptonSeedDigest, "2f8ac5d79dae36bed3e91cbd55f53b2f86d5317b464c119d9c14d37512044c18")
+        XCTAssertEqual(CompanionVisualAsset.hamptonSeedDigest, "9ffb19a74959c29fd1ff46848937c2745c08b543b0c70871e99c4c5c606916a1")
         XCTAssertEqual(CompanionVisualAsset.kinSeedDigest, "02066c89c597edf6b0f9d3c9f5706323cfefa8163c94b8407ec48cd7e57bf5e6")
         let identity = CompanionVisualAsset.appearanceID(form: .hamptonSeed, family: nil, treatment: .original)
         XCTAssertEqual(identity, "h1-\(CompanionVisualAsset.hamptonSeedDigest)")

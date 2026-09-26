@@ -1,19 +1,39 @@
 import SwiftUI
 
-/// Procedure text is deliberately authored and reviewed here, never silently
-/// extracted from a model reply or the shared document.
+/// Procedure text is reviewed here, never silently extracted from a model reply
+/// or shared document. An optional starter uses only declared edit requirements.
 @MainActor
 struct KeepDocumentProcedureView: View {
     @ObservedObject var store: CompanionStore
     let record: DocumentWorkRecord
     @State private var title = ""
     @State private var instruction = ""
+    @State private var expanded: Bool
+
+    init(store: CompanionStore, record: DocumentWorkRecord, startsExpanded: Bool = false) {
+        self.store = store
+        self.record = record
+        _expanded = State(initialValue: startsExpanded)
+    }
 
     var body: some View {
         if record.state == .applied, record.feedback?.verdict == .helpful, store.canReviewDocument(record) {
-            DisclosureGroup("Keep a procedure from this work") {
+            DisclosureGroup("Keep a procedure from this work", isExpanded: $expanded) {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Describe the method worth trying again. Keep saves only this name, instruction, requirements and review references on this Mac.")
+                        .foregroundStyle(.secondary)
+                    Button("Start with this edit’s checks") {
+                        title = record.mustBeShorter ? "Shorten a passage" : "Revise a passage"
+                        instruction = record.mustBeShorter
+                            ? "Shorten the selected passage while preserving its meaning."
+                            : "Revise the selected passage while preserving its meaning."
+                        if record.preserveNumbersAndLinks {
+                            instruction += " Keep its numbers and links exactly as written."
+                        }
+                    }
+                    .disabled(!title.isEmpty || !instruction.isEmpty || !store.canKeepDocumentProcedure)
+                    .accessibilityIdentifier("document.procedure-starter")
+                    Text("This starter uses the edit requirements only. Add what made the change useful before keeping it.")
                         .foregroundStyle(.secondary)
                     TextField("Procedure name", text: $title)
                         .accessibilityIdentifier("document.procedure-name")

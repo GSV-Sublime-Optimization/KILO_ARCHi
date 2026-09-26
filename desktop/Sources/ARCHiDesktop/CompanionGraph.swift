@@ -327,6 +327,9 @@ enum CompanionGraph {
                             .init(label: "Elapsed", value: invocation.elapsedMilliseconds.map { "\($0) ms" } ?? "Unavailable"),
                             .init(label: "Input tokens", value: invocation.metrics?.inputTokens.map(String.init) ?? "Unavailable"),
                             .init(label: "Output tokens", value: invocation.metrics?.outputTokens.map(String.init) ?? "Unavailable"),
+                            .init(label: "Internal representations", value: invocation.representationAccess.title),
+                            .init(label: "Measurement boundary", value: invocation.representationAccess.detail),
+                            .init(label: "Representation receipt", value: invocation.representationReceipt.detail),
                             .init(label: "Meaning", value: "Attempted means the local client was invoked. Response received does not establish answer admission or factual accuracy.")], target: .advanced)
                     edge(requestID, id, "attempted")
                 }

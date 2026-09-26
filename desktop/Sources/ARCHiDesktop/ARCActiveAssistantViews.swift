@@ -13,22 +13,24 @@ struct ARCActiveAssistantActions: View {
                 .disabled(store.textSelection == nil || store.isWorking)
             Button("Open document work") { store.open(.context) }
             Divider()
-            Button("Solve shared or loaded grid task") { store.runARC(.solve) }
+            Button("Find a pattern in shared examples") { store.runARC(.solve) }
                 .disabled(store.isWorking || store.voiceInput.isActive || store.isShuttingDown)
-            Button("Propose a rule with local Qwen") { store.runARC(.propose) }
-                .disabled(store.isWorking || store.voiceInput.isActive || store.isShuttingDown)
-            Divider()
-            Button("Open interactive ARC3") { store.runARC3(.open) }
-            Button("Explore current ARC3 environment") { store.runARC3(.explore) }
+            Button("Explore the connected environment") { store.runARC3(.explore) }
                 .disabled(store.isWorking || !store.arc3.isSessionActive || store.voiceInput.isActive || store.isShuttingDown)
             Divider()
-            Button("Manage ARC tasks and results") { store.open(.capabilities) }
+            Button("Reasoning and next steps") { store.open(.capabilities) }
+            Menu("Advanced") {
+                Button("Propose a grid rule with local Qwen") { store.runARC(.propose) }
+                    .disabled(store.isWorking || store.voiceInput.isActive || store.isShuttingDown)
+                Button("Environment setup") { store.openReasoningTools(worlds: true) }
+                Button("Grid tools and saved results") { store.openReasoningTools() }
+            }
         } label: {
-            Label("Work task", systemImage: "square.grid.3x3")
+            Label("Work with me", systemImage: "arrow.triangle.branch")
         }
         .menuStyle(.borderlessButton).fixedSize()
         .accessibilityIdentifier("assistant.arc-actions")
-        .help("Prepare document work or use the shared ARC services. Preparing a document revision does not send it.")
+        .help("Prepare a revision, find a pattern in shared grid examples, or explore a connected environment. Preparing a revision does not send it.")
     }
 }
 
@@ -55,7 +57,7 @@ struct ARCActiveWorkBar: View {
             HStack(spacing: 12) {
                 Image(systemName: "square.grid.3x3").foregroundStyle(WorkspaceTheme.accent)
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(store.arc3.isSessionActive || store.arc3.isWorking ? "ARCHi is working with ARC3" : "ARCHi is reasoning with ARC")
+                    Text(store.arc3.isWorking ? "ARCHi is exploring the environment" : store.arc3.isSessionActive ? "Environment ready" : "ARCHi is looking for a pattern")
                         .font(.callout.weight(.medium))
                     Text(store.arc3.isSessionActive || store.arc3.isWorking ? store.arc3.status : store.activeARCAnswer?.status ?? "Working…")
                         .font(.caption).foregroundStyle(WorkspaceTheme.muted).lineLimit(2)
@@ -63,7 +65,7 @@ struct ARCActiveWorkBar: View {
                 Spacer(minLength: 0)
                 Button("Open task") {
                     if store.arc3.isSessionActive || store.arc3.isWorking { store.runARC3(.open) }
-                    else { store.open(.capabilities) }
+                    else { store.open(.assistant) }
                 }.accessibilityIdentifier("workspace.arc.open")
                 Button("Stop") { store.cancelWork() }
                     .accessibilityIdentifier("workspace.arc.stop")
@@ -82,34 +84,37 @@ struct ARCActiveAssistantReply: View {
     var body: some View {
         if let answer = store.activeARCAnswer {
             VStack(alignment: .leading, spacing: 10) {
-                Label("ARCHi · ARC", systemImage: "square.grid.3x3")
+                Label(store.activeQiMon?.name ?? "ARCHi", systemImage: "bubble.left")
                     .font(.headline).foregroundStyle(WorkspaceTheme.accent)
                 if let name = answer.inputName {
                     Text(name).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
                 }
                 if answer.isWorking { ProgressView().controlSize(.small) }
-                Text(answer.status).font(.callout).textSelection(.enabled)
+                Text(answer.replyText).font(.callout).textSelection(.enabled)
                     .accessibilityIdentifier("assistant.arc-status")
-                if let error = answer.error {
-                    Text(error).foregroundStyle(.orange).font(.callout).textSelection(.enabled)
-                }
-                if let predictions = answer.predictions {
-                    ForEach(predictions.indices, id: \.self) { index in
-                        ARCNativeGrid(grid: predictions[index], title: "Prediction \(index + 1)",
-                            identifier: "assistant.arc.prediction.\(index)")
+                if answer.predictions != nil || answer.summary != nil {
+                    DisclosureGroup("Result and supporting details") {
+                        VStack(alignment: .leading, spacing: 10) {
+                            if let predictions = answer.predictions {
+                                ForEach(predictions.indices, id: \.self) { index in
+                                    ARCNativeGrid(grid: predictions[index], title: "Suggested result \(index + 1)",
+                                        identifier: "assistant.arc.prediction.\(index)")
+                                }
+                            }
+                            if let summary = answer.summary {
+                                Text("Supplied-answer check: \(summary.counts.exact) exact · \(summary.counts.incorrect) incorrect · \(summary.counts.missing) missing · \(summary.counts.invalid) invalid · \(summary.counts.unscored) unscored")
+                                    .font(.caption).foregroundStyle(.secondary)
+                                    .accessibilityIdentifier("assistant.arc-checker")
+                            }
+                            Text(answer.status).font(.caption).foregroundStyle(.secondary)
+                        }.padding(.top, 8)
                     }
-                }
-                if let summary = answer.summary {
-                    Text("Checked result: \(summary.counts.exact) exact · \(summary.counts.incorrect) incorrect · \(summary.counts.missing) missing · \(summary.counts.unscored) unscored")
-                        .font(.caption).foregroundStyle(.secondary)
-                        .accessibilityIdentifier("assistant.arc-checker")
+                    .accessibilityIdentifier("assistant.arc-details")
                 }
                 ViewThatFits(in: .horizontal) {
                     HStack(spacing: 12) { links(answer) }
                     VStack(alignment: .leading, spacing: 8) { links(answer) }
                 }
-                Text("Predictions are checked when expected answers are available. Otherwise they are marked unscored.")
-                    .font(.caption).foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(12).modifier(WorkspaceSurface())
@@ -126,7 +131,7 @@ struct ARCActiveAssistantReply: View {
             Button("Activity map") { _ = store.openARCGraph(evidenceID: evidenceID) }
                 .accessibilityIdentifier("assistant.arc-graph")
             Button("Review reasoning") {
-                if store.arcCapabilities.selectRecord(id: evidenceID) { store.open(.capabilities) }
+                if store.arcCapabilities.selectRecord(id: evidenceID) { store.openReasoningTools() }
             }.accessibilityIdentifier("assistant.arc-evidence")
         }
     }

@@ -80,6 +80,12 @@ enum DesktopApplicationIdentity {
 struct ARCHiDesktopMain {
     @MainActor
     static func main() async {
+        if CommandLine.arguments.dropFirst().contains("--local-model-settings") {
+            guard CommandLine.arguments.dropFirst().first == "--local-model-settings" else {
+                print("--local-model-settings must be the first and only command."); exit(2)
+            }
+            exit(await LocalModelSettingsCommand.run(arguments: Array(CommandLine.arguments.dropFirst(2))))
+        }
         if let index = CommandLine.arguments.firstIndex(of: "--import-companion-profile"),
            CommandLine.arguments.indices.contains(index + 1) {
             let running = NSRunningApplication.runningApplications(withBundleIdentifier: DesktopApplicationIdentity.bundleIdentifier)
@@ -101,6 +107,9 @@ struct ARCHiDesktopMain {
         if let index = CommandLine.arguments.firstIndex(of: "--evolution-render"),
            CommandLine.arguments.indices.contains(index + 1) {
             exit(EvolutionVisualDiagnostics.run(directory: URL(fileURLWithPath: CommandLine.arguments[index + 1])) ? 0 : 1)
+        }
+        if CommandLine.arguments.contains("--compact-assistant-smoke") {
+            exit(await CompactAssistantDiagnostics.run() ? 0 : 1)
         }
         if CommandLine.arguments.contains("--routing-smoke") {
             exit(await AssistantRoutingDiagnostics.run() ? 0 : 1)
@@ -189,6 +198,7 @@ final class DesktopDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var expressionObservers: [NSObjectProtocol] = []
     private var appearanceObserver: AnyCancellable?
     private var assistantRouteObserver: AnyCancellable?
+    private var assistantModelObserver: AnyCancellable?
     private var isReviewingQuit = false
     private var terminationInProgress = false
 
@@ -201,8 +211,22 @@ final class DesktopDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
+        let modelPreferences = NativeAssistantModelPreferences(defaults: .standard)
+        modelPreferences.activateQueuedUpdate()
+        let savedModels = modelPreferences.load()
+        store.selectQwenModel(savedModels.reasoningModel)
+        store.selectQwenContextModel(savedModels.compactModel)
+        store.setLocalWorkPreference(savedModels.workPreference)
         let routePreference = NativeAssistantRoutePreference(defaults: .standard)
         store.prepareNativeAssistant(route: routePreference.load())
+        // @Published emits from willSet. Use the three emitted values rather
+        // than reading the store, which may still contain the previous value.
+        assistantModelObserver = Publishers.CombineLatest3(
+            store.$qwenModel, store.$qwenContextModel, store.$localWorkPreference)
+            .map { NativeAssistantModelPreferences.Selection(reasoningModel: $0.0,
+                compactModel: $0.1, workPreference: $0.2) }
+            .dropFirst().removeDuplicates()
+            .sink { modelPreferences.save($0) }
         assistantRouteObserver = store.$route.dropFirst().removeDuplicates()
             .sink { routePreference.save($0) }
         appearanceObserver = store.$preferences.map(\.workspaceAppearance).removeDuplicates()

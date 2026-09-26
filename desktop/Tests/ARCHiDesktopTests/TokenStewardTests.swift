@@ -6,6 +6,23 @@ final class TokenStewardTests: XCTestCase {
     private let date = Date(timeIntervalSince1970: 1_789_560_000)
 
     @MainActor
+    func testFailedCompactAttemptNeverInheritsSuccessfulReasonerIdentity() throws {
+        let store = TokenStewardStore(now: { self.date })
+        var local = receipt("compact-retry")
+        local.modelIdentity = "qwen3.5:9b @ final-digest"
+        var failed = invocation("compact")
+        failed.outcome = .failed
+        failed.model = nil
+        var completed = invocation("reasoner")
+        completed.model = QwenModelMetadata(name: "qwen3.5:9b", family: "qwen35", parameterSize: "9.7B", quantization: "Q4_K_M", digest: String(repeating: "a", count: 64))
+        local.localInvocationReceipts = [failed, completed]
+        try store.recordLane(local)
+        XCTAssertEqual(store.summary.localAttemptCount, 2)
+        XCTAssertNil(store.observations.first(where: { $0.outcome == "failed" })?.model)
+        XCTAssertEqual(store.observations.first(where: { $0.outcome == "completed" })?.model, "qwen3.5:9b")
+    }
+
+    @MainActor
     func testOpeningAndRefreshingMissingJournalDoesNotCreateProfileArtifacts() throws {
         let url = try journalURL().deletingLastPathComponent().appendingPathComponent("new-profile/usage.json")
         let folder = url.deletingLastPathComponent()

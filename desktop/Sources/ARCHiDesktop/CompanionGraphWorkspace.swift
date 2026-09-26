@@ -34,7 +34,7 @@ extension CompanionStore {
         case .stewardTask(let taskID): openDocumentUsage(taskID: taskID)
         case .arcEvidence(let proposalHash):
             arcCapabilities.selectRecord(id: proposalHash)
-            open(.capabilities)
+            openReasoningTools()
         }
     }
 }

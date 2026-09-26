@@ -72,7 +72,7 @@ struct AssistantRequest: Sendable {
     var hasValidLocalControl: Bool {
         if let localReading {
             guard revisionTarget == nil, sourceName != nil,
-                  localReading.matches(text: sourceText, question: prompt, selection: selection),
+                  localReading.matches(text: sourceText, question: prompt, selection: selection, references: localReading.references),
                   let localControl, localControl.isValid, localControl.domain == "document-reading",
                   localControl.contextID == localReading.sourceDigest, localControl.lane != .stop else { return false }
             return true
@@ -111,11 +111,16 @@ struct AssistantRequest: Sendable {
             value["source"] = .object([
                 "name": .string(sourceName ?? "Shared copy"),
                 "revision": .string(String(sourceRevision)),
-                "fullDocumentSHA256": .string(localReading.sourceDigest),
+                "fullDocumentSHA256": .string(localReading.primarySourceDigest),
+                "readingContextSHA256": .string(localReading.sourceDigest),
+                "totalSources": .number(Double(localReading.totalSources)),
+                "omittedSourceIDs": .array(localReading.omittedSourceIDs.map { .string($0) }),
                 "partial": .bool(localReading.isPartial),
                 "totalSections": .number(Double(localReading.totalSections)),
                 "sections": .array(localReading.sections.map { section in .object([
                     "id": .string(section.id), "title": .string(section.title),
+                    "sourceID": .string(section.sourceID), "sourceTitle": .string(section.sourceTitle),
+                    "sourceSHA256": .string(section.sourceDigest),
                     "text": .string(section.text), "sha256": .string(section.sha256),
                     "utf16Location": .number(Double(section.location)),
                     "utf16Length": .number(Double(section.length))

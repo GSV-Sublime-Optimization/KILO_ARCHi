@@ -5,6 +5,44 @@ import Testing
 
 @MainActor
 struct WorkingCopyStoreTests {
+    @Test func currentOutcomeFollowsExactAppliedCopyAndNeverRehydratesFromHistory() async throws {
+        let rig = RevisionStoreRig(); defer { rig.drain() }
+        try await rig.begin()
+        let proposal = try rig.local.complete(replacement: "Clear copy.")
+        try await rig.wait { !rig.store.isWorking }
+        #expect(rig.store.currentDocumentOutcome == nil, "A proposal is not an applied result")
+        rig.store.applyPassageRevision(provider: .qwen, targetID: proposal.target.id)
+        let outcome = try #require(rig.store.currentDocumentOutcome)
+        #expect(outcome.feedback == nil, "Opening follow-through does not mark work useful")
+        #expect(rig.store.documentProcedures.procedures.isEmpty)
+        #expect(rig.store.reviewDocument(id: outcome.id, verdict: .helpful))
+        #expect(rig.store.currentDocumentOutcome?.feedback?.verdict == .helpful)
+        #expect(rig.store.keepDocumentProcedure(recordID: outcome.id, title: "Clear prose", instruction: "Use plain language."))
+        let reopened = CompanionStore(preferenceURL: rig.directory.appendingPathComponent("preferences.json"), assistant: RevisionStoreClient())
+        #expect(reopened.currentDocumentOutcome == nil, "Retained history does not restore the working copy")
+        #expect(reopened.documentProcedures.procedures.count == 1)
+        rig.store.undoWorkingCopyEdit()
+        #expect(rig.store.currentDocumentOutcome == nil)
+        #expect(rig.store.documentWork.records.first?.state == .undone)
+    }
+
+    @Test func currentOutcomeRejectsReplacedCopyAndExternallyChangedJournal() async throws {
+        let rig = RevisionStoreRig(); defer { rig.drain() }
+        try await rig.begin()
+        let proposal = try rig.local.complete(replacement: "Clear copy.")
+        try await rig.wait { !rig.store.isWorking }
+        rig.store.applyPassageRevision(provider: .qwen, targetID: proposal.target.id)
+        #expect(rig.store.currentDocumentOutcome != nil)
+        let journal = rig.directory.appendingPathComponent("preferences.document-work.json")
+        let original = try Data(contentsOf: journal)
+        try (original + Data(" ".utf8)).write(to: journal)
+        #expect(rig.store.currentDocumentOutcome == nil, "Cached evidence cannot survive a changed journal")
+        try original.write(to: journal)
+        #expect(rig.store.currentDocumentOutcome != nil)
+        rig.store.share(text: "Clear copy.", name: "different.txt")
+        #expect(rig.store.currentDocumentOutcome == nil, "Same bytes in a new copy are a different context")
+    }
+
     @Test func procedureCannotReuseAnExternallyWithdrawnSupportingLesson() async throws {
         let rig = RevisionStoreRig(); defer { rig.drain() }
         rig.store.beginLessonCorrection()

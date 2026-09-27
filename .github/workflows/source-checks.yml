@@ -2,7 +2,7 @@ name: Source checks
 
 on:
   push:
-    branches: [main, 'codex/**', 'kilo/**']
+    branches: [main, 'codex/**', 'kilo/**', 'sol/**']
   pull_request:
   workflow_dispatch:
 
@@ -33,7 +33,7 @@ jobs:
           import subprocess
 
           root = Path.cwd()
-          tracked = set(subprocess.check_output(['git', 'ls-files', '-z']).decode().split('\0')) - {''}
+          tracked = set(subprocess.check_output(['git', 'ls-files', '-z']).decode().split('\\0')) - {''}
           expected = tracked - {'SOURCE_SHA256SUMS'}
           listed = set()
           for line in Path('SOURCE_SHA256SUMS').read_text().splitlines():
@@ -56,6 +56,40 @@ jobs:
         run: npm ci
       - name: Check retained source
         run: npm run check
+
+  portable-web:
+    name: Portable web contract (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Use Node.js 24
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Install pinned npm dependencies
+        run: npm ci
+      - name: Check portable foundation contracts
+        run: npm run foundation:test
+      - name: Check portable PWA contract
+        run: npm run pwa:test
+      - name: Check portable ARC source
+        run: npm run arc:typecheck
+      - name: Check portable ARC domain tests
+        run: npm run arc:test
+      - name: Build portable web source
+        run: npm run build
+      # This job deliberately does not claim ARC replay qualification, Swift/AppKit
+      # support, Unity player acceptance, marketplace portability, or the full
+      # retained Vitest suite. Those remain separately qualified surfaces.
 
   native-source:
     name: Native compile and domain contracts

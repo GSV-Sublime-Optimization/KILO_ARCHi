@@ -151,7 +151,7 @@ final class HamptonReasonsAssistant: AssistantClient {
     func reply(to request: AssistantRequest, onEvent: @escaping @MainActor (AssistantEvent) -> Void) async throws {
         // Method acquisition reads exactly the selected concept. Keep the user's
         // setting and existing bank intact, but neither read nor extend that bank.
-        let usesSessionContext = contextEnabled && request.localMethodDraft == nil
+        let usesSessionContext = contextEnabled && !request.isKnowledgeAcquisition
         let representationRequired = reasoner.representationConfiguration.mode != .off
             || (usesSessionContext && selector.representationConfiguration.mode != .off)
         guard !disposed else { throw QwenFailure.stopped }
@@ -196,7 +196,7 @@ final class HamptonReasonsAssistant: AssistantClient {
         var receipts: [HamptonRoleReceipt] = []
         do {
             guard request.hasValidSelection, request.hasValidRevisionTarget, request.hasValidLocalLessons,
-                  request.hasValidLocalConversation, request.hasValidLocalProfile, request.hasValidLocalControl, request.hasValidLocalKnowledge, request.hasValidLocalProcedureKnowledge, request.hasValidLocalMethodDraft else {
+                  request.hasValidLocalConversation, request.hasValidLocalProfile, request.hasValidLocalControl, request.hasValidLocalKnowledge, request.hasValidLocalProcedureKnowledge, request.hasValidLocalMethodDraft, request.hasValidLocalConceptDraft else {
                 throw QwenFailure.invalidResponse
             }
             guard !request.prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
@@ -367,6 +367,9 @@ final class HamptonReasonsAssistant: AssistantClient {
                 revision = nil
             }
             if let target = request.localMethodDraft, let proposal {
+                _ = try target.admit(proposal: proposal)
+            }
+            if let target = request.localConceptDraft, let proposal {
                 _ = try target.admit(proposal: proposal)
             }
             snapshot.evidence?.sourceIDsCited = proposal?.sourceIDs ?? revision?.sourceIDs ?? []

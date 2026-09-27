@@ -6,8 +6,9 @@ import SwiftUI
 struct KnowledgePageDraft: Identifiable {
     let id = UUID()
     let prior: KnowledgePage?
+    let proposal: KnowledgeConceptDraft?
 
-    init(prior: KnowledgePage? = nil) { self.prior = prior }
+    init(prior: KnowledgePage? = nil, proposal: KnowledgeConceptDraft? = nil) { self.prior = prior; self.proposal = proposal }
 }
 
 @MainActor
@@ -53,6 +54,9 @@ struct KnowledgePagesCard: View {
             if let error = store.readingSources.loadError {
                 Text(error).font(.system(size: 11)).foregroundStyle(.orange)
                     .accessibilityIdentifier("knowledge.library-error")
+            }
+            if !store.readingSources.sources.isEmpty {
+                KnowledgeRetrievalView(store: store).padding(.vertical, 8)
             }
             if !store.readingSources.latestKnowledgePages.isEmpty {
                 TextField("Find a page", text: $query).textFieldStyle(.roundedBorder)
@@ -204,10 +208,10 @@ private struct KnowledgePageEditor: View {
 
     init(store: CompanionStore, draft: KnowledgePageDraft) {
         self.store = store; self.draft = draft
-        _title = State(initialValue: draft.prior?.title ?? "")
-        _pageBody = State(initialValue: draft.prior?.body ?? "")
-        _kind = State(initialValue: draft.prior?.kind ?? .claim)
-        _anchors = State(initialValue: draft.prior?.anchors ?? [])
+        _title = State(initialValue: draft.prior?.title ?? draft.proposal?.title ?? "")
+        _pageBody = State(initialValue: draft.prior?.body ?? draft.proposal?.body ?? "")
+        _kind = State(initialValue: draft.prior?.kind ?? (draft.proposal == nil ? .claim : .concept))
+        _anchors = State(initialValue: draft.prior?.anchors ?? draft.proposal?.anchors ?? [])
     }
 
     private var source: ReadingSourceSnapshot? {

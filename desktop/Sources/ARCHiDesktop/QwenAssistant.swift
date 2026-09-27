@@ -111,7 +111,7 @@ final class QwenAssistant: AssistantClient, LocalRoleClient {
         guard request.hasValidSelection, request.hasValidRevisionTarget else { throw QwenFailure.invalidResponse }
         guard request.hasValidLocalLessons, request.hasValidLocalConversation, request.hasValidLocalProfile,
               request.hasValidLocalControl, request.hasValidLocalKnowledge, request.hasValidLocalProcedureKnowledge,
-              request.hasValidLocalMethodDraft else { throw QwenFailure.invalidResponse }
+              request.hasValidLocalMethodDraft, request.hasValidLocalConceptDraft else { throw QwenFailure.invalidResponse }
         guard metadata != nil else { throw QwenFailure.unavailable }
         guard !busy else { throw QwenFailure.busy }
         let input = request.localInput

@@ -287,7 +287,7 @@ struct DocumentReadingPlan: Equatable, Sendable {
         let count: Int
     }
 
-    private static func index(_ text: String, sourceDigest: String, sourceID: String = "shared-copy",
+    static func index(_ text: String, sourceDigest: String, sourceID: String = "shared-copy",
                               sourceTitle: String = "Shared copy", revision: UInt64 = 1) -> [DocumentReadingSection] {
         var sections: [DocumentReadingSection] = []
         var parents: [(level: Int, title: String)] = []
@@ -453,7 +453,7 @@ struct DocumentReadingPlan: Equatable, Sendable {
         return result + "…"
     }
 
-    private static func terms(in text: String) -> Set<String> {
+    static func terms(in text: String) -> Set<String> {
         let ignored: Set<String> = ["a", "an", "and", "are", "as", "at", "be", "by", "for", "from", "in", "is", "it", "of", "on", "or", "that", "the", "this", "to", "was", "with"]
         let normalized = text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: Locale(identifier: "en_US_POSIX"))
         let tokens = normalized.components(separatedBy: CharacterSet.alphanumerics.inverted)

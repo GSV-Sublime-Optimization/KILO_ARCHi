@@ -21,6 +21,8 @@ struct AssistantRequest: Sendable {
     let localKnowledge: KnowledgePageContext?
     /// A request-scoped acquisition draft; never a lesson, dialogue or outcome.
     let localMethodDraft: KnowledgeMethodDraftRequest?
+    let localConceptDraft: KnowledgeConceptDraftRequest?
+    var isKnowledgeAcquisition: Bool { localMethodDraft != nil || localConceptDraft != nil }
     /// Native provenance only; page prose is not an instruction or cloud input.
     let localProcedureKnowledge: [KnowledgePageBinding]?
     let revisionTarget: RevisionTarget?
@@ -38,14 +40,15 @@ struct AssistantRequest: Sendable {
          localProfile: PersonalContextSnapshot? = nil, localControl: HamptonQ2EDecision? = nil,
          localReading: DocumentReadingPlan? = nil, localKnowledge: KnowledgePageContext? = nil,
          localProcedureKnowledge: [KnowledgePageBinding]? = nil,
-         localMethodDraft: KnowledgeMethodDraftRequest? = nil) {
+         localMethodDraft: KnowledgeMethodDraftRequest? = nil,
+         localConceptDraft: KnowledgeConceptDraftRequest? = nil) {
         self.init(prompt: prompt, sourceName: sourceName, sourceText: sourceText,
             sourceRevision: sourceRevision, placementRevision: placementRevision,
             settings: AssistantSettingsSnapshot(tone: tone, replyLength: replyLength, role: role, helpStyle: helpStyle),
             selection: selection, localLessons: localLessons, revisionTarget: revisionTarget, companion: companion,
             localConversation: localConversation, localProfile: localProfile, localControl: localControl,
             localReading: localReading, localKnowledge: localKnowledge, localProcedureKnowledge: localProcedureKnowledge,
-            localMethodDraft: localMethodDraft)
+            localMethodDraft: localMethodDraft, localConceptDraft: localConceptDraft)
     }
 
     init(prompt: String, sourceName: String?, sourceText: String, sourceRevision: UInt64,
@@ -55,7 +58,8 @@ struct AssistantRequest: Sendable {
          localProfile: PersonalContextSnapshot? = nil, localControl: HamptonQ2EDecision? = nil,
          localReading: DocumentReadingPlan? = nil, localKnowledge: KnowledgePageContext? = nil,
          localProcedureKnowledge: [KnowledgePageBinding]? = nil,
-         localMethodDraft: KnowledgeMethodDraftRequest? = nil) {
+         localMethodDraft: KnowledgeMethodDraftRequest? = nil,
+         localConceptDraft: KnowledgeConceptDraftRequest? = nil) {
         self.prompt = prompt
         self.sourceName = sourceName
         self.sourceText = sourceText
@@ -70,6 +74,7 @@ struct AssistantRequest: Sendable {
         self.localReading = localReading
         self.localKnowledge = localKnowledge
         self.localMethodDraft = localMethodDraft
+        self.localConceptDraft = localConceptDraft
         self.localProcedureKnowledge = localProcedureKnowledge
         self.revisionTarget = revisionTarget
         self.companion = companion
@@ -84,9 +89,16 @@ struct AssistantRequest: Sendable {
     var hasValidLocalConversation: Bool { AssistantConversation.validate(localConversation) }
     var hasValidLocalMethodDraft: Bool {
         guard let localMethodDraft else { return true }
-        return localKnowledge == localMethodDraft.context && prompt == localMethodDraft.prompt
+        return localConceptDraft == nil && localKnowledge == localMethodDraft.context && prompt == localMethodDraft.prompt
             && hasValidLocalKnowledge && localLessons.isEmpty && localConversation.isEmpty
             && localProfile == nil && localProcedureKnowledge == nil && companion == nil
+    }
+    var hasValidLocalConceptDraft: Bool {
+        guard let target = localConceptDraft else { return true }
+        return target.isValid && prompt == target.prompt && localMethodDraft == nil && localKnowledge == nil
+            && localReading == nil && localControl == nil && localLessons.isEmpty && localConversation.isEmpty
+            && localProfile == nil && localProcedureKnowledge == nil && companion == nil
+            && sourceName == nil && sourceText.isEmpty && selection == nil && revisionTarget == nil
     }
     var hasValidLocalProcedureKnowledge: Bool {
         guard let localProcedureKnowledge else { return true }
@@ -126,7 +138,7 @@ struct AssistantRequest: Sendable {
     var localConversationUTF8Bytes: Int { AssistantConversation.utf8ByteCount(for: localConversation) }
     var localSourceIDs: [String] {
         sourceIDs + (localReading?.sourceIDs ?? []) + AssistantConversation.sourceIDs(for: localConversation)
-            + (localKnowledge?.sourceIDs ?? [])
+            + (localKnowledge?.sourceIDs ?? []) + (localConceptDraft?.sourceIDs ?? [])
     }
 
     func replacingLocalConversation(_ exchanges: [AssistantConversationExchange]) -> AssistantRequest {
@@ -135,13 +147,13 @@ struct AssistantRequest: Sendable {
             selection: selection, localLessons: localLessons, revisionTarget: revisionTarget,
             companion: companion, localConversation: exchanges, localProfile: localProfile, localControl: localControl,
             localReading: localReading, localKnowledge: localKnowledge, localProcedureKnowledge: localProcedureKnowledge,
-            localMethodDraft: localMethodDraft)
+            localMethodDraft: localMethodDraft, localConceptDraft: localConceptDraft)
     }
 
     /// The common v4 input is unchanged. Local context and the fixed native work
     /// instruction stay on the local route; none of them cross to Codex.
     var localContextInput: String {
-        guard hasValidLocalKnowledge, hasValidLocalProcedureKnowledge, hasValidLocalMethodDraft else { return "" }
+        guard hasValidLocalKnowledge, hasValidLocalProcedureKnowledge, hasValidLocalMethodDraft, hasValidLocalConceptDraft else { return "" }
         guard var value = try? JSONDecoder().decode(JSONValue.self, from: Data(input.utf8)).object else { return input }
         if let conversation = AssistantConversation.modelInput(for: localConversation) { value["localConversation"] = conversation }
         if let localProfile { value["localProfile"] = localProfile.modelInput }
@@ -173,7 +185,11 @@ struct AssistantRequest: Sendable {
             value["localKnowledge"] = localKnowledge.modelInput
             value["sources"] = .array(localSourceIDs.map { .object(["id": .string($0), "label": .string($0)]) })
         }
-        if localProfile == nil && localConversation.isEmpty && workControl == nil && localReading == nil && localKnowledge == nil { return input }
+        if let localConceptDraft {
+            value["localConceptDraft"] = localConceptDraft.modelInput
+            value["sources"] = .array(localSourceIDs.map { .object(["id": .string($0), "label": .string($0)]) })
+        }
+        if localConceptDraft == nil && localProfile == nil && localConversation.isEmpty && workControl == nil && localReading == nil && localKnowledge == nil { return input }
         let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
         return String(decoding: (try? encoder.encode(JSONValue.object(value))) ?? Data(), as: UTF8.self)
     }
@@ -465,7 +481,7 @@ final class CodexAssistant: AssistantClient {
     func reply(to request: AssistantRequest, onEvent: @escaping @MainActor (AssistantEvent) -> Void) async throws {
         // Selected knowledge pages authorize a local-only request, including
         // its question. A direct client call cannot turn that into cloud fallback.
-        guard request.localKnowledge == nil, request.localProcedureKnowledge == nil, request.localMethodDraft == nil,
+        guard request.localKnowledge == nil, request.localProcedureKnowledge == nil, !request.isKnowledgeAcquisition,
               request.hasValidSelection, request.hasValidRevisionTarget else {
             throw AssistantFailure.protocolError
         }

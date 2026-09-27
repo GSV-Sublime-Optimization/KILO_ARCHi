@@ -1,6 +1,6 @@
 # Reviewed concepts to document methods
 
-26 September 2026 · R26-NATIVE-KNOWLEDGE-METHODS / R26-NATIVE-METHOD-DRAFTING
+26 September 2026 · R26-NATIVE-KNOWLEDGE-METHODS / R26-NATIVE-METHOD-DRAFTING / R26-NATIVE-KNOWLEDGE-RETRIEVAL
 
 ARCHi can draft locally or keep an explicitly authored document-method candidate from a current,
 reviewed **Concept** in Memories. It uses the existing source library, method
@@ -9,7 +9,7 @@ There is no second app, identity store or learning database.
 
 ## Use it
 
-1. Keep a source passage in Memories and author a Concept linked to that passage.
+1. Keep a source copy in Memories. Open **Find connections in your reading**, search, and select up to three exact passages. Give the concept a topic and choose **Draft concept locally**. Inspect the interpretation and limitations, then **Review in editor…** and **Save draft**. You can also author a Concept manually.
 2. Review the concept. Expand **Create a document method candidate**.
 3. Choose the length and exact-token requirements. Write an instruction, or use
    **Draft locally** for one local Qwen proposal from this concept and its exact
@@ -94,5 +94,39 @@ lines 215–228), the separate claims/experiences/methods and derivation edges
 request format is implementation work, not a new recovered Hampton equation.
 The existing numerical update, coupling, outcome ranking and cost definitions
 remain in their existing owners; no synthetic quotient increase is awarded for
-generating an instruction. Concept synthesis, automatic retrieval, demonstrated
-cross-task transfer and qualified live RepE remain separate unfinished work.
+generating an instruction. Source-grounded concept drafting and local lexical retrieval are now connected below.
+General semantic retrieval, demonstrated broad transfer and qualified live RepE remain unfinished.
+
+
+## Find passages and draft a concept
+
+Retrieval searches the existing kept-copy library and current reviewed knowledge
+pages. It reuses the document reader's heading/section index and query terms.
+The rank is a deterministic weighted word match, not embedding similarity, a
+probability or evidence of truth. Draft, withdrawn and unsupported pages are
+excluded; earlier reviewed versions cannot replace a withdrawn latest version.
+The UI reports excluded and omitted results. It returns at most twelve whole
+hits within a bounded context; it never clips a displayed quotation to fit.
+
+A source hit can be selected for concept drafting; a reviewed-page hit opens
+that page. Selection and use recheck the reading owner. One to three source
+passages are admitted, matching the existing reasoner's three-citation limit.
+The topic and exact passages remain typed source data. Local Qwen uses the same
+request owner, accounting, deadline and freshness checks as method drafting.
+The shared document, personal context, dialogue and lessons are excluded.
+
+The response must cite the selected passages and fit the ordinary bounded
+Hampton response contract. This checks reference membership, not whether every
+sentence is entailed. The proposal remains temporary. **Review in editor**
+carries its limitations and exact anchors into an editable, unreviewed draft.
+Saving and marking reviewed remain separate user actions. A changed source
+invalidates the preview and blocks saving its stale anchors. Acquisition cannot
+award development feedback, create a lesson from the answer, or enter dialogue.
+
+This implements part of Stack R2 L06/L07's source-addressed memory and reusable
+method loop. The supplied R3 notes further distinguish inference, memory,
+learning and development; this implementation preserves those separate owners.
+The R3 chat reference available here was bounded, and its complete linked atlas
+was not recovered. This increment does not claim to install all 174 historical
+formula records or the 71 integration blocks, nor treat those counts as verified
+laws. No quotient increases merely because a concept or instruction was written.

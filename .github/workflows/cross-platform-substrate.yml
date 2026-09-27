@@ -1,0 +1,86 @@
+name: Cross-platform substrate
+
+on:
+  push:
+    branches: [main, 'kilo/**', 'sol/**']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: portable-substrate-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  portable-contracts:
+    name: Shared contracts (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025, macos-15]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Use Node.js 24
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Install pinned npm dependencies
+        run: npm ci
+
+      - name: Test portable TypeScript and PWA contracts
+        run: |
+          npm run test
+          npm run foundation:test
+          npm run pwa:test
+          npm run arc:typecheck
+          npm run arc:test
+          npm run build
+
+      - name: Use Python 3.11
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.11'
+
+      - name: Test local marketplace service
+        run: python -m unittest discover -s marketplace/tests -v
+
+      - name: Test source-preparation contracts
+        run: python -m unittest discover -s scripts/tests -p "test_*source*.py" -v
+
+  dependency-floor:
+    name: Production dependency floor
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Use Node.js 24
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Install pinned npm dependencies
+        run: npm ci
+
+      - name: Reject high-severity production dependency findings
+        run: npm audit --omit=dev --audit-level=high
+
+# This workflow proves only the shared portable substrate. The Swift/AppKit
+# desktop shell, macOS Accessibility/Speech integrations, ARC replay qualification,
+# Unity player builds, signing/notarization and native runtime acceptance have
+# separate platform-specific authority and evidence requirements.

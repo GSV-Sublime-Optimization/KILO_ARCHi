@@ -91,6 +91,32 @@ jobs:
       # support, Unity player acceptance, marketplace portability, or the full
       # retained Vitest suite. Those remain separately qualified surfaces.
 
+  marketplace-portable:
+    name: Marketplace storage contract (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            python: python3
+          - os: macos-15
+            python: python3
+          - os: windows-latest
+            python: python
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Report Python runtime
+        run: ${{ matrix.python }} -c "import sys; assert sys.version_info >= (3, 11), sys.version; print(sys.version)"
+      - name: Check marketplace contracts
+        run: ${{ matrix.python }} -m unittest discover -s marketplace/tests -v
+      # This exercises the local development marketplace only. It does not claim
+      # hosting, Internet commerce, account recovery, moderation, or release ACLs.
+
   native-source:
     name: Native compile and domain contracts
     runs-on: macos-15

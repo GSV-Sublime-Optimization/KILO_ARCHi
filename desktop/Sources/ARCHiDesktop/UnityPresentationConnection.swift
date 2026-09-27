@@ -171,6 +171,7 @@ struct UnityPresentationAcknowledgment: Codable {
     @Published private(set) var worldOutcomes: [WorldActionOutcome] = []
     @Published private(set) var worldOutcomeStatus = "Open Arena to observe solo practice outcomes."
     @Published private(set) var missingWorldOutcomes = 0
+    @Published private(set) var arenaAdviceTracking: ArenaAdviceTracking?
     private var worldOutcomeHistory = WorldOutcomeHistory()
     private var lastWorldOutcomeSnapshot: WorldOutcomeSnapshot?
 
@@ -179,7 +180,47 @@ struct UnityPresentationAcknowledgment: Codable {
     func practiceReport(now: Date = Date()) -> ArenaPracticeReport? {
         guard isSharing, let observation = lastWorldOutcomeSnapshot,
               observation.sessionID == sessionID.uuidString else { return nil }
-        return ArenaPracticeReport(history: worldOutcomeHistory, snapshot: observation, capturedAt: now)
+        return ArenaPracticeReport(history: worldOutcomeHistory, snapshot: observation, capturedAt: now,
+                                   adviceTracking: arenaAdviceTracking)
+    }
+
+    /// Conditional advice from checked observations. The wire does not yet expose
+    /// a live bout cursor, so this is never a dispatchable command or legality claim.
+    func arenaMoveAdvice(now: Date = Date()) -> ArenaMoveAdvice? {
+        guard isSharing, hasRenderAcknowledgment, let observation = lastWorldOutcomeSnapshot,
+              observation.sessionID == sessionID.uuidString else { return nil }
+        return ArenaMoveAdvice(history: worldOutcomeHistory, snapshot: observation, preparedAt: now)
+    }
+
+    func trackArenaAdvice(_ advice: ArenaMoveAdvice, now: Date = Date()) {
+        guard arenaAdviceTracking?.status != .pending,
+              let current = arenaMoveAdvice(now: now),
+              current.sessionID == advice.sessionID,
+              current.baseOutcome == advice.baseOutcome,
+              current.evidenceDigest == advice.evidenceDigest,
+              current.selectedMove == advice.selectedMove,
+              now.timeIntervalSince(advice.preparedAt) >= 0,
+              now.timeIntervalSince(advice.preparedAt) <= 5 else { return }
+        arenaAdviceTracking = ArenaAdviceTracking(advice: advice)
+    }
+
+    func clearArenaAdvice() { arenaAdviceTracking = nil }
+
+    private func invalidateArenaAdvice(_ reason: String) {
+        guard var tracking = arenaAdviceTracking, tracking.status == .pending else { return }
+        tracking.invalidate(reason: reason)
+        arenaAdviceTracking = tracking
+    }
+
+    /// A presentation revision/foreground handoff can precede its ACK by one
+    /// poll. Keep the frozen advice only within the existing freshness window;
+    /// no observation is consumed until the normal ACK and wire checks pass.
+    private func expireArenaAdvice(now: Date, reason: String) {
+        if let last = lastWorldOutcomeSnapshot {
+            let age = now.timeIntervalSince1970 - last.updatedAtUnix
+            if age.isFinite, (-5...5).contains(age) { return }
+        }
+        invalidateArenaAdvice(reason)
     }
 
     func exportPracticeReport(_ report: ArenaPracticeReport, to url: URL) throws {
@@ -382,6 +423,7 @@ struct UnityPresentationAcknowledgment: Codable {
         self.destination = destination
         lastSnapshot = nil; previousSnapshot = nil; hasRenderAcknowledgment = false; suspended = false
         worldOutcomeHistory.reset(); lastWorldOutcomeSnapshot = nil; worldOutcomes = []; missingWorldOutcomes = 0
+        arenaAdviceTracking = nil
         worldOutcomeStatus = "Waiting for Arena outcome support."
         let root = directory ?? FileManager.default.temporaryDirectory
         let folder = root.appendingPathComponent("archi-unity-\(sessionID.uuidString)", isDirectory: true)
@@ -465,15 +507,22 @@ struct UnityPresentationAcknowledgment: Codable {
         worldOutcomeStatus = "Waiting for a current Arena connection. Earlier session observations remain below."
         guard isSharing, let url = snapshotURL?.appendingPathExtension("ack"),
               let data = try? Self.readAcknowledgmentData(at: url),
-              let acknowledgment = try? JSONDecoder().decode(UnityPresentationAcknowledgment.self, from: data) else { return }
+              let acknowledgment = try? JSONDecoder().decode(UnityPresentationAcknowledgment.self, from: data) else {
+            expireArenaAdvice(now: now, reason: "The current Arena connection is unavailable.")
+            return
+        }
         guard let latest = lastSnapshot else { return }
         hasRenderAcknowledgment = [latest, previousSnapshot].compactMap { $0 }.contains {
             $0.hasSamePresentation(as: latest) && acknowledgment.matches($0, now: now)
         }
         if hasRenderAcknowledgment, let currentArea = acknowledgment.currentArea,
            let area = UnityPresentationDestination(rawValue: currentArea) { destination = area }
-        guard hasRenderAcknowledgment else { return }
+        guard hasRenderAcknowledgment else {
+            expireArenaAdvice(now: now, reason: "The Arena connection is no longer current.")
+            return
+        }
         guard acknowledgment.worldOutcomeVersion == 1 else {
+            invalidateArenaAdvice("This Arena build does not report resolved actions.")
             worldOutcomeStatus = "This Arena build does not report action outcomes. Its render acknowledgment only confirms presentation."
             return
         }
@@ -489,12 +538,17 @@ struct UnityPresentationAcknowledgment: Codable {
             lastWorldOutcomeSnapshot = observation
             worldOutcomes = worldOutcomeHistory.outcomes
             missingWorldOutcomes = worldOutcomeHistory.missingCount
+            if var tracking = arenaAdviceTracking {
+                tracking.observe(history: worldOutcomeHistory, snapshot: observation, now: now)
+                arenaAdviceTracking = tracking
+            }
             switch observation.mode {
             case "solo": worldOutcomeStatus = "Observing resolved solo actions · this session only."
             case "paired": worldOutcomeStatus = "Paired action reporting is not connected. Earlier solo observations remain below."
             default: worldOutcomeStatus = "Enter solo practice to observe resolved actions."
             }
         } catch {
+            invalidateArenaAdvice("A current action report did not pass the session checks.")
             worldOutcomeStatus = "A current action report is unavailable or did not pass the session checks. No new outcome was accepted."
         }
     }
@@ -533,6 +587,7 @@ struct UnityPresentationAcknowledgment: Codable {
         }
         isSharing = false; hasRenderAcknowledgment = false; isOpening = false
         worldOutcomeHistory.reset(); lastWorldOutcomeSnapshot = nil; worldOutcomes = []; missingWorldOutcomes = 0
+        arenaAdviceTracking = nil
         worldOutcomeStatus = "Session ended. Practice observations were cleared."
         player?.terminate(); player = nil
         status = "Unity presentation stopped. Desktop KIN and saved development are unchanged."

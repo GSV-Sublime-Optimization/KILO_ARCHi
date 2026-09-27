@@ -17,7 +17,9 @@ The consumer keeps at most 32 observed actions. Each report includes:
 
 Repeated polls do not add another action. A terminal result is counted once per retained bout. A win whose ending action is outside the window is not counted. An empty stream supplies no report. Earlier accepted solo observations can remain visible if the connection becomes stale or switches to paired play; their original timestamp and mode are retained. A save never establishes that the connection is currently live.
 
-These are locally consistency-checked Unity rule outcomes from explicit player inputs. They are not independently authenticated results, physics-contact evidence, native-Q2E action choices, paired-game receipts, remote multiplayer, model learning or canonical growth. The native profile retains authority over identity and development. The Unity player and existing combat rules are unchanged by this native reporting increment.
+These are locally consistency-checked Unity rule outcomes from explicit player inputs. They are not independently authenticated results, physics-contact evidence, autonomous actions, paired-game receipts, remote multiplayer, model learning or canonical growth. The native profile retains authority over identity and development. The Unity player and existing combat rules are unchanged by this native reporting increment.
+
+Schema 2 also exports an optional frozen Hampton move suggestion and its observed link. The [Arena advice guide](native-arena-advice.md) defines the target, update, ranking and strict attribution rules. Saving now uses an attached sheet so Arena observation can continue while the destination is chosen.
 
 ## Investor use
 
@@ -27,4 +29,6 @@ Source: [report projection](../desktop/Sources/ARCHiDesktop/ArenaPracticeReport.
 
 ## Current verification
 
-Eight focused projection and connection/export cases passed. The installed player produced two actual solo records, Pulse and Guard, with 7 total damage dealt, 9 taken and 7 blocked. Profile and resource hashes were preserved. Native capture failed with ScreenCaptureKit −3812 after the Unity handoff: the populated native card and Save-panel interaction remain unverified. The JSON exporter and rejection after session end were exercised through the existing owner with disposable data. This is a bounded installed upgrade, not a completed investor-demo acceptance.
+The earlier reporting increment passed eight focused projection/owner cases and observed two actual solo inputs: 7 total damage dealt, 9 taken and 7 blocked. A follow-through on 27 September observed these same values in the populated native summary and confirmed that ending the session cleared it. That closes the earlier populated-summary gap without rewriting its historical receipt.
+
+The old modal Save panel still stalled during the follow-through. The current increment replaces it with a workspace-owned attached sheet and adds native advice. Nineteen focused cases passed; the final installed walkthrough completed suggestion tracking, a matched next action, native Save, and cleanup. The saved schema-2 JSON was checked against the observed actions. Detailed delivery evidence is recorded in [the increment result](../output/arena-advice-2026-09-27/RESULT.md). This remains development-alpha evidence, not owner/investor-demo acceptance.

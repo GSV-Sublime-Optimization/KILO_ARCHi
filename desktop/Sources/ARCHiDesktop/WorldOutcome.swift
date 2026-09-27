@@ -28,7 +28,7 @@ struct WorldActionOutcome: Codable, Equatable, Identifiable, Sendable {
     let winner: String
     var id: String { actionID }
 
-    fileprivate func isValid(revision: Int, observedAt: Double) -> Bool {
+    func isValid(revision: Int, observedAt: Double) -> Bool {
         let moves = ["pulse", "guard", "signature"]
         guard sequence > 0, UUID(uuidString: actionID) != nil, UUID(uuidString: boutID) != nil,
               presentationRevision > 0, presentationRevision <= revision,

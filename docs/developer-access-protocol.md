@@ -84,7 +84,7 @@ Mode changes and new bouts reset the temporary match. Shortcuts need Unity focus
 
 ### Show and save solo practice outcomes
 
-Return to native **Arena → Practice outcomes** after solo moves. The summary shows retained action counts and their effects. **Save practice report…** exports a frozen JSON window, including sequence/bout IDs, observation time and retained/missed/retired coverage. Save before **End session**, which clears the in-app observations. No profile notes or companion identity are exported. Paired outcomes and native-Q2E action selection are not connected; a practice result is not evidence of learned behavior. See [practice report scope](native-arena-practice-report.md) and the [investor demonstration](investor-evidence-walkthrough.md).
+Return to native **Arena → Practice outcomes** after solo moves. The summary shows retained action counts and their effects. **Save practice report…** exports a frozen JSON window, including sequence/bout IDs, observation time and retained/missed/retired coverage. Save before **End session**, which clears the in-app observations. No profile notes or companion identity are exported. Use **Try a move together → Track this suggestion** to bind Hampton’s conditional advice to the next observed solo input. Paired outcomes and automatic native action dispatch are not connected; a matched suggestion is not evidence of improved performance. See [the advice contract](native-arena-advice.md). See [practice report scope](native-arena-practice-report.md) and the [investor demonstration](investor-evidence-walkthrough.md).
 
 ### Arena troubleshooting
 

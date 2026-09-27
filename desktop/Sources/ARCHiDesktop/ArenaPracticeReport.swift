@@ -26,13 +26,16 @@ struct ArenaPracticeReport: Codable, Equatable, Sendable {
     let observedLosses: Int
     let observedDraws: Int
     let outcomes: [WorldActionOutcome]
+    /// Optional, explicitly frozen native suggestion and its observational link.
+    let adviceTracking: ArenaAdviceTracking?
     let evidenceScope: String
     let limitations: [String]
 
     /// The owner must validate the snapshot against its actual presentation before
     /// ingestion. Replaying it into a value copy verifies the existing session
     /// identity (including its private origin digest), cursor and immutable overlap.
-    init?(history: WorldOutcomeHistory, snapshot: WorldOutcomeSnapshot, capturedAt: Date) {
+    init?(history: WorldOutcomeHistory, snapshot: WorldOutcomeSnapshot, capturedAt: Date,
+          adviceTracking: ArenaAdviceTracking? = nil) {
         let capturedAtUnix = capturedAt.timeIntervalSince1970
         guard capturedAtUnix.isFinite, capturedAtUnix > 0,
               snapshot.updatedAtUnix.isFinite, snapshot.updatedAtUnix > 0,
@@ -62,7 +65,7 @@ struct ArenaPracticeReport: Codable, Equatable, Sendable {
         guard Set(terminalOutcomes.compactMap { UUID(uuidString: $0.boutID) }).count
                 == terminalOutcomes.count else { return nil }
 
-        schemaVersion = 1
+        schemaVersion = 2
         sessionID = snapshot.sessionID
         sessionKind = snapshot.sessionKind
         self.capturedAtUnix = capturedAtUnix
@@ -77,6 +80,7 @@ struct ArenaPracticeReport: Codable, Equatable, Sendable {
         // a valid large sequence gap even though the resulting count cannot.
         retiredCount = max(history.consumedSequence - history.missingCount - history.outcomes.count, 0)
         outcomes = history.outcomes
+        self.adviceTracking = adviceTracking
         actionCounts = Dictionary(uniqueKeysWithValues: actions.map { action in
             (action, history.outcomes.filter { $0.action == action }.count)
         })
@@ -91,7 +95,8 @@ struct ArenaPracticeReport: Codable, Equatable, Sendable {
             "All action, damage, absorption and terminal-outcome measures cover only the retained window, not full session totals.",
             "Missing actions were never observed by this consumer; retired actions were observed but are no longer retained.",
             "A paired or unavailable current mode may retain earlier solo outcomes; paired play contributes no outcomes in this schema.",
-            "These observations do not establish physics contacts, native Q2E-driven actions, learned behavior or saved companion growth."
+            "A tracked native suggestion links only to the exact next matching observed context; it does not dispatch the action or establish causal improvement.",
+            "These observations do not establish physics contacts, autonomous actions, general learning or saved companion growth."
         ]
     }
 

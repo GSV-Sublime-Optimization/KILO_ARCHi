@@ -57,3 +57,8 @@ Relevant checks include [method history](../desktop/Tests/ARCHiDesktopTests/Meth
 **27 September follow-through:** Work together now has a profile-wide [applied-work review queue](native-document-review-queue.md). It finds earlier unreviewed ordinary and method-based edits after moving to a new copy or restarting. Historical receipt inspection does not restore prose, undo current work or award learning.
 
 **27 September Arena follow-through:** [Practice reports](native-arena-practice-report.md) summarize and export the existing checked solo-action window. Retained, missed and retired actions stay distinct; all metrics cover retained records only. The Unity rules and saved companion development are unchanged. [Investor walkthrough](investor-evidence-walkthrough.md) maps the current mechanisms to inspectable measures and remaining evidence.
+
+
+## Conditional Hampton move advice
+
+The [native Arena adviser](native-arena-advice.md) now consumes retained same-field integrity exchanges through the existing bounded numerical engine. **Track this suggestion** freezes the move and evidence before a manual input; only the exact next matching context can link. The report includes this trace. This adds an actual native numerical consumer while automatic dispatch, active-bout observation, paired outcomes and physics-contact reporting remain separate work.

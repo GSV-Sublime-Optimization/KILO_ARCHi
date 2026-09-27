@@ -36,16 +36,51 @@ final class UnityPresentationTests: XCTestCase {
         connection.readAcknowledgment(now: now)
         XCTAssertEqual(connection.worldOutcomes, [event], "Polling never duplicates outcomes.")
         XCTAssertEqual(connection.missingWorldOutcomes, 0)
+        let advice = try XCTUnwrap(connection.arenaMoveAdvice(now: now))
+        XCTAssertEqual(advice.selectedMove, "guard")
+        connection.trackArenaAdvice(advice, now: now)
+        XCTAssertEqual(connection.arenaAdviceTracking?.status, .pending)
+        try FileManager.default.removeItem(at: url.appendingPathExtension("ack"))
+        connection.readAcknowledgment(now: now.addingTimeInterval(1))
+        XCTAssertEqual(connection.arenaAdviceTracking?.status, .pending,
+                       "A bounded handoff gap must not retire the frozen suggestion.")
+        XCTAssertNil(connection.arenaMoveAdvice(now: now.addingTimeInterval(1)),
+                     "No new advice is offered without a current acknowledgment.")
+        connection.readAcknowledgment(now: now.addingTimeInterval(6))
+        XCTAssertEqual(connection.arenaAdviceTracking?.status, .unlinked,
+                       "The handoff grace must expire after the existing freshness bound.")
+        try JSONSerialization.data(withJSONObject: ack).write(to: url.appendingPathExtension("ack"))
+        connection.clearArenaAdvice()
+        connection.readAcknowledgment(now: now)
+        connection.trackArenaAdvice(advice, now: now)
+        XCTAssertEqual(connection.arenaAdviceTracking?.status, .pending)
+        let next = WorldActionOutcome(sequence: 2, actionID: UUID().uuidString, boutID: event.boutID,
+            presentationRevision: snapshot.revision, atUnix: now.timeIntervalSince1970 + 0.1,
+            action: "guard", rivalAction: "pulse", field: "guardian", round: 2,
+            integrityBefore: 29, integrityAfter: 29, rivalIntegrityBefore: 29, rivalIntegrityAfter: 29,
+            sparkBefore: 3, sparkAfter: 3, rivalSparkBefore: 3, rivalSparkAfter: 3,
+            damageDealt: 0, damageTaken: 0, absorbed: 7, complete: false, winner: "")
+        let nextSnapshot = WorldOutcomeSnapshot(schemaVersion: 1, sessionID: snapshot.sessionID,
+            originDigest: snapshot.originDigest, sessionKind: snapshot.sessionKind ?? "companion",
+            revision: snapshot.revision, updatedAtUnix: now.timeIntervalSince1970 + 0.1,
+            currentArea: "arena", mode: "solo", firstSequence: 1, lastSequence: 2, outcomes: [event, next])
+        try JSONEncoder().encode(nextSnapshot).write(to: url.appendingPathExtension(WorldOutcomeSnapshot.pathExtension))
+        connection.readAcknowledgment(now: now.addingTimeInterval(0.2))
+        XCTAssertEqual(connection.arenaAdviceTracking?.status, .matched)
+        XCTAssertEqual(connection.arenaAdviceTracking?.outcome, next)
         let report = try XCTUnwrap(connection.practiceReport(now: now))
+        XCTAssertEqual(report.adviceTracking, connection.arenaAdviceTracking)
         let reportURL = fixture.directory.appendingPathComponent("practice-report.json")
         try connection.exportPracticeReport(report, to: reportURL)
         XCTAssertEqual(try JSONDecoder().decode(ArenaPracticeReport.self, from: Data(contentsOf: reportURL)), report)
         connection.readAcknowledgment(now: now.addingTimeInterval(6))
         XCTAssertFalse(connection.hasRenderAcknowledgment)
-        XCTAssertEqual(connection.worldOutcomes, [event], "Stale connection cannot add or erase past observations.")
+        XCTAssertEqual(connection.worldOutcomes, [event, next], "Stale connection cannot add or erase past observations.")
+        XCTAssertNil(connection.arenaMoveAdvice(now: now.addingTimeInterval(6)))
         XCTAssertNotNil(connection.practiceReport(now: now.addingTimeInterval(6)), "Earlier checked facts remain exportable with their original observation timestamp.")
         connection.stop()
         XCTAssertTrue(connection.worldOutcomes.isEmpty)
+        XCTAssertNil(connection.arenaAdviceTracking)
         XCTAssertNil(connection.practiceReport(now: now))
         let endedExport = fixture.directory.appendingPathComponent("ended-session.json")
         XCTAssertThrowsError(try connection.exportPracticeReport(report, to: endedExport))

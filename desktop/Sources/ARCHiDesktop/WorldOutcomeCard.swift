@@ -16,6 +16,7 @@ struct WorldOutcomeCard: View {
                 if let report = connection.practiceReport() {
                     summary(report)
                 }
+                ArenaAdviceView(connection: connection)
                 if !connection.worldOutcomes.isEmpty {
                     DisclosureGroup("Recent actions · \(connection.worldOutcomes.count)") {
                         ForEach(connection.worldOutcomes.reversed()) { outcome in
@@ -95,7 +96,23 @@ struct WorldOutcomeCard: View {
         panel.allowedContentTypes = [.json]
         panel.nameFieldStringValue = "ARCHi-practice-\(report.sessionID.prefix(8)).json"
         panel.message = "Save the currently retained practice observations. Coverage and limitations are included."
-        guard panel.runModal() == .OK, let url = panel.url else { return }
+        // The Unity player can still own app focus when accessibility or a
+        // background workspace button invokes Save. Attach to ARCHi's actual
+        // workspace instead of depending on an ephemeral key/main window.
+        guard let window = (NSApp.keyWindow as? WorkspaceWindow)
+                ?? NSApp.windows.compactMap({ $0 as? WorkspaceWindow }).first(where: \.isVisible) else {
+            exportMessage = "Open the ARCHi workspace before saving a report."
+            return
+        }
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        panel.beginSheetModal(for: window) { response in
+            guard response == .OK, let url = panel.url else { return }
+            writeReport(report, to: url)
+        }
+    }
+
+    private func writeReport(_ report: ArenaPracticeReport, to url: URL) {
         let scoped = url.startAccessingSecurityScopedResource()
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
         do {

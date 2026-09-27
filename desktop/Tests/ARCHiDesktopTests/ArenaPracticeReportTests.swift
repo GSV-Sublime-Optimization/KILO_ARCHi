@@ -18,7 +18,7 @@ final class ArenaPracticeReportTests: XCTestCase {
         ])
         let history = try validatedHistory(value)
         let report = try XCTUnwrap(ArenaPracticeReport(history: history, snapshot: value, capturedAt: now))
-        XCTAssertEqual(report.schemaVersion, 1)
+        XCTAssertEqual(report.schemaVersion, 2)
         XCTAssertEqual(report.sessionID, session)
         XCTAssertEqual(report.sessionKind, "companion")
         XCTAssertEqual(report.presentationRevision, 7)
@@ -43,7 +43,7 @@ final class ArenaPracticeReportTests: XCTestCase {
         XCTAssertTrue(report.outcomeSummary.contains("1 wins"))
         XCTAssertTrue(report.evidenceScope.contains("solo Unity rule outcomes"))
         XCTAssertTrue(report.limitations.contains { $0.contains("not full session totals") })
-        XCTAssertTrue(report.limitations.contains { $0.contains("physics contacts") && $0.contains("learned behavior") })
+        XCTAssertTrue(report.limitations.contains { $0.contains("physics contacts") && $0.contains("general learning") })
 
         let data = try JSONEncoder().encode(report)
         XCTAssertEqual(try JSONDecoder().decode(ArenaPracticeReport.self, from: data), report)

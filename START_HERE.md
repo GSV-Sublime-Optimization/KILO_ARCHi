@@ -2,6 +2,8 @@
 
 ARCHi is a local-first companion workspace with a native macOS application, a Unity companion/practice surface, and a local creator marketplace.
 
+This GSV checkout is an **active external-collaboration adaptation of `cr8ph8/ARCHi`**, not a first-party origin claim. Kilo_Core registers it behind the external-repository membrane with review-first / PR-only mutation.
+
 This repository is a **source candidate**, not a Beta declaration, signed distribution, or proof that every presentation asset is redistributable.
 
 ## Read first

@@ -36,6 +36,7 @@ struct UnityWorkspace: View {
                     }
                     arenaCard
                     if connection.isSharing { sessionStatus }
+                    if connection.isSharing { WorldOutcomeCard(connection: connection) }
                     connectionDetails
                     companionRoom
                 }

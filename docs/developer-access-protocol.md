@@ -6,6 +6,8 @@ ARCHi is the ARC Hampton Interphase. One native app owns the companion, preferen
 
 Read the [current progress report](system-progress-2026-09-26.md). These instructions apply to [draft PR #1](https://github.com/cr8ph8/ARCHi/pull/1), not a released beta or a public game server.
 
+For method outcome review, People records and the solo-action observer, follow [Everyday learning and world outcomes](everyday-learning-and-world-outcomes.md). Its delivery and interaction checks are tracked separately from the access instructions below.
+
 ## Available access
 
 | Goal | Entry point | Requirement |

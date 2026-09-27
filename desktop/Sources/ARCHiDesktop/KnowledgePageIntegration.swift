@@ -118,4 +118,77 @@ extension CompanionStore {
             knowledgePageMessage = "Page withdrawn. Earlier versions remain in its history."
         } catch { knowledgePageMessage = error.localizedDescription }
     }
+
+    func beginRelationshipPage(_ kind: RelationshipMemoryKind, person: KnowledgePage? = nil) {
+        guard canChangeKnowledgePages, knowledgePageDraft == nil else { return }
+        if kind != .person {
+            guard let person, person.relationship?.kind == .person,
+                  readingSources.availability(of: person) == nil else {
+                knowledgePageMessage = "Review the current person record before adding an encounter or commitment."
+                return
+            }
+        }
+        knowledgePageMessage = nil
+        knowledgePageDraft = KnowledgePageDraft(relationshipKind: kind, person: person?.binding)
+        open(.memory)
+    }
+
+    @discardableResult
+    func saveRelationshipPage(prior: KnowledgePage?, title: String, body: String,
+                              metadata: RelationshipMemoryMetadata, anchors: [KnowledgeAnchor]) -> Bool {
+        guard canChangeKnowledgePages else { return false }
+        do {
+            let page = try readingSources.saveRelationshipPage(id: prior?.id, expectedRevision: prior?.revision,
+                title: title, body: body, metadata: metadata, anchors: anchors)
+            selectedKnowledgePageID = page.id
+            knowledgePageDraft = nil
+            invalidateReadingContext(reason: "Relationship record saved. Earlier context was cleared.")
+            knowledgePageMessage = "Draft saved on this Mac. Review the record and its linked note before using it."
+            return true
+        } catch { knowledgePageMessage = error.localizedDescription; return false }
+    }
+
+    func markRelationshipCommitment(_ page: KnowledgePage, status: RelationshipCommitmentStatus) {
+        guard canChangeKnowledgePages else { return }
+        do {
+            let revised = try readingSources.markRelationshipCommitment(id: page.id,
+                expectedRevision: page.revision, status: status)
+            selectedKnowledgePageID = revised.id
+            invalidateReadingContext(reason: "Commitment status changed. Earlier context was cleared.")
+            knowledgePageMessage = "Your status report is saved as a draft. Review it before using it in preparation."
+        } catch { knowledgePageMessage = error.localizedDescription }
+    }
+
+    /// Replaces previous selections so a brief never silently includes another person's pages.
+    /// It prepares local context only; the user still writes and sends the request.
+    func prepareRelationshipConversation(person: KnowledgePage, records: [KnowledgePage]) {
+        guard canChangeKnowledgePages, knowledgePageDraft == nil else { return }
+        let pages = [person] + records
+        guard person.relationship?.kind == .person, pages.count <= 4,
+              Set(pages.map(\.id)).count == pages.count,
+              records.allSatisfy({ $0.relationship?.person == person.binding }),
+              pages.allSatisfy({ readingSources.availability(of: $0) == nil }),
+              KnowledgePageContext.make(pages: pages,
+                quotes: pages.map { $0.anchors.compactMap { readingSources.quote(for: $0) } }) != nil else {
+            knowledgePageMessage = "Choose a current reviewed person and up to three short, reviewed related records. Check their passages if preparation is unavailable."
+            return
+        }
+        invalidateReadingContext(reason: "Selected relationship records for local preparation. Nothing sent yet.")
+        requestsRevision = false
+        selectedKnowledgePages = pages.map(\.binding)
+        setAssistantRoute(.automatic)
+        knowledgePageMessage = "Selected \(pages.count) records for local chat. Write your preparation question when ready."
+        open(.assistant)
+    }
+
+    @discardableResult
+    func keepRelationshipSource(title: String, text: String) -> Bool {
+        guard canChangeKnowledgePages else { return false }
+        do {
+            _ = try readingSources.keep(title: title, text: text)
+            invalidateReadingContext(reason: "A relationship note was kept on this Mac.")
+            knowledgePageMessage = "Note kept. Add a person, encounter or commitment and link its exact passage."
+            return true
+        } catch { knowledgePageMessage = error.localizedDescription; return false }
+    }
 }

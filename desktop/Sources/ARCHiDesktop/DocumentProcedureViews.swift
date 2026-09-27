@@ -231,10 +231,7 @@ private struct DocumentProcedureVersionDetails: View {
             if let origin = procedure.knowledgeOrigin {
                 knowledgeOriginDetails(origin)
             }
-            if let outcomes = store.outcomes(for: procedure) {
-                Text("This version · \(outcomes.helpful) helpful · \(outcomes.needsCorrection) corrected or withdrawn · \(outcomes.awaitingReview) awaiting review")
-                    .foregroundStyle(.secondary)
-            }
+            MethodLearningView(store: store, procedure: procedure, isHistorical: isHistorical)
             DisclosureGroup("Local usage") {
                 if let usage = store.resources(for: procedure) {
                     let perHelpful = Double(usage.totalTokens) / Double(usage.helpfulResults)

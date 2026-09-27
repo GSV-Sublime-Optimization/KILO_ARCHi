@@ -137,7 +137,7 @@ struct KnowledgePageContext: Equatable, Sendable {
             "scope": .string("explicitly-selected-local-knowledge-pages"),
             "handling": .string(LocalKnowledgeGuidance.text),
             "pages": .array(entries.map { entry in
-                .object([
+                var fields: [String: JSONValue] = [
                     "sourceID": .string(entry.sourceID),
                     "pageID": .string(entry.page.id),
                     "revision": .string(String(entry.page.revision)),
@@ -159,7 +159,9 @@ struct KnowledgePageContext: Equatable, Sendable {
                             "text": .string(entry.quotes[index])
                         ])
                     })
-                ])
+                ]
+                if let relationship = entry.page.relationship { fields["relationship"] = relationship.modelInput }
+                return .object(fields)
             })
         ])
     }

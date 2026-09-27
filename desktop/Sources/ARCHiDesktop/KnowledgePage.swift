@@ -81,6 +81,7 @@ struct KnowledgePage: Codable, Equatable, Identifiable, Sendable {
     let createdAt: Date
     let updatedAt: Date
     let review: KnowledgePageReview?
+    let relationship: RelationshipMemoryMetadata?
 
     var isValid: Bool {
         UUID(uuidString: id) != nil && revision > 0
@@ -89,6 +90,7 @@ struct KnowledgePage: Codable, Equatable, Identifiable, Sendable {
             && !body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && body.utf8.count <= Self.maximumBodyBytes
             && (1...4).contains(anchors.count) && anchors.allSatisfy(\.isValid)
             && Set(anchors.map(\.id)).count == anchors.count
+            && (relationship.map { $0.isValid && kind == .claim && $0.person?.id.lowercased() != id.lowercased() } ?? true)
             && Self.validDate(createdAt) && Self.validDate(updatedAt) && updatedAt >= createdAt
             && (state == .draft ? review == nil
                 : review?.isValid == true && review?.state == state && review?.recordedAt == updatedAt)
@@ -96,10 +98,11 @@ struct KnowledgePage: Codable, Equatable, Identifiable, Sendable {
 
     init(id: String, revision: UInt64, title: String, body: String, kind: KnowledgePageKind,
          anchors: [KnowledgeAnchor], state: KnowledgePageState, createdAt: Date, updatedAt: Date,
-         review: KnowledgePageReview? = nil) {
+         review: KnowledgePageReview? = nil, relationship: RelationshipMemoryMetadata? = nil) {
         self.id = id; self.revision = revision; self.title = title; self.body = body
         self.kind = kind; self.anchors = anchors; self.state = state
         self.createdAt = createdAt; self.updatedAt = updatedAt; self.review = review
+        self.relationship = relationship
     }
 
     static func validDate(_ date: Date) -> Bool {
@@ -111,14 +114,15 @@ struct KnowledgePage: Codable, Equatable, Identifiable, Sendable {
             && lhs.title.utf8.elementsEqual(rhs.title.utf8) && lhs.body.utf8.elementsEqual(rhs.body.utf8)
             && lhs.kind == rhs.kind && lhs.anchors == rhs.anchors && lhs.state == rhs.state
             && lhs.createdAt == rhs.createdAt && lhs.updatedAt == rhs.updatedAt && lhs.review == rhs.review
+            && lhs.relationship == rhs.relationship
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, revision, title, body, kind, anchors, state, createdAt, updatedAt, review
+        case id, revision, title, body, kind, anchors, state, createdAt, updatedAt, review, relationship
     }
     init(from decoder: Decoder) throws {
         try KnowledgePageKeys.require(["id", "revision", "title", "body", "kind", "anchors", "state", "createdAt", "updatedAt"],
-            optional: ["review"], in: decoder)
+            optional: ["review", "relationship"], in: decoder)
         let values = try decoder.container(keyedBy: CodingKeys.self)
         id = try values.decode(String.self, forKey: .id)
         revision = try values.decode(UInt64.self, forKey: .revision)
@@ -130,6 +134,7 @@ struct KnowledgePage: Codable, Equatable, Identifiable, Sendable {
         createdAt = try values.decode(Date.self, forKey: .createdAt)
         updatedAt = try values.decode(Date.self, forKey: .updatedAt)
         review = values.contains(.review) ? try values.decode(KnowledgePageReview.self, forKey: .review) : nil
+        relationship = values.contains(.relationship) ? try values.decode(RelationshipMemoryMetadata.self, forKey: .relationship) : nil
         guard isValid else { throw KnowledgePageKeys.invalid(decoder, "Invalid knowledge page.") }
     }
 }

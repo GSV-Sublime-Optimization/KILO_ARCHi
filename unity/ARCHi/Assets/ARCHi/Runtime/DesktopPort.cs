@@ -392,6 +392,7 @@ namespace ARCHi.Port
             });
             if (NativeBound) {
                 arena.ApplyNativePresentation(nativeSnapshot, NativeStaticMotion);
+                nativeBridge.ObserveWorldActions(arena);
                 if (nativeStage != null) nativeStage.gameObject.SetActive(false);
             }
         }

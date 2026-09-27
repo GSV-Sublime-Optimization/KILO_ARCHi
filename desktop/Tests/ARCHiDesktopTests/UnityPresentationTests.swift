@@ -3,6 +3,47 @@ import XCTest
 @testable import ARCHiDesktop
 
 final class UnityPresentationTests: XCTestCase {
+    @MainActor func testWorldOutcomesRequireSeparateCapabilityAndClearWithSession() async throws {
+        let fixture = try makeFixture(); defer { fixture.clean() }
+        let store = fixture.store, connection = store.unityPresentation
+        let profile = try Data(contentsOf: fixture.preference)
+        try connection.beginPublishing(store: store, directory: fixture.directory)
+        let snapshot = try XCTUnwrap(connection.lastSnapshot), now = Date()
+        let url = try XCTUnwrap(connection.snapshotURL)
+        var ack: [String: Any] = ["schemaVersion": 1, "sessionID": snapshot.sessionID,
+            "originDigest": snapshot.originDigest, "revision": snapshot.revision,
+            "updatedAtUnix": now.timeIntervalSince1970, "active": true, "body": "seed", "renderer": "unity-companion"]
+        let event = WorldActionOutcome(sequence: 1, actionID: UUID().uuidString, boutID: UUID().uuidString,
+            presentationRevision: snapshot.revision, atUnix: now.timeIntervalSince1970,
+            action: "pulse", rivalAction: "pulse", field: "guardian", round: 1,
+            integrityBefore: 36, integrityAfter: 29, rivalIntegrityBefore: 36, rivalIntegrityAfter: 29,
+            sparkBefore: 3, sparkAfter: 3, rivalSparkBefore: 3, rivalSparkAfter: 3,
+            damageDealt: 7, damageTaken: 7, absorbed: 0, complete: false, winner: "")
+        let observed = WorldOutcomeSnapshot(schemaVersion: 1, sessionID: snapshot.sessionID,
+            originDigest: snapshot.originDigest, sessionKind: snapshot.sessionKind ?? "companion",
+            revision: snapshot.revision, updatedAtUnix: now.timeIntervalSince1970,
+            currentArea: "arena", mode: "solo", firstSequence: 1, lastSequence: 1, outcomes: [event])
+        try JSONEncoder().encode(observed).write(to: url.appendingPathExtension(WorldOutcomeSnapshot.pathExtension))
+        try JSONSerialization.data(withJSONObject: ack).write(to: url.appendingPathExtension("ack"))
+        connection.readAcknowledgment(now: now)
+        XCTAssertTrue(connection.hasRenderAcknowledgment)
+        XCTAssertTrue(connection.worldOutcomes.isEmpty)
+        XCTAssertTrue(connection.worldOutcomeStatus.contains("does not report"))
+        ack["worldOutcomeVersion"] = 1
+        try JSONSerialization.data(withJSONObject: ack).write(to: url.appendingPathExtension("ack"))
+        connection.readAcknowledgment(now: now)
+        connection.readAcknowledgment(now: now)
+        XCTAssertEqual(connection.worldOutcomes, [event], "Polling never duplicates outcomes.")
+        XCTAssertEqual(connection.missingWorldOutcomes, 0)
+        connection.readAcknowledgment(now: now.addingTimeInterval(6))
+        XCTAssertFalse(connection.hasRenderAcknowledgment)
+        XCTAssertEqual(connection.worldOutcomes, [event], "Stale connection cannot add or erase past observations.")
+        connection.stop()
+        XCTAssertTrue(connection.worldOutcomes.isEmpty)
+        XCTAssertEqual(try Data(contentsOf: fixture.preference), profile)
+        await store.shutdownAssistant()
+    }
+
     @MainActor func testLiveUnityPlayerFollowsNativeProfile() async throws {
         guard let path = ProcessInfo.processInfo.environment["ARCHI_UNITY_PLAYER_TEST_APP"] else {
             throw XCTSkip("Set ARCHI_UNITY_PLAYER_TEST_APP for a disposable native-to-Unity interaction check.")

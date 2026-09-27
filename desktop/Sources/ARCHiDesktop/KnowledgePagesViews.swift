@@ -7,8 +7,15 @@ struct KnowledgePageDraft: Identifiable {
     let id = UUID()
     let prior: KnowledgePage?
     let proposal: KnowledgeConceptDraft?
+    let relationshipKind: RelationshipMemoryKind?
+    let person: KnowledgePageBinding?
 
-    init(prior: KnowledgePage? = nil, proposal: KnowledgeConceptDraft? = nil) { self.prior = prior; self.proposal = proposal }
+    init(prior: KnowledgePage? = nil, proposal: KnowledgeConceptDraft? = nil,
+         relationshipKind: RelationshipMemoryKind? = nil, person: KnowledgePageBinding? = nil) {
+        self.prior = prior; self.proposal = proposal
+        self.relationshipKind = prior?.relationship?.kind ?? relationshipKind
+        self.person = prior?.relationship?.person ?? person
+    }
 }
 
 @MainActor
@@ -98,6 +105,10 @@ struct KnowledgePagesCard: View {
             VStack(alignment: .leading, spacing: 10) {
                 Text(page.body).font(.system(size: 13)).textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
+                if let relationship = page.relationship {
+                    Text(relationship.markdownLines.joined(separator: "\n"))
+                        .font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+                }
                 if let unavailable = store.readingSources.availability(of: page) {
                     Text(unavailable).font(.system(size: 11)).foregroundStyle(.orange)
                         .accessibilityIdentifier("knowledge.availability.\(page.id)")
@@ -130,7 +141,7 @@ struct KnowledgePagesCard: View {
         } label: {
             VStack(alignment: .leading, spacing: 4) {
                 Text(page.title).font(.system(size: 13, weight: .medium))
-                Text("\(page.kind.rawValue.capitalized) · \(page.state.rawValue.capitalized) · v\(page.revision) · \(page.anchors.count) linked passages")
+                Text("\(page.relationship?.kind.title ?? page.kind.rawValue.capitalized) · \(page.state.rawValue.capitalized) · v\(page.revision) · \(page.anchors.count) linked passages")
                     .font(.system(size: 11)).foregroundStyle(.secondary)
             }
         }.accessibilityIdentifier("knowledge.page.\(page.id)")
@@ -147,6 +158,10 @@ struct KnowledgePagesCard: View {
                             .font(.system(size: 10, weight: .medium)).foregroundStyle(.secondary)
                         Text(prior.title).font(.system(size: 12, weight: .medium))
                         Text(prior.body).font(.system(size: 12)).textSelection(.enabled)
+                        if let relationship = prior.relationship {
+                            Text(relationship.markdownLines.joined(separator: "\n"))
+                                .font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+                        }
                         KnowledgePageEvidence(store: store, anchors: prior.anchors)
                     }.padding(.vertical, 6)
                 }
@@ -164,7 +179,7 @@ struct KnowledgePagesCard: View {
 }
 
 @MainActor
-private struct KnowledgePageEvidence: View {
+struct KnowledgePageEvidence: View {
     @ObservedObject var store: CompanionStore
     let anchors: [KnowledgeAnchor]
     var numberOffset = 0
@@ -203,6 +218,10 @@ private struct KnowledgePageEditor: View {
     @State private var quote = ""
     @State private var occurrence: Int?
     @State private var anchorMessage: String?
+    @State private var personBinding: KnowledgePageBinding?
+    @State private var includesDate: Bool
+    @State private var relationshipDate: Date
+    @State private var commitmentStatus: RelationshipCommitmentStatus
 
     init(store: CompanionStore, draft: KnowledgePageDraft) {
         self.store = store; self.draft = draft
@@ -210,6 +229,11 @@ private struct KnowledgePageEditor: View {
         _pageBody = State(initialValue: draft.prior?.body ?? draft.proposal?.body ?? "")
         _kind = State(initialValue: draft.prior?.kind ?? (draft.proposal == nil ? .claim : .concept))
         _anchors = State(initialValue: draft.prior?.anchors ?? draft.proposal?.anchors ?? [])
+        _personBinding = State(initialValue: draft.person)
+        let date = draft.prior?.relationship?.occurredAt ?? draft.prior?.relationship?.dueAt
+        _includesDate = State(initialValue: date != nil)
+        _relationshipDate = State(initialValue: date ?? Date())
+        _commitmentStatus = State(initialValue: draft.prior?.relationship?.commitmentStatus ?? .pending)
     }
 
     private var source: ReadingSourceSnapshot? {
@@ -231,15 +255,34 @@ private struct KnowledgePageEditor: View {
             && (1...4).contains(anchors.count)
             && anchors.allSatisfy { store.readingSources.quote(for: $0) != nil }
             && store.readingSources.loadError == nil
+            && (draft.relationshipKind == nil || relationshipMetadata?.isValid == true)
+            && (draft.relationshipKind == nil || draft.relationshipKind == .person || currentPerson != nil)
+    }
+
+    private var people: [KnowledgePage] {
+        store.readingSources.latestKnowledgePages.filter {
+            $0.relationship?.kind == .person && store.readingSources.availability(of: $0) == nil
+        }.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+    }
+    private var currentPerson: KnowledgePage? { people.first { $0.binding == personBinding } }
+    private var relationshipMetadata: RelationshipMemoryMetadata? {
+        guard let type = draft.relationshipKind else { return nil }
+        return RelationshipMemoryMetadata(kind: type, person: type == .person ? nil : personBinding,
+            occurredAt: type == .encounter && includesDate ? relationshipDate : nil,
+            dueAt: type == .commitment && includesDate ? relationshipDate : nil,
+            commitmentStatus: type == .commitment ? commitmentStatus : nil)
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text(draft.prior == nil ? "Create a knowledge page" : "Revise this page")
+            Text(draft.relationshipKind.map { "\(draft.prior == nil ? "Add" : "Revise") \($0.title.lowercased())" }
+                 ?? (draft.prior == nil ? "Create a knowledge page" : "Revise this page"))
                 .font(.system(size: 22, weight: .medium, design: .rounded))
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
-                    Text("Write your interpretation and link one to four exact passages from kept reading copies. Saving creates a draft for review.")
+                    Text(draft.relationshipKind == nil
+                         ? "Write your interpretation and link one to four exact passages from kept reading copies. Saving creates a draft for review."
+                         : "Record what you know in your own words and link the note it came from. Dates can stay unknown. Saving creates a draft for your review.")
                         .font(.system(size: 12)).foregroundStyle(.secondary)
                     TextField("Page title", text: $title).textFieldStyle(.roundedBorder)
                         .accessibilityIdentifier("knowledge.editor.title")
@@ -247,11 +290,12 @@ private struct KnowledgePageEditor: View {
                         Text("Shorten the title to 240 UTF-8 bytes or fewer.")
                             .font(.system(size: 11)).foregroundStyle(.orange)
                     }
-                    Picker("Page type", selection: $kind) {
+                    if draft.relationshipKind != nil { relationshipFields }
+                    else { Picker("Page type", selection: $kind) {
                         ForEach(KnowledgePageKind.allCases, id: \.rawValue) { value in
                             Text(value.rawValue.capitalized).tag(value)
                         }
-                    }.pickerStyle(.segmented).accessibilityIdentifier("knowledge.editor.kind")
+                    }.pickerStyle(.segmented).accessibilityIdentifier("knowledge.editor.kind") }
                     TextEditor(text: $pageBody).frame(height: 130)
                         .overlay(RoundedRectangle(cornerRadius: 5).stroke(.quaternary))
                         .accessibilityLabel("Page text").accessibilityIdentifier("knowledge.editor.body")
@@ -283,8 +327,11 @@ private struct KnowledgePageEditor: View {
                     .keyboardShortcut(.cancelAction).accessibilityIdentifier("knowledge.editor.cancel")
                 Spacer()
                 Button("Save draft") {
-                    if store.saveKnowledgePage(prior: draft.prior, title: title, body: pageBody, kind: kind, anchors: anchors) {
-                        store.knowledgePageDraft = nil
+                    if let metadata = relationshipMetadata {
+                        _ = store.saveRelationshipPage(prior: draft.prior, title: title, body: pageBody,
+                                                       metadata: metadata, anchors: anchors)
+                    } else {
+                        _ = store.saveKnowledgePage(prior: draft.prior, title: title, body: pageBody, kind: kind, anchors: anchors)
                     }
                 }
                 .buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
@@ -299,6 +346,41 @@ private struct KnowledgePageEditor: View {
         .onChange(of: source?.binding) { _, _ in occurrence = nil }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("knowledge.editor")
+    }
+
+    @ViewBuilder private var relationshipFields: some View {
+        if let type = draft.relationshipKind {
+            Text("\(type.title) · recorded by you").font(.caption).foregroundStyle(.secondary)
+            if type != .person {
+                Picker("Person", selection: Binding<String>(
+                    get: { currentPerson?.id ?? "" },
+                    set: { id in personBinding = people.first { $0.id == id }?.binding })) {
+                    Text("Choose a reviewed person").tag("")
+                    ForEach(people, id: \.id) { person in
+                        Text("\(person.title) · \(person.id.prefix(6)) · v\(person.revision)").tag(person.id)
+                    }
+                }.accessibilityIdentifier("relationship.editor.person")
+                if personBinding != nil && currentPerson == nil {
+                    Text("The linked person changed. Check the current record and explicitly select it again.")
+                        .font(.caption).foregroundStyle(.orange)
+                }
+                Toggle(type == .encounter ? "Record an encounter date" : "Record a due date", isOn: $includesDate)
+                    .accessibilityIdentifier("relationship.editor.has-date")
+                if includesDate {
+                    DatePicker(type == .encounter ? "Encounter date" : "Due date", selection: $relationshipDate,
+                               displayedComponents: [.date])
+                }
+            }
+            if type == .commitment {
+                Picker("Status you report", selection: $commitmentStatus) {
+                    ForEach(RelationshipCommitmentStatus.allCases, id: \.rawValue) { status in
+                        Text(status.title).tag(status)
+                    }
+                }
+                Text("Completion records your report. ARCHi does not send messages or verify that the action happened.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
     }
 
     private var attachedPassages: some View {

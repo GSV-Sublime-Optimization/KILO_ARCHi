@@ -5,19 +5,22 @@ using UnityEngine;
 
 namespace ARCHi.Port
 {
-    /// <summary>Explicit launch-bound rendering adapter. Only the adjacent rendering ACK is written.</summary>
+    /// <summary>Explicit launch-bound renderer with a separate, read-only solo outcome journal.</summary>
     public sealed class NativeEvolutionBridge : MonoBehaviour
     {
         private string path, session;
         private DesktopPort port;
         private float nextPoll;
         private NativePresentationSnapshot current;
+        private WorldOutcomeJournal worldOutcomes;
+        private ArenaWorkspace observedArena;
         public bool Fresh { get; private set; }
         public NativePresentationSnapshot Current => current;
         public string State { get; private set; } = "Waiting for the native companion.";
         [Serializable] private sealed class Acknowledgment
         {
             public int schemaVersion = 1;
+            public int worldOutcomeVersion = 1;
             public string sessionID, originDigest, body, appearance, renderer = "unity-companion";
             public string staffPalette, staffCrown, seedAppearance, seedColor, seedAssetSHA256, bodyAssetSHA256;
             public string sessionKind, destination, currentArea;
@@ -47,6 +50,7 @@ namespace ARCHi.Port
             { bridge.Suspend("Native connection arguments were rejected."); return; }
             bridge.path = Path.GetFullPath(args[index + 1]);
             bridge.session = args[sessionIndex + 1];
+            bridge.worldOutcomes = new WorldOutcomeJournal(bridge.session);
             // A local native session continues while the user works in the assistant window.
             Application.runInBackground = true;
             Application.targetFrameRate = 30;
@@ -77,7 +81,9 @@ namespace ARCHi.Port
                 Fresh = next.active;
                 State = next.active ? "Following the native companion" : "Native presentation stopped";
                 if (changed || !next.active) port.ApplyNativePresentation(next, Fresh);
+                ObserveWorldActions(port.Arena);
                 WriteAcknowledgment(next.active && next.visible);
+                WriteWorldOutcomes();
             }
             catch (Exception error) when (error is IOException || error is UnauthorizedAccessException || error is DecoderFallbackException || error is ArgumentException)
             { Suspend("Native connection unavailable. Last accepted form is held still."); }
@@ -89,7 +95,54 @@ namespace ARCHi.Port
             Fresh = false;
             State = reason;
             if (changed) port?.SuspendNativePresentation(reason);
+            ObserveWorldActions(null);
             WriteAcknowledgment(false);
+            WriteWorldOutcomes();
+        }
+
+        public void ObserveWorldActions(ArenaWorkspace arena)
+        {
+            if (ReferenceEquals(observedArena, arena)) return;
+            if (!ReferenceEquals(observedArena, null)) observedArena.SoloActionResolved -= RecordWorldAction;
+            observedArena = arena;
+            if (observedArena != null) observedArena.SoloActionResolved += RecordWorldAction;
+        }
+
+        private void RecordWorldAction(ArenaPracticeAction fact)
+        {
+            if (!Fresh || current == null || port.Arena == null || port.Arena != observedArena || observedArena.TwoPlayers) return;
+            // This callback cannot issue a move. The existing Arena input/rule owner already resolved it.
+            if (worldOutcomes?.Record(fact, current, UnixNow) == true) WriteWorldOutcomes();
+        }
+
+        private void WriteWorldOutcomes()
+        {
+            if (path == null || current == null || worldOutcomes == null) return;
+            var arena = port?.Arena;
+            var mode = Fresh && current.active && current.visible && arena != null
+                ? (arena.TwoPlayers ? "paired" : "solo") : "unavailable";
+            var observation = worldOutcomes.Observe(current, arena == null ? "companion" : "arena", mode, UnixNow);
+            var destination = path + ".world-outcomes";
+            string temporary = null;
+            try
+            {
+                var bytes = new UTF8Encoding(false).GetBytes(JsonUtility.ToJson(observation));
+                if (bytes.Length > WorldOutcomeJournal.MaximumBytes) return;
+                temporary = destination + "." + Guid.NewGuid().ToString("N") + ".tmp";
+                using (var stream = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+                    stream.Write(bytes, 0, bytes.Length);
+                if (File.Exists(destination)) File.Replace(temporary, destination, null); else File.Move(temporary, destination);
+            }
+            catch (Exception error) when (error is IOException || error is UnauthorizedAccessException)
+            {
+                // A failed observation write must not roll back or repeat an already resolved action.
+                // The next heartbeat retries the same ring; native reports stale/missing observations.
+            }
+            finally
+            {
+                if (temporary != null) try { if (File.Exists(temporary)) File.Delete(temporary); }
+                    catch (Exception error) when (error is IOException || error is UnauthorizedAccessException) { }
+            }
         }
 
         private void WriteAcknowledgment(bool active)
@@ -116,6 +169,9 @@ namespace ARCHi.Port
         }
 
         private void OnApplicationPause(bool paused) { if (paused) Suspend("Unity presentation paused."); }
-        private void OnDisable() { Fresh = false; WriteAcknowledgment(false); port?.SuspendNativePresentation("Unity presentation disconnected."); }
+        private void OnDisable() {
+            Fresh = false; ObserveWorldActions(null); WriteAcknowledgment(false);
+            port?.SuspendNativePresentation("Unity presentation disconnected."); WriteWorldOutcomes();
+        }
     }
 }

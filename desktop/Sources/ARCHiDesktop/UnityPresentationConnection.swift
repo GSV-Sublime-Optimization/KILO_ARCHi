@@ -114,6 +114,7 @@ struct UnityPresentationAcknowledgment: Codable {
     let staffPalette: String?
     let staffCrown: String?
     let renderer: String
+    var worldOutcomeVersion: Int? = nil
     var sessionKind: String? = nil
     var destination: String? = nil
     var destinationRevision: Int? = nil
@@ -167,6 +168,10 @@ struct UnityPresentationAcknowledgment: Codable {
     @Published private(set) var isLocalPractice = false
     @Published private(set) var isOpening = false
     @Published private(set) var lastLaunchFailure: String?
+    @Published private(set) var worldOutcomes: [WorldActionOutcome] = []
+    @Published private(set) var worldOutcomeStatus = "Open Arena to observe solo practice outcomes."
+    @Published private(set) var missingWorldOutcomes = 0
+    private var worldOutcomeHistory = WorldOutcomeHistory()
     private(set) var snapshotURL: URL?
     private(set) var lastSnapshot: UnityPresentationSnapshot?
     private var previousSnapshot: UnityPresentationSnapshot?
@@ -355,6 +360,8 @@ struct UnityPresentationAcknowledgment: Codable {
         destinationRevision = routes ? 1 : nil
         self.destination = destination
         lastSnapshot = nil; previousSnapshot = nil; hasRenderAcknowledgment = false; suspended = false
+        worldOutcomeHistory.reset(); worldOutcomes = []; missingWorldOutcomes = 0
+        worldOutcomeStatus = "Waiting for Arena outcome support."
         let root = directory ?? FileManager.default.temporaryDirectory
         let folder = root.appendingPathComponent("archi-unity-\(sessionID.uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: false,
@@ -434,6 +441,7 @@ struct UnityPresentationAcknowledgment: Codable {
 
     func readAcknowledgment(now: Date = Date()) {
         hasRenderAcknowledgment = false
+        worldOutcomeStatus = "Waiting for a current Arena connection. Earlier session observations remain below."
         guard isSharing, let url = snapshotURL?.appendingPathExtension("ack"),
               let data = try? Self.readAcknowledgmentData(at: url),
               let acknowledgment = try? JSONDecoder().decode(UnityPresentationAcknowledgment.self, from: data) else { return }
@@ -443,6 +451,30 @@ struct UnityPresentationAcknowledgment: Codable {
         }
         if hasRenderAcknowledgment, let currentArea = acknowledgment.currentArea,
            let area = UnityPresentationDestination(rawValue: currentArea) { destination = area }
+        guard hasRenderAcknowledgment else { return }
+        guard acknowledgment.worldOutcomeVersion == 1 else {
+            worldOutcomeStatus = "This Arena build does not report action outcomes. Its render acknowledgment only confirms presentation."
+            return
+        }
+        readWorldOutcomes(now: now)
+    }
+
+    private func readWorldOutcomes(now: Date) {
+        guard let snapshotURL else { return }
+        do {
+            let observation = try WorldOutcomeSnapshot.read(from: snapshotURL,
+                matching: [lastSnapshot, previousSnapshot].compactMap { $0 }, now: now)
+            try worldOutcomeHistory.ingest(observation)
+            worldOutcomes = worldOutcomeHistory.outcomes
+            missingWorldOutcomes = worldOutcomeHistory.missingCount
+            switch observation.mode {
+            case "solo": worldOutcomeStatus = "Observing resolved solo actions · this session only."
+            case "paired": worldOutcomeStatus = "Paired action reporting is not connected. Earlier solo observations remain below."
+            default: worldOutcomeStatus = "Enter solo practice to observe resolved actions."
+            }
+        } catch {
+            worldOutcomeStatus = "A current action report is unavailable or did not pass the session checks. No new outcome was accepted."
+        }
     }
 
     private static func readAcknowledgmentData(at url: URL) throws -> Data {
@@ -478,6 +510,8 @@ struct UnityPresentationAcknowledgment: Codable {
             try? Self.write(retired, to: snapshotURL)
         }
         isSharing = false; hasRenderAcknowledgment = false; isOpening = false
+        worldOutcomeHistory.reset(); worldOutcomes = []; missingWorldOutcomes = 0
+        worldOutcomeStatus = "Session ended. Practice observations were cleared."
         player?.terminate(); player = nil
         status = "Unity presentation stopped. Desktop KIN and saved development are unchanged."
     }

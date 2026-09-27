@@ -12,7 +12,7 @@ namespace ARCHi.Port
         private VisualElement overlay,host,leftPanel,rightPanel;
         private readonly List<VisualElement> hidden=new List<VisualElement>();
         private readonly List<StyleEnum<DisplayStyle>> displayStates=new List<StyleEnum<DisplayStyle>>();
-        private Label kinValue,rivalValue,round,feedback,lesson,fieldLabel,motion,readiness,beingName;
+        private Label kinValue,rivalValue,round,feedback,lesson,fieldLabel,motion,readiness,beingName,fieldTraining;
         private VisualElement kinBar,rivalBar;
         private Button pulse,guard,signature,review,newBout,field,form,motionButton,staffButton,mantleButton,characterButton;
         private VisualElement seedReference,lawDetails;
@@ -36,6 +36,9 @@ namespace ARCHi.Port
         public bool TwoPlayers => Multiplayer != null;
         public bool NativeIdentity => nativeIdentity;
         public bool NativeInputAllowed => !nativeBound || nativeInputAllowed;
+        // Observers receive rule facts only after an existing explicit solo input resolves.
+        public event Action<ArenaPracticeAction> SoloActionResolved;
+        private string outcomeBoutID = Guid.NewGuid().ToString();
 
         public void Initialize(VisualElement root,bool reduced,Action close)
         {
@@ -43,6 +46,9 @@ namespace ARCHi.Port
             foreach(var child in root.Children()){hidden.Add(child);displayStates.Add(child.style.display);child.style.display=DisplayStyle.None;}
             var art=new GameObject("Owned arena presentation");art.transform.SetParent(transform,false);Stage=art.AddComponent<ArenaStage3D>();Stage.Initialize();Stage.StaticMotion=reduced;
             Bout=new ArenaRehearsal(ArenaField.Guardian);
+            Stage.BindTraining(Bout);
+            Stage.CompanionTraining.EvolutionStateChanged+=OnFieldTrainingChanged;
+            Stage.RivalTraining.EvolutionStateChanged+=OnFieldTrainingChanged;
             overlay=new VisualElement{name="arena-workspace"};Absolute(overlay,0,0,0,0);overlay.style.backgroundColor=new Color(.015f,.025f,.038f);overlay.style.color=Ink;overlay.focusable=true;
             overlay.RegisterCallback<KeyDownEvent>(Key);overlay.RegisterCallback<GeometryChangedEvent>(Layout);
             root.Add(overlay);
@@ -85,6 +91,7 @@ namespace ARCHi.Port
             characterButton=Button("Study OG Proto ARCHi",ToggleCharacter,"arena-character");rightContent.Add(characterButton);
             var identityNote=Text("A character study starts fresh practice.",10,Muted);identityNote.name="arena-identity-note";rightContent.Add(identityNote);
             lesson=Text("Practice produces experience. Review its meaning before keeping a lesson.",11,Muted);lesson.style.marginTop=9;rightContent.Add(lesson);
+            fieldTraining=Text("",10,Mint);fieldTraining.name="arena-field-training";fieldTraining.style.marginTop=8;rightContent.Add(fieldTraining);
             review=Button("Review this experience",()=>Review(),"arena-review");review.style.marginTop=14;rightContent.Add(review);
             var seed=Row();seedReference=seed;seed.style.marginTop=10;seed.style.alignItems=Align.Center;
             var seedImage=new Image{image=Resources.Load<Texture2D>("KIN/kin-core-seed-blender-v2"),scaleMode=ScaleMode.ScaleToFit};seedImage.style.width=32;seedImage.style.height=32;seed.Add(seedImage);
@@ -155,19 +162,26 @@ namespace ARCHi.Port
         {
             if(!NativeInputAllowed || Stage.Busy || resting || LawsOpen)return false;
             if(TwoPlayers)return PlaySeat(ArenaSeat.One,move);
+            int observedRound=Bout.Round, integrity=Bout.Integrity, rivalIntegrity=Bout.RivalIntegrity;
+            int spark=Bout.Spark, rivalSpark=Bout.RivalSpark;
             if(!Bout.Resolve(move,Bout.Round))return false;
+            SoloActionResolved?.Invoke(new ArenaPracticeAction(outcomeBoutID,Bout,observedRound,integrity,rivalIntegrity,spark,rivalSpark));
             activityRounds++;Stage.Perform(Bout);Refresh();return true;
         }
         public void NewBout(){if(!NativeInputAllowed)return;Stage.Stop();ResetBout(Bout.Field);resting=false;Refresh();}
         private void ResetBout(ArenaField fieldValue) {
+            outcomeBoutID=Guid.NewGuid().ToString();
             if(TwoPlayers){Multiplayer=new ArenaMultiplayerSession(Guid.NewGuid().ToString(),fieldValue,"player-one","player-two");Bout=Multiplayer.Bout;}
             else Bout=new ArenaRehearsal(fieldValue);
+            Stage.BindTraining(Bout);
         }
         public void ToggleTwoPlayers() {
             if(!NativeInputAllowed||Stage.Busy||LawsOpen)return;
             Stage.Stop();
             Multiplayer=TwoPlayers?null:new ArenaMultiplayerSession(Guid.NewGuid().ToString(),Bout.Field,"player-one","player-two");
             Bout=Multiplayer?.Bout??new ArenaRehearsal(Bout.Field);
+            outcomeBoutID=Guid.NewGuid().ToString();
+            Stage.BindTraining(Bout);
             Learning=new ArenaLearningPreview();activityRounds=0;resting=false;Refresh();
         }
         public bool PlaySeat(ArenaSeat seat,ArenaMove move) {
@@ -197,6 +211,7 @@ namespace ARCHi.Port
         public void Stop(){if(nativeBound){locallyStill=true;ReducedMotion=true;Stage.StaticMotion=true;}Stage.Stop();Refresh();}
         public void Close(){ReleaseView();gameObject.SetActive(false);Destroy(gameObject);}
         private void Update(){if(Stage==null)return;if(wasBusy!=Stage.Busy){wasBusy=Stage.Busy;Refresh();}}
+        private void OnFieldTrainingChanged(ArenaFieldTrainingBody actor){Refresh();}
         private void Refresh()
         {
             if(overlay==null)return;
@@ -227,6 +242,7 @@ namespace ARCHi.Port
             beingName.text=CharacterName;
             seedReference.style.display=ProtoSelected&&!nativeIdentity?DisplayStyle.None:DisplayStyle.Flex;
             lesson.text=Learning.ReviewedBouts==0?"Practice produces experience. Review its meaning before keeping a lesson.":$"Guardian evidence {Learning.GuardianEvidence} · Scout evidence {Learning.ScoutEvidence}\n{Learning.Lesson}";
+            fieldTraining.text=$"Field training · {CharacterName}: {TrainingLabel(Stage.CompanionTraining.State)}\n{(TwoPlayers?"Player two":"Echo")}: {TrainingLabel(Stage.RivalTraining.State)}\nSession evidence only · body unchanged";
             staffButton.text=Stage.StaffEquipped?"Remove Focus Staff":"Equip Focus Staff";mantleButton.text=Stage.MantleEquipped?"Remove Starlight collar":"Wear Starlight collar";
             if(nativeIdentity)staffButton.text=Stage.StaffEquipped?"Focus Staff · from ARCHi":"No staff · from ARCHi";
             staffButton.SetEnabled(!nativeIdentity&&NativeInputAllowed);mantleButton.style.display=nativeIdentity?DisplayStyle.None:DisplayStyle.Flex;
@@ -236,6 +252,11 @@ namespace ARCHi.Port
             motion.text=resting?CharacterName+" / REST":Stage.Busy?$"{CharacterName} / {Stage.MotionName.ToUpperInvariant()}":CharacterName+" / OBSERVE";
             feedback.text=Bout.Feedback;
             if(TwoPlayers)lesson.text="Two human players · session-only match. Guest uses ECHO. Online pairing is not available yet.";
+        }
+        private static string TrainingLabel(ArenaFieldTrainingState state)
+        {
+            return state.EvolutionState==FieldTrainingEvolutionState.FieldEvidenceReady?$"{state.Field} threshold reached":
+                state.EvolutionState==FieldTrainingEvolutionState.Practicing?"practicing":"awaiting contact";
         }
         private void Key(KeyDownEvent e)
         {
@@ -283,6 +304,8 @@ namespace ARCHi.Port
         private void ReleaseView()
         {
             if(viewReleased)return;viewReleased=true;nativeInputAllowed=false;Stage?.Stop();
+            SoloActionResolved=null;
+            if(Stage!=null){Stage.CompanionTraining.EvolutionStateChanged-=OnFieldTrainingChanged;Stage.RivalTraining.EvolutionStateChanged-=OnFieldTrainingChanged;}
             overlay?.UnregisterCallback<KeyDownEvent>(Key);overlay?.UnregisterCallback<GeometryChangedEvent>(Layout);overlay?.RemoveFromHierarchy();
             for(int i=0;i<hidden.Count;i++)hidden[i].style.display=displayStates[i];
             overlay=null;

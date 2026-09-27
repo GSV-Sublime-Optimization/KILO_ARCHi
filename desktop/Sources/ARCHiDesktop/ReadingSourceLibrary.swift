@@ -36,6 +36,7 @@ final class ReadingSourceLibrary: ObservableObject {
     private var baselineDigest: String?
     private var requiresRecovery = false
     private static let schema = "archi-reading-sources/v2"
+    private static let relationshipSchema = "archi-reading-sources/v3"
     // Covers worst-case JSON escaping of retained sources and bounded note history.
     private static let maximumArchiveBytes = 8 * 1_024 * 1_024
 
@@ -138,12 +139,13 @@ final class ReadingSourceLibrary: ObservableObject {
         guard page.anchors.allSatisfy({ currentQuote(for: $0) != nil }) else {
             return "A supporting source changed or was forgotten. Create a new draft with current passage anchors."
         }
-        return nil
+        return relationshipAvailability(page.relationship)
     }
 
     @discardableResult
     func saveKnowledgePage(id: String? = nil, expectedRevision: UInt64? = nil, title: String, body: String,
-                           kind: KnowledgePageKind, anchors: [KnowledgeAnchor]) throws -> KnowledgePage {
+                           kind: KnowledgePageKind, anchors: [KnowledgeAnchor],
+                           relationship: RelationshipMemoryMetadata? = nil) throws -> KnowledgePage {
         try assertCurrent()
         let previous: KnowledgePage?
         if let id {
@@ -156,11 +158,16 @@ final class ReadingSourceLibrary: ObservableObject {
         guard !anchors.isEmpty, anchors.allSatisfy({ currentQuote(for: $0) != nil }) else {
             throw ReadingSourceLibraryError.invalid("Choose current exact passages for every source anchor.")
         }
+        let metadata = relationship ?? previous?.relationship
+        if let previousKind = previous?.relationship?.kind, metadata?.kind != previousKind {
+            throw ReadingSourceLibraryError.invalid("Keep this record's relationship type; create a separate record for a different type.")
+        }
+        if let reason = relationshipAvailability(metadata) { throw ReadingSourceLibraryError.invalid(reason) }
         let now = max(Date(), previous?.updatedAt ?? .distantPast)
         let page = KnowledgePage(id: previous?.id ?? UUID().uuidString,
             revision: (previous?.revision ?? 0) + 1, title: title.trimmingCharacters(in: .whitespacesAndNewlines),
             body: body, kind: kind, anchors: anchors, state: .draft,
-            createdAt: previous?.createdAt ?? now, updatedAt: now)
+            createdAt: previous?.createdAt ?? now, updatedAt: now, relationship: metadata)
         guard page.isValid else {
             throw ReadingSourceLibraryError.invalid("Use a nonempty title up to 240 UTF-8 bytes, a note up to 8 KB, and one to four distinct exact source passages.")
         }
@@ -169,6 +176,31 @@ final class ReadingSourceLibrary: ObservableObject {
         }
         try persist(sources, pages: knowledgePages + [page])
         return page
+    }
+
+    /// Uses the ordinary page writer, capacity, revision and recovery protocol.
+    /// Keeping a relationship record is distinct from reviewing it for use.
+    @discardableResult
+    func saveRelationshipPage(id: String? = nil, expectedRevision: UInt64? = nil,
+                              title: String, body: String, metadata: RelationshipMemoryMetadata,
+                              anchors: [KnowledgeAnchor]) throws -> KnowledgePage {
+        try saveKnowledgePage(id: id, expectedRevision: expectedRevision, title: title, body: body,
+                              kind: .claim, anchors: anchors, relationship: metadata)
+    }
+
+    /// Changes only the user's recorded status, and requires another explicit
+    /// review before use. It never claims that an external action was observed.
+    @discardableResult
+    func markRelationshipCommitment(id: String, expectedRevision: UInt64,
+                                    status: RelationshipCommitmentStatus) throws -> KnowledgePage {
+        try assertCurrent()
+        let previous = try currentPage(id: id, expectedRevision: expectedRevision)
+        guard let metadata = previous.relationship, metadata.kind == .commitment,
+              previous.state != .withdrawn else {
+            throw ReadingSourceLibraryError.invalid("Choose a current commitment record; edit a withdrawn record before changing its status.")
+        }
+        return try saveRelationshipPage(id: id, expectedRevision: expectedRevision,
+            title: previous.title, body: previous.body, metadata: metadata.marking(status), anchors: previous.anchors)
     }
 
     @discardableResult
@@ -181,6 +213,7 @@ final class ReadingSourceLibrary: ObservableObject {
         guard previous.anchors.allSatisfy({ currentQuote(for: $0) != nil }) else {
             throw ReadingSourceLibraryError.invalid("A source passage changed. Save a new draft with current anchors before review.")
         }
+        if let reason = relationshipAvailability(previous.relationship) { throw ReadingSourceLibraryError.invalid(reason) }
         if previous.state == .reviewed { return previous }
         let next = transition(previous, to: .reviewed)
         try persist(sources, pages: knowledgePages + [next])
@@ -203,6 +236,7 @@ final class ReadingSourceLibrary: ObservableObject {
         guard knowledgePages.contains(page) else { return "Page version unavailable." }
         var lines = ["# \(page.title)", "", "\(page.kind.title) · \(page.state.title) · revision \(page.revision)",
             "Page: \(page.id)", "", page.body, "", "## Supporting passages", ""]
+        if let metadata = page.relationship { lines.insert(contentsOf: metadata.markdownLines + [""], at: 5) }
         if let reason = availability(of: page) { lines += ["Availability: \(reason)", ""] }
         lines += ["Reviewed records a user review; it does not establish that a claim is true.", ""]
         for (index, anchor) in page.anchors.enumerated() {
@@ -230,7 +264,20 @@ final class ReadingSourceLibrary: ObservableObject {
         let now = max(Date(), previous.updatedAt)
         return KnowledgePage(id: previous.id, revision: previous.revision + 1, title: previous.title,
             body: previous.body, kind: previous.kind, anchors: previous.anchors, state: state,
-            createdAt: previous.createdAt, updatedAt: now, review: KnowledgePageReview(state: state, recordedAt: now))
+            createdAt: previous.createdAt, updatedAt: now, review: KnowledgePageReview(state: state, recordedAt: now),
+            relationship: previous.relationship)
+    }
+
+    private func relationshipAvailability(_ metadata: RelationshipMemoryMetadata?) -> String? {
+        guard let metadata else { return nil }
+        guard metadata.isValid else { return "Use valid user-reported relationship metadata with an exact person link where required." }
+        guard let binding = metadata.person else { return nil }
+        guard let person = latestKnowledgePages.first(where: { $0.binding == binding }),
+              person.relationship?.kind == .person, person.isValid, person.state == .reviewed,
+              person.anchors.allSatisfy({ currentQuote(for: $0) != nil }) else {
+            return "The linked person changed, was withdrawn, or has unavailable sources. Select and review the exact current person record before using this relationship."
+        }
+        return nil
     }
 
     private func currentQuote(for anchor: KnowledgeAnchor) -> String? {
@@ -286,7 +333,8 @@ final class ReadingSourceLibrary: ObservableObject {
         }
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
-        let bytes = try encoder.encode(Archive(schema: Self.schema, sources: next, knowledgePages: nextPages))
+        let archiveSchema = nextPages.contains(where: { $0.relationship != nil }) ? Self.relationshipSchema : Self.schema
+        let bytes = try encoder.encode(Archive(schema: archiveSchema, sources: next, knowledgePages: nextPages))
         guard bytes.count <= Self.maximumArchiveBytes else { throw ReadingSourceLibraryError.full }
 
         try assertCurrent()
@@ -338,15 +386,16 @@ final class ReadingSourceLibrary: ObservableObject {
         try scanner.validate()
         guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               let version = object["schema"] as? String,
-              [schema, "archi-reading-sources/v1"].contains(version),
-              Set(object.keys) == (version == schema ? ["schema", "sources", "knowledgePages"] : ["schema", "sources"]),
+              [schema, relationshipSchema, "archi-reading-sources/v1"].contains(version),
+              Set(object.keys) == (version == "archi-reading-sources/v1" ? ["schema", "sources"] : ["schema", "sources", "knowledgePages"]),
               let rows = object["sources"] as? [[String: Any]], rows.count <= maximumSources,
               rows.allSatisfy({ Set($0.keys) == ["id", "title", "revision", "text"] }) else {
             throw ReadingSourceLibraryError.unreadable
         }
         let archive: Archive
-        if version == schema {
-            guard let pages = object["knowledgePages"] as? [[String: Any]], pages.count <= maximumKnowledgePageVersions else {
+        if version != "archi-reading-sources/v1" {
+            guard let pages = object["knowledgePages"] as? [[String: Any]], pages.count <= maximumKnowledgePageVersions,
+                  version == relationshipSchema || pages.allSatisfy({ $0["relationship"] == nil }) else {
                 throw ReadingSourceLibraryError.unreadable
             }
             archive = try JSONDecoder().decode(Archive.self, from: data)
@@ -369,22 +418,28 @@ final class ReadingSourceLibrary: ObservableObject {
 
     private static func sameContent(_ lhs: KnowledgePage, _ rhs: KnowledgePage) -> Bool {
         lhs.title.utf8.elementsEqual(rhs.title.utf8) && lhs.body.utf8.elementsEqual(rhs.body.utf8)
-            && lhs.kind == rhs.kind && lhs.anchors == rhs.anchors
+            && lhs.kind == rhs.kind && lhs.anchors == rhs.anchors && lhs.relationship == rhs.relationship
     }
 
     private static func validPageHistory(_ pages: [KnowledgePage]) -> Bool {
         guard pages.count <= maximumKnowledgePageVersions else { return false }
         var latest: [UUID: KnowledgePage] = [:]
         var reviews = Set<UUID>()
+        var reviewedPeople: [String: KnowledgePageBinding] = [:]
         for page in pages {
             guard page.isValid, let id = UUID(uuidString: page.id) else { return false }
+            // Historical records may become unavailable, but may never invent a
+            // person version or refer forward to a person that was not retained.
+            if let person = page.relationship?.person,
+               reviewedPeople[person.digest] != person { return false }
             if let review = page.review {
                 guard let reviewID = UUID(uuidString: review.id), reviews.insert(reviewID).inserted else { return false }
             }
             if let previous = latest[id] {
                 guard previous.id == page.id, previous.revision < UInt64.max,
                       page.revision == previous.revision + 1, page.createdAt == previous.createdAt,
-                      page.updatedAt >= previous.updatedAt else { return false }
+                      page.updatedAt >= previous.updatedAt,
+                      previous.relationship == nil || previous.relationship?.kind == page.relationship?.kind else { return false }
                 switch page.state {
                 case .draft: break
                 case .reviewed:
@@ -396,6 +451,9 @@ final class ReadingSourceLibrary: ObservableObject {
                 guard page.revision == 1, page.state == .draft else { return false }
             }
             latest[id] = page
+            if page.relationship?.kind == .person, page.state == .reviewed {
+                reviewedPeople[page.binding.digest] = page.binding
+            }
         }
         return true
     }

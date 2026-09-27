@@ -2,6 +2,8 @@
 
 **Current status — 26 September:** [Hampton integration and remaining work](docs/system-progress-2026-09-26.md) · [Developer and participant access protocol](docs/developer-access-protocol.md). Start here for the one-app setup, local Marketplace and Unity Arena instructions. Dated entries below retain their historical scope; the current report supersedes stale integration and separate-app descriptions.
 
+[Everyday learning, relationship memory and practice outcomes](docs/everyday-learning-and-world-outcomes.md) describes the installed method-review, selected People context and bounded solo-action observer, with measured delivery evidence and remaining limits.
+
 **Native Qwen update — 19 September:** ARCHi automatically starts or reuses local Ollama and verifies the installed Qwen model. The default Qwen-first route can use one Codex fallback after an eligible failure; a retained local-only option stays available. Local memory stays out of fallback, and window snapshots require exact-copy external permission. [Operation and limits](docs/native-qwen.md).
 
 > **Code-only draft update — 18 September 2026.** New Liminal, Ball of Light, Proto and KIN rig artwork is withheld pending its separate redistribution decision. Existing published artwork remains included (PNG metadata may be removed). This branch is available for code review, but cannot reproduce the full current desktop/Unity presentation; Unity asset validation and artwork-dependent tests are expected to fail until those resources are admitted. The complete local candidate was tested separately. See [validation and omitted resources](docs/ALPHA_VALIDATION.md). No Beta or downloadable application release is declared.

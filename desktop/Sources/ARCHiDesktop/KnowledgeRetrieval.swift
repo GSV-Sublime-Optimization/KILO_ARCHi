@@ -83,10 +83,10 @@ enum KnowledgeRetrieval {
         }
         let excludedSources = sources.count - currentSources.count
         let pageGroups = Dictionary(grouping: pages) { UUID(uuidString: $0.id) }
-        var eligiblePages: [(page: KnowledgePage, quotes: [String])] = []
+        var currentPages: [UUID: (page: KnowledgePage, quotes: [String])] = [:]
         var excludedPages = 0
         for (identity, versions) in pageGroups {
-            guard identity != nil, let latestRevision = versions.map(\.revision).max() else {
+            guard let identity, let latestRevision = versions.map(\.revision).max() else {
                 excludedPages += versions.count
                 continue
             }
@@ -98,7 +98,19 @@ enum KnowledgeRetrieval {
             }
             let quotes = page.anchors.compactMap { quote(for: $0, sources: currentSources) }
             guard quotes.count == page.anchors.count else { excludedPages += 1; continue }
-            eligiblePages.append((page, quotes))
+            currentPages[identity] = (page, quotes)
+        }
+        // A child's own passages can remain current after its linked person is
+        // corrected or withdrawn. Require that exact reviewed person as well;
+        // lexical matching must not bypass the library's dependency rule.
+        let eligiblePages = currentPages.values.filter { item in
+            guard let binding = item.page.relationship?.person else { return true }
+            guard let identity = UUID(uuidString: binding.id), let person = currentPages[identity]?.page,
+                  person.binding == binding, person.relationship?.kind == .person else {
+                excludedPages += 1
+                return false
+            }
+            return true
         }
 
         var candidates: [KnowledgeRetrievalHit] = []

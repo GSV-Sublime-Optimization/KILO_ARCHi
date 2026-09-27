@@ -5,7 +5,7 @@ using UnityEngine.Rendering;
 
 namespace ARCHi.Port
 {
-    /// <summary>Owned presentation scene, rendered into UI. No battle or development writes.</summary>
+    /// <summary>Owned presentation and contact-backed local field evidence. No canonical development writes.</summary>
     public sealed class ArenaStage3D : MonoBehaviour
     {
         private const int ArtLayer=29;
@@ -18,6 +18,15 @@ namespace ARCHi.Port
         public bool StaffEquipped {get;private set;}
         public bool MantleEquipped {get;private set;}
         public bool ProtoSelected {get;private set;}
+        public ArenaFieldTrainingBody CompanionTraining {get;private set;}
+        public ArenaFieldTrainingBody RivalTraining {get;private set;}
+        public bool CompanionReadinessVisible => companionReadiness!=null && companionReadiness.gameObject.activeInHierarchy;
+        public bool RivalReadinessVisible => rivalReadiness!=null && rivalReadiness.gameObject.activeInHierarchy;
+        private Transform companionReadiness,rivalReadiness;
+        private Material companionReadinessMaterial,rivalReadinessMaterial;
+        private float companionReadinessAge=2,rivalReadinessAge=2;
+        private readonly List<GameObject> combatContacts=new List<GameObject>();
+        private ArenaRehearsal trainingBout;
         private string seedAppearance;
         private Transform personalSeed;
         private Material personalSeedMaterial;
@@ -108,6 +117,17 @@ namespace ARCHi.Port
             protoModel=CreateActor("OG Proto ARCHi",kinHome,false,true);
             protoModel.root.gameObject.SetActive(false);
             rival=CreateActor("Echo · practice partner",rivalHome,true);
+            // Physics proxies share the actors' stage anchors. Visual rig transforms
+            // remain animation-owned, including when a native Seed replaces the body.
+            CompanionTraining=CreateTrainingBody("Companion field-training body",kinHome);
+            RivalTraining=CreateTrainingBody("NPC field-training body",rivalHome);
+            companionReadinessMaterial=Material("Companion field evidence",new Color(.5f,.32f,.09f),.3f,.5f);
+            rivalReadinessMaterial=Material("NPC field evidence",new Color(.05f,.32f,.34f),.3f,.5f);
+            companionReadiness=Ring("Companion · field evidence ready",1.025f,.014f,kinHome+Vector3.up*.025f,companionReadinessMaterial);
+            rivalReadiness=Ring("NPC · field evidence ready",1.025f,.014f,rivalHome+Vector3.up*.025f,rivalReadinessMaterial);
+            companionReadiness.gameObject.SetActive(false);rivalReadiness.gameObject.SetActive(false);
+            CompanionTraining.EvolutionStateChanged+=OnFieldEvidenceChanged;
+            RivalTraining.EvolutionStateChanged+=OnFieldEvidenceChanged;
             staff=BuildStaff(kin.root);
             mantle=BuildMantle(kin.root);
             staff.gameObject.SetActive(false);mantle.gameObject.SetActive(false);
@@ -137,7 +157,9 @@ namespace ARCHi.Port
 
         private Actor CreateActor(string name,Vector3 position,bool isRival,bool isProto=false)
         {
-            var source=Resources.Load<GameObject>(isProto?"Proto/proto-light-v4":"KIN/kin-reference-v2");
+            var fieldTrainingSource=isProto?null:Resources.Load<GameObject>("FieldTraining/kin-field-training");
+            var source=isProto?Resources.Load<GameObject>("Proto/proto-light-v4"):
+                fieldTrainingSource??Resources.Load<GameObject>("KIN/kin-reference-v2");
             if(source==null)throw new InvalidOperationException("Missing Blender-authored character asset: "+name);
             var wrapper=new GameObject(name).transform;wrapper.SetParent(transform,false);wrapper.localPosition=position;wrapper.localScale=Vector3.one*.78f;
             var model=Instantiate(source,wrapper,false);model.name=isProto?"Blender OG Proto":"Blender KIN";
@@ -147,6 +169,7 @@ namespace ARCHi.Port
             actor.body=isProto?LightMaterial(name+" translucent body",0):CreatureMaterial(name+" aether surface",isRival?new Color(.05f,.22f,.24f):new Color(.23f,.018f,.055f),.28f);
             if(!isProto){
                 actor.body.SetFloat("_Energy",1);
+                if(isRival){actor.body.SetColor("_PaletteColor",new Color(.10f,.50f,.54f));actor.body.SetFloat("_PaletteStrength",1);}
                 actor.body.SetColor("_RimColor",isRival?new Color(.2f,.62f,.68f):new Color(1,.5f,.18f));
                 actor.body.SetColor("_StarColor",isRival?new Color(.35f,.8f,.85f):new Color(1,.57f,.25f));
             }
@@ -165,7 +188,10 @@ namespace ARCHi.Port
             var seedField=isProto?LightMaterial(name+" circulating Seed light",5):null;
             var bloom=isProto?LightMaterial(name+" unfolding field",6):null;
             actor.revealMaterials=isProto?new[]{actor.body,lightFace,lightCore,lightField,seedEnvelope,seedField,bloom}:isRival?new Material[0]:new[]{actor.body,accent};
-            if(!isProto&&!isRival){actor.body.SetFloat("_Reveal",1);accent.SetFloat("_Reveal",1);}
+            if(!isProto&&!isRival){
+                actor.body.SetFloat("_Reveal",1);accent.SetFloat("_Reveal",1);
+                actor.body.SetFloat("_CoreReveal",1);accent.SetFloat("_CoreReveal",1);
+            }
             var eyeList=new List<Transform>();
             foreach(var child in model.GetComponentsInChildren<Transform>()){
                 child.gameObject.layer=ArtLayer;
@@ -190,6 +216,20 @@ namespace ARCHi.Port
                     ? (n.Contains("heart")?lightCore:n.Contains("fitted")?lightFace:n.Contains("interior")?lightField:n.Contains("ball of light")?seedEnvelope:n.Contains("seed circulating")?seedField:n.Contains("gathering light currents")?bloom:actor.body)
                     : n.Contains("heart")||n.Contains("eye")?pearl:n.Contains("current")||n.Contains("brow")||n.Contains("smile")?accent:actor.body;
                 renderer.shadowCastingMode=isProto?ShadowCastingMode.Off:ShadowCastingMode.On;renderer.receiveShadows=!isProto;
+            }
+            if(!isProto&&fieldTrainingSource!=null){
+                var baked=Resources.Load<Texture2D>("FieldTraining/kin-field-training-albedo");
+                var emission=Resources.Load<Texture2D>("FieldTraining/kin-field-training-emission");
+                if(baked!=null)foreach(var renderer in actor.renderers){
+                    renderer.sharedMaterial.mainTexture=baked;
+                    if(renderer.sharedMaterial.HasProperty("_BaseMapStrength"))renderer.sharedMaterial.SetFloat("_BaseMapStrength",1);
+                    if(renderer.sharedMaterial.HasProperty("_UseRestCoordinates"))renderer.sharedMaterial.SetFloat("_UseRestCoordinates",1);
+                    if(emission!=null&&renderer.sharedMaterial.HasProperty("_EmissionMap")){
+                        renderer.sharedMaterial.SetTexture("_EmissionMap",emission);
+                        renderer.sharedMaterial.SetFloat("_EmissionMapStrength",1);
+                        renderer.sharedMaterial.SetFloat("_EmissionMapScale",4.5f);
+                    }
+                }
             }
             if(!isRival){
                 var field=new GameObject("KIN · open particle Seed");field.transform.SetParent(wrapper,false);
@@ -241,7 +281,66 @@ namespace ARCHi.Port
             UpdatePose(0);
         }
 
-        public void Perform(ArenaRehearsal bout){kinMove=bout.LastMove;rivalMove=bout.LastRivalMove;kinField=bout.Field;rivalField=bout.RivalField;damageTaken=bout.DamageTaken;damageDealt=bout.DamageDealt;actionTime=0;MotionName=kinMove.ToString();}
+        public void BindTraining(ArenaRehearsal bout)
+        {
+            if(bout==null)throw new ArgumentNullException(nameof(bout));
+            if(ReferenceEquals(trainingBout,bout))return;
+            ClearCombatContacts();trainingBout=bout;
+            CompanionTraining.Bind(bout,ArenaSeat.One,ArenaParticipantKind.Companion);
+            RivalTraining.Bind(bout,ArenaSeat.Two,ArenaParticipantKind.Npc);
+            companionReadinessAge=rivalReadinessAge=2;UpdateReadiness(0);
+        }
+        private void OnFieldEvidenceChanged(ArenaFieldTrainingBody body)
+        {
+            if(body.State?.EvolutionState!=FieldTrainingEvolutionState.FieldEvidenceReady)return;
+            if(body==CompanionTraining)companionReadinessAge=StaticMotion?2:0;
+            if(body==RivalTraining)rivalReadinessAge=StaticMotion?2:0;
+            UpdateReadiness(0);
+        }
+        private void UpdateReadiness(float dt)
+        {
+            if(!StaticMotion){companionReadinessAge+=dt;rivalReadinessAge+=dt;}
+            PresentReadiness(CompanionTraining,companionReadiness,companionReadinessMaterial,companionReadinessAge);
+            PresentReadiness(RivalTraining,rivalReadiness,rivalReadinessMaterial,rivalReadinessAge);
+        }
+        private void PresentReadiness(ArenaFieldTrainingBody body,Transform halo,Material material,float age)
+        {
+            if(halo==null)return;
+            bool ready=body?.State?.EvolutionState==FieldTrainingEvolutionState.FieldEvidenceReady;
+            halo.gameObject.SetActive(ready);
+            if(!ready)return;
+            // This finite cue attests local field evidence; it never selects or grants a body.
+            float arrival=StaticMotion?0:Mathf.Sin(Mathf.Clamp01(age/1.2f)*Mathf.PI);
+            halo.localScale=Vector3.one*(1+arrival*.045f);
+            Color color=body.State.Field==ArenaField.Guardian?new Color(.85f,.53f,.17f):new Color(.12f,.66f,.65f);
+            material.SetColor("_Color",color*.45f);material.SetColor("_EmissionColor",color*(.65f+arrival*.35f));
+        }
+        public void Perform(ArenaRehearsal bout){
+            BindTraining(bout);
+            kinMove=bout.LastMove;rivalMove=bout.LastRivalMove;kinField=bout.Field;rivalField=bout.RivalField;damageTaken=bout.DamageTaken;damageDealt=bout.DamageDealt;actionTime=0;MotionName=kinMove.ToString();
+            SpawnCombatContact(CompanionTraining,RivalTraining);
+            SpawnCombatContact(RivalTraining,CompanionTraining);
+        }
+        private ArenaFieldTrainingBody CreateTrainingBody(string label,Vector3 anchor)
+        {
+            var body=new GameObject(label);body.layer=ArtLayer;body.transform.SetParent(transform,false);body.transform.localPosition=anchor;
+            var rigidbody=body.AddComponent<Rigidbody>();rigidbody.isKinematic=true;rigidbody.useGravity=false;
+            var capsule=body.AddComponent<CapsuleCollider>();capsule.center=new Vector3(0,1.05f,0);capsule.height=2.1f;capsule.radius=.48f;
+            return body.AddComponent<ArenaFieldTrainingBody>();
+        }
+        private void SpawnCombatContact(ArenaFieldTrainingBody source,ArenaFieldTrainingBody target)
+        {
+            if(trainingBout.LastCombatRound==null||trainingBout.LastCombatRound.For(source.Seat).Move==ArenaMove.Guard)return;
+            combatContacts.RemoveAll(contact=>contact==null);
+            var item=new GameObject("Resolved combat contact");item.layer=ArtLayer;item.transform.SetParent(transform,false);
+            item.transform.position=target.transform.TransformPoint(new Vector3(0,1.05f,0));
+            var rigidbody=item.AddComponent<Rigidbody>();rigidbody.isKinematic=true;rigidbody.useGravity=false;
+            var collider=item.AddComponent<SphereCollider>();collider.radius=.12f;collider.isTrigger=true;
+            var receipt=item.AddComponent<ArenaCombatContact>();
+            if(!receipt.Arm(source,target)){Destroy(item);return;}
+            combatContacts.Add(item);Destroy(item,.25f);
+        }
+        private void ClearCombatContacts(){foreach(var item in combatContacts)if(item!=null){item.SetActive(false);Destroy(item);}combatContacts.Clear();}
         public void SetForm(bool body){
             float target=body?1:0;
             if(Mathf.Approximately(FormProgress,target)&&Mathf.Approximately(formTarget,target))return;
@@ -268,12 +367,13 @@ namespace ARCHi.Port
             staffPearl.gameObject.SetActive(crown=="pearl");staffStar.gameObject.SetActive(crown=="star");staffLeaf.gameObject.SetActive(crown=="leaf");
         }
         public void SetMantle(bool value){MantleEquipped=value;mantle.gameObject.SetActive(value && FormProgress>.85f);}
-        public void Stop(){actionTime=10;evolutionTime=10;FormProgress=formTarget;MotionName="Rest";UpdatePose(0);}
+        public void Stop(){actionTime=10;evolutionTime=10;companionReadinessAge=rivalReadinessAge=2;FormProgress=formTarget;MotionName="Rest";UpdatePose(0);}
         public void Recover(){Stop();MotionName="Recover";}
         private void Update(){if(stageCamera==null)return;float dt=Mathf.Min(Time.unscaledDeltaTime,.1f);if(!StaticMotion)clock+=dt;actionTime+=dt;evolutionTime+=dt;UpdatePose(dt);}
         private void UpdatePose(float dt)
         {
             if(kin==null)return;
+            UpdateReadiness(dt);
             if(evolutionTime<FormDuration && !StaticMotion){float p=FormEase(ProtoSelected ? .65f : .8f,ProtoSelected ? 6.65f : 4.6f,evolutionTime);FormProgress=Mathf.Lerp(formStart,formTarget,p);}
             else FormProgress=formTarget;
             Pose(kin,kinHome,kinMove,false);Pose(rival,rivalHome,rivalMove,true);
@@ -283,9 +383,14 @@ namespace ARCHi.Port
                 personalSeed.localPosition=kinHome+new Vector3(cast*(kinMove==ArenaMove.Guard?0:.18f),1.25f+idle,0);
                 personalSeed.rotation=stageCamera.transform.rotation;
             }
-            float weight=100*(1-FormProgress);
             foreach(var s in kin.shapes)if(s.sharedMesh.blendShapeCount>0){
-                if(!kin.refined){s.SetBlendShapeWeight(0,weight);continue;}
+                if(!kin.refined){
+                    // Existing CompactSeed geometry opens in overlapping phases around the continuing heart.
+                    string part=s.name;
+                    float unfoldStart=part.Contains("crest")?.32f:part.Contains("arm")||part.Contains("hand")?.22f:.16f;
+                    float unfoldEnd=part.Contains("crest")?.96f:part.Contains("arm")||part.Contains("hand")?.91f:.86f;
+                    s.SetBlendShapeWeight(0,100*(1-FormEase(unfoldStart,unfoldEnd,FormProgress)));continue;
+                }
                 bool flow=s.name.Contains("gathering light currents");
                 int index=s.sharedMesh.GetBlendShapeIndex("CompactSeed");
                 if(index>=0)s.SetBlendShapeWeight(index,100*(1-FormEase(flow ? .07f : .20f,flow ? .40f : .66f,FormProgress)));
@@ -302,7 +407,7 @@ namespace ARCHi.Port
                     else if(n.Contains("gathering light currents"))r.enabled=FormEase(.06f,.23f,FormProgress)*(1-FormEase(.47f,.78f,FormProgress))>.002f;
                     else r.enabled=FormEase(.30f,.68f,FormProgress)>.002f;
                 }else{
-                    r.enabled=r.name.Contains("single ivory heart") || (FormProgress>.27f && (!r.name.Contains("eye")&&!r.name.Contains("smile") || FormProgress>.7f));
+                    r.enabled=r.name.Contains("single ivory heart") || (FormProgress>.24f && (!r.name.Contains("eye")&&!r.name.Contains("smile") || FormProgress>.72f));
                 }
             }
             if(kin.seedParticles!=null){
@@ -467,7 +572,11 @@ namespace ARCHi.Port
             var l=g.AddComponent<Light>();l.type=type;l.color=color;l.intensity=power;l.range=12;l.cullingMask=1<<ArtLayer;
             l.shadows=type==LightType.Directional?LightShadows.Soft:LightShadows.None;l.shadowStrength=.65f;l.shadowBias=.04f;
         }
-        private void OnDisable(){if(stageCamera!=null)stageCamera.enabled=false;}
-        private void OnDestroy(){if(stageCamera!=null)stageCamera.targetTexture=null;if(Texture!=null){Texture.Release();Destroy(Texture);}foreach(var m in materials)Destroy(m);foreach(var m in meshes)Destroy(m);}
+        private void OnDisable(){ClearCombatContacts();if(stageCamera!=null)stageCamera.enabled=false;}
+        private void OnDestroy(){
+            if(CompanionTraining!=null)CompanionTraining.EvolutionStateChanged-=OnFieldEvidenceChanged;
+            if(RivalTraining!=null)RivalTraining.EvolutionStateChanged-=OnFieldEvidenceChanged;
+            if(stageCamera!=null)stageCamera.targetTexture=null;if(Texture!=null){Texture.Release();Destroy(Texture);}foreach(var m in materials)Destroy(m);foreach(var m in meshes)Destroy(m);
+        }
     }
 }

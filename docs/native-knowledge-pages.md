@@ -22,7 +22,7 @@ The graph shows only explicit page-to-source attribution. A link is not proof th
 
 ## Persistence and bounds
 
-The existing `preferences.reading-sources.json` gains schema `archi-reading-sources/v2`. Legacy v1 files load without writes and upgrade on the next authorized change. V2 includes bounded page history in the same atomic file transaction as the source copies. An old binary cannot read v2; preserve the installed app rollback and data backup when intentionally downgrading.
+The existing `preferences.reading-sources.json` uses v2 for page history, v3 when relationship records are present, and v4 when source provenance is retained. Legacy v1–v3 files load without writes; explicit edits choose the required schema. V4 adds [source origin and derivation](native-source-provenance.md) to the same atomic owner. Older binaries cannot read newer schemas; preserve the installed app rollback and data backup when intentionally downgrading.
 
 Bounds: eight kept copies, 100 KB per source, 400 KB total source text; page title 240 UTF-8 bytes, note 8,192 UTF-8 bytes, one to four anchors, 64 total page versions. Each active page reserves a future withdrawal slot. Full history is preserved and reported; no automatic pruning. File locking and exact disk-digest checks prevent stale windows from overwriting each other. Malformed schemas, duplicate keys and invalid histories block writes.
 

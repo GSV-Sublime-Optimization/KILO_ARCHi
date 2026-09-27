@@ -37,6 +37,7 @@ final class ReadingSourceLibrary: ObservableObject {
     private var requiresRecovery = false
     private static let schema = "archi-reading-sources/v2"
     private static let relationshipSchema = "archi-reading-sources/v3"
+    private static let provenanceSchema = "archi-reading-sources/v4"
     // Covers worst-case JSON escaping of retained sources and bounded note history.
     private static let maximumArchiveBytes = 8 * 1_024 * 1_024
 
@@ -75,13 +76,51 @@ final class ReadingSourceLibrary: ObservableObject {
     }
 
     @discardableResult
-    func keep(title: String, text: String) throws -> ReadingSourceSnapshot {
-        let snapshot = ReadingSourceSnapshot(id: UUID().uuidString, title: title, revision: 1, text: text)
+    func keep(title: String, text: String, provenance: ReadingSourceProvenance? = nil) throws -> ReadingSourceSnapshot {
+        let snapshot = ReadingSourceSnapshot(id: UUID().uuidString, title: title, revision: 1, text: text, provenance: provenance)
         guard Self.validSnapshot(snapshot) else {
             throw ReadingSourceLibraryError.invalid("A kept source needs a title of at most 240 UTF-8 bytes and 1–100,000 UTF-8 bytes of text.")
         }
-        try persist(sources + [snapshot])
+        let next = sources + [snapshot]
+        if let reason = ReadingSourceLineage.availability(of: snapshot.binding, in: next) {
+            throw ReadingSourceLibraryError.invalid(reason)
+        }
+        try persist(next)
         return snapshot
+    }
+
+    /// Declaration is a new source revision, including when text is unchanged.
+    /// The exact displayed version must still be current at the owner's write boundary.
+    @discardableResult
+    func declareProvenance(source: ReadingSourceSnapshot, origin: ReadingSourceOrigin,
+                           acquisition: ReadingSourceAcquisition, attribution: String,
+                           parents: [ReadingSourceParent]) throws -> ReadingSourceSnapshot {
+        try assertCurrent()
+        guard let index = sources.firstIndex(of: source), source.revision < UInt64.max else {
+            throw ReadingSourceLibraryError.invalid("This source changed. Reopen its origin before saving.")
+        }
+        let provenance = ReadingSourceProvenance(origin: origin, acquisition: acquisition,
+            attribution: attribution, parents: parents)
+        guard provenance.isValid else {
+            throw ReadingSourceLibraryError.invalid("Use a valid origin, attribution up to 240 UTF-8 bytes, and at most four distinct current parents. A derived copy needs a parent.")
+        }
+        if let previous = source.provenance, previous.origin == origin, previous.acquisition == acquisition,
+           previous.attribution == attribution, previous.parents == parents,
+           availability(of: source.binding) == nil { return source }
+        let updated = ReadingSourceSnapshot(id: source.id, title: source.title, revision: source.revision + 1,
+            text: source.text, provenance: provenance)
+        var next = sources
+        next[index] = updated
+        if let reason = ReadingSourceLineage.availability(of: updated.binding, in: next) {
+            throw ReadingSourceLibraryError.invalid(reason)
+        }
+        try persist(next)
+        return updated
+    }
+
+    func availability(of binding: ReadingSourceBinding) -> String? {
+        guard isCurrentOnDisk else { return "The source library changed or needs recovery. Reopen before using this copy." }
+        return ReadingSourceLineage.availability(of: binding, in: sources)
     }
 
     /// Replacement keeps the source identity and advances its revision. Earlier
@@ -94,7 +133,14 @@ final class ReadingSourceLibrary: ObservableObject {
         guard sources[index].revision < UInt64.max else {
             throw ReadingSourceLibraryError.invalid("The source revision limit was reached. Keep a new copy instead.")
         }
-        let snapshot = ReadingSourceSnapshot(id: id, title: title, revision: sources[index].revision + 1, text: text)
+        // Replacement cannot inherit an authorship claim about the earlier text.
+        // Preserve declared parents until the user explicitly reviews/removes them.
+        let provenance = sources[index].provenance.map {
+            ReadingSourceProvenance(origin: .unknown,
+                acquisition: $0.parents.isEmpty ? .userCopy : .derivedCopy, parents: $0.parents)
+        }
+        let snapshot = ReadingSourceSnapshot(id: id, title: title, revision: sources[index].revision + 1,
+            text: text, provenance: provenance)
         guard Self.validSnapshot(snapshot) else {
             throw ReadingSourceLibraryError.invalid("A kept source needs a title of at most 240 UTF-8 bytes and 1–100,000 UTF-8 bytes of text.")
         }
@@ -116,6 +162,7 @@ final class ReadingSourceLibrary: ObservableObject {
     func makeAnchor(sourceID: String, range: NSRange) throws -> KnowledgeAnchor {
         try assertCurrent()
         guard let source = sources.first(where: { $0.id == sourceID }),
+              ReadingSourceLineage.availability(of: source.binding, in: sources) == nil,
               let quote = Self.exactQuote(in: source.text, range: range) else {
             throw ReadingSourceLibraryError.invalid("Select an exact, nonempty passage from a current kept source.")
         }
@@ -244,6 +291,13 @@ final class ReadingSourceLibrary: ObservableObject {
                 "Source: \(anchor.source.id) · revision \(anchor.source.revision)",
                 "Source SHA-256: \(anchor.source.digest)",
                 "UTF-16 range: \(anchor.location), \(anchor.length)", "Quote SHA-256: \(anchor.quoteDigest)", ""]
+            if let provenance = anchor.source.provenance {
+                lines += ["Declared origin: \(provenance.origin.title) · \(provenance.acquisition.title)",
+                    "User declaration, not authorship or factual verification.",
+                    "Provenance SHA-256: \(provenance.digest)"]
+                lines += provenance.parents.map { "Parent: \($0.id) · revision \($0.revision) · SHA-256 \($0.digest) · provenance \($0.provenanceDigest ?? "unknown")" }
+                lines.append("")
+            } else { lines += ["Source origin: unknown (no declaration retained).", ""] }
             if let current = quote(for: anchor) {
                 lines += current.components(separatedBy: .newlines).map { "> " + $0 }
             } else { lines.append("Exact passage unavailable from the current retained source.") }
@@ -282,6 +336,7 @@ final class ReadingSourceLibrary: ObservableObject {
 
     private func currentQuote(for anchor: KnowledgeAnchor) -> String? {
         guard anchor.isValid, let source = sources.first(where: { $0.binding == anchor.source }),
+              ReadingSourceLineage.availability(of: source.binding, in: sources) == nil,
               let quote = Self.exactQuote(in: source.text, range: anchor.range) else { return nil }
         return LessonSource.digest(of: quote) == anchor.quoteDigest ? quote : nil
     }
@@ -333,7 +388,10 @@ final class ReadingSourceLibrary: ObservableObject {
         }
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
-        let archiveSchema = nextPages.contains(where: { $0.relationship != nil }) ? Self.relationshipSchema : Self.schema
+        let hasProvenance = next.contains { $0.provenance != nil }
+            || nextPages.contains { $0.anchors.contains { $0.source.provenance != nil } }
+        let archiveSchema = hasProvenance ? Self.provenanceSchema
+            : (nextPages.contains(where: { $0.relationship != nil }) ? Self.relationshipSchema : Self.schema)
         let bytes = try encoder.encode(Archive(schema: archiveSchema, sources: next, knowledgePages: nextPages))
         guard bytes.count <= Self.maximumArchiveBytes else { throw ReadingSourceLibraryError.full }
 
@@ -386,16 +444,20 @@ final class ReadingSourceLibrary: ObservableObject {
         try scanner.validate()
         guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               let version = object["schema"] as? String,
-              [schema, relationshipSchema, "archi-reading-sources/v1"].contains(version),
+              [schema, relationshipSchema, provenanceSchema, "archi-reading-sources/v1"].contains(version),
               Set(object.keys) == (version == "archi-reading-sources/v1" ? ["schema", "sources"] : ["schema", "sources", "knowledgePages"]),
               let rows = object["sources"] as? [[String: Any]], rows.count <= maximumSources,
-              rows.allSatisfy({ Set($0.keys) == ["id", "title", "revision", "text"] }) else {
+              rows.allSatisfy({ row in
+                  let required: Set<String> = ["id", "title", "revision", "text"]
+                  let keys = Set(row.keys)
+                  return required.isSubset(of: keys) && keys.isSubset(of: version == provenanceSchema ? required.union(["provenance"]) : required)
+              }) else {
             throw ReadingSourceLibraryError.unreadable
         }
         let archive: Archive
         if version != "archi-reading-sources/v1" {
             guard let pages = object["knowledgePages"] as? [[String: Any]], pages.count <= maximumKnowledgePageVersions,
-                  version == relationshipSchema || pages.allSatisfy({ $0["relationship"] == nil }) else {
+                  [relationshipSchema, provenanceSchema].contains(version) || pages.allSatisfy({ $0["relationship"] == nil }) else {
                 throw ReadingSourceLibraryError.unreadable
             }
             archive = try JSONDecoder().decode(Archive.self, from: data)
@@ -405,6 +467,7 @@ final class ReadingSourceLibrary: ObservableObject {
                 knowledgePages: [])
         }
         guard archive.sources.allSatisfy(validSnapshot), uniqueIDs(archive.sources), withinCapacity(archive.sources),
+              version == provenanceSchema || archive.knowledgePages.allSatisfy({ $0.anchors.allSatisfy { $0.source.provenance == nil } }),
               validPageHistory(archive.knowledgePages),
               archive.knowledgePages.count + latestPages(archive.knowledgePages).filter({ $0.state != .withdrawn }).count <= maximumKnowledgePageVersions else {
             throw ReadingSourceLibraryError.unreadable

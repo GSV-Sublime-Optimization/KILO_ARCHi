@@ -5,7 +5,21 @@ struct ReadingSourceBinding: Codable, Equatable, Sendable {
     let id: String
     let revision: UInt64
     let digest: String
-    var isValid: Bool { UUID(uuidString: id) != nil && revision > 0 && DocumentReadingTrace.isDigest(digest) }
+    let provenance: ReadingSourceProvenanceReceipt?
+    init(id: String, revision: UInt64, digest: String, provenance: ReadingSourceProvenanceReceipt? = nil) {
+        self.id = id; self.revision = revision; self.digest = digest; self.provenance = provenance
+    }
+    var isValid: Bool { UUID(uuidString: id) != nil && revision > 0 && DocumentReadingTrace.isDigest(digest)
+        && (provenance?.isValid ?? true) }
+    private enum CodingKeys: String, CodingKey { case id, revision, digest, provenance }
+    init(from decoder: Decoder) throws {
+        try SourceProvenanceKeys.require(["id", "revision", "digest"], optional: ["provenance"], in: decoder)
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id); revision = try c.decode(UInt64.self, forKey: .revision)
+        digest = try c.decode(String.self, forKey: .digest)
+        provenance = c.contains(.provenance) ? try c.decode(ReadingSourceProvenanceReceipt.self, forKey: .provenance) : nil
+        guard isValid else { throw SourceProvenanceKeys.invalid(decoder) }
+    }
     static func valid(_ values: [Self]?) -> Bool {
         guard let values else { return true }
         return (1...8).contains(values.count) && values.allSatisfy(\.isValid)
@@ -14,7 +28,7 @@ struct ReadingSourceBinding: Codable, Equatable, Sendable {
 }
 
 extension ReadingSourceSnapshot {
-    var binding: ReadingSourceBinding { ReadingSourceBinding(id: id, revision: revision, digest: digest) }
+    var binding: ReadingSourceBinding { ReadingSourceBinding(id: id, revision: revision, digest: digest, provenance: provenance?.receipt) }
 }
 
 /// Frozen reading provenance retained by Token Steward's existing task journal.

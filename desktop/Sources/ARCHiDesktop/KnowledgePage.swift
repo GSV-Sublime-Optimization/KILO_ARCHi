@@ -34,7 +34,7 @@ struct KnowledgeAnchor: Codable, Equatable, Identifiable, Sendable {
         try KnowledgePageKeys.require(["source", "location", "length", "quoteDigest"], in: decoder)
         let values = try decoder.container(keyedBy: CodingKeys.self)
         let sourceDecoder = try values.superDecoder(forKey: .source)
-        try KnowledgePageKeys.require(["id", "revision", "digest"], in: sourceDecoder)
+        try KnowledgePageKeys.require(["id", "revision", "digest"], optional: ["provenance"], in: sourceDecoder)
         source = try ReadingSourceBinding(from: sourceDecoder)
         location = try values.decode(Int.self, forKey: .location)
         length = try values.decode(Int.self, forKey: .length)

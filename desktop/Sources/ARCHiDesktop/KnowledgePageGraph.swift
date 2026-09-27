@@ -35,15 +35,18 @@ enum KnowledgePageGraph {
             if ids.contains("companion-archi") { link("companion-archi", id, "authored memory") }
             for anchor in page.anchors {
                 let sourceID = key(["knowledge-source", anchor.source.id, String(anchor.source.revision), anchor.source.digest])
-                let current = library.isCurrentOnDisk ? library.sources.first { $0.binding == anchor.source } : nil
+                let retained = library.sources.first { $0.binding == anchor.source }
+                let sourceIssue = library.isCurrentOnDisk
+                    ? ReadingSourceLineage.availability(of: anchor.source, in: library.sources)
+                    : "The source library changed or needs recovery. Reopen before using this source."
                 let sourceDetails: [CompanionGraphDetail] = [
                     .init(label: "Source ID", value: anchor.source.id),
                     .init(label: "Revision", value: String(anchor.source.revision)),
                     .init(label: "Digest", value: anchor.source.digest),
-                    .init(label: "State", value: current == nil ? "Exact source no longer available. Historical text is not reconstructed." : "Exact retained source version. Inspect linked passages in the page.")]
-                guard add(.init(id: sourceID, title: current?.title ?? "Unavailable source version",
+                    .init(label: "State", value: sourceIssue ?? "Exact retained source version and its derivation parents are current. Inspect linked passages in the page.")]
+                guard add(.init(id: sourceID, title: retained?.title ?? "Unavailable source version",
                     subtitle: "Source v\(anchor.source.revision)", kind: .source,
-                    status: current == nil ? "Needs source review" : "Retained source",
+                    status: sourceIssue == nil ? "Retained source" : "Needs source review",
                     details: sourceDetails, target: nil)) else { continue }
                 link(id, sourceID, "source passage")
             }

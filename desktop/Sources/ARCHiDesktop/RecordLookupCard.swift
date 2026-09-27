@@ -11,6 +11,7 @@ struct RecordLookupCard: View {
     private struct FreshnessIdentity: Equatable {
         let owner: SourceOwnerIdentity
         let source: ReadingSourceBinding
+        let librarySources: [ReadingSourceBinding]
     }
 
     @ObservedObject var store: CompanionStore
@@ -35,10 +36,15 @@ struct RecordLookupCard: View {
     }
     private var freshnessIdentity: FreshnessIdentity? {
         guard !isSample, let source else { return nil }
-        return FreshnessIdentity(owner: sourceOwnerIdentity, source: source.binding)
+        return FreshnessIdentity(owner: sourceOwnerIdentity, source: source.binding,
+            librarySources: store.readingSources.sources.map(\.binding))
     }
     private var sourceIsCurrent: Bool {
-        store.profileRecoveryBlock == nil && (isSample || libraryCurrent)
+        guard store.profileRecoveryBlock == nil else { return false }
+        if isSample { return true }
+        guard libraryCurrent else { return false }
+        guard let source else { return selectedSourceID.isEmpty }
+        return ReadingSourceLineage.availability(of: source.binding, in: store.readingSources.sources) == nil
     }
     private var table: RecordLookupTable? {
         guard sourceIsCurrent, let source else { return nil }
@@ -62,7 +68,7 @@ struct RecordLookupCard: View {
                     .font(.callout).foregroundStyle(.secondary)
                 sourcePicker
                 if !sourceIsCurrent {
-                    Text("The source library changed or needs recovery. Reopen ARCHi before using a kept table.")
+                    Text("The kept table or a parent source changed, was forgotten, or needs recovery. Review the source lineage before using this table.")
                         .font(.caption).foregroundStyle(.orange)
                 } else if let table {
                     queryControls(table)
@@ -235,7 +241,8 @@ struct RecordLookupCard: View {
 
     private func refreshFreshness() {
         let current = store.profileRecoveryBlock == nil
-            && (source == nil || isSample || store.readingSources.isCurrentOnDisk)
+            && (isSample || (source.map { store.readingSources.availability(of: $0.binding) == nil }
+                ?? selectedSourceID.isEmpty))
         if !current { clearMeasurement() }
         libraryCurrent = current
     }

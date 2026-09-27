@@ -78,7 +78,8 @@ enum KnowledgeRetrieval {
         var currentSources: [String: Source] = [:]
         for (identity, group) in sourceGroups {
             guard identity != nil, group.count == 1, let source = group.first,
-                  source.isValid, source.binding.isValid else { continue }
+                  source.isValid, source.binding.isValid,
+                  ReadingSourceLineage.availability(of: source.binding, in: sources) == nil else { continue }
             currentSources[source.id.lowercased()] = Source(snapshot: source, binding: source.binding)
         }
         let excludedSources = sources.count - currentSources.count

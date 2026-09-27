@@ -82,6 +82,10 @@ See the [API contract](../marketplace/API.md), [native Marketplace](native-marke
 
 Mode changes and new bouts reset the temporary match. Shortcuts need Unity focus; Command/Control/Option-modified keys are ignored. Stop/return does not terminate the native session. Unity practice does not grant saved growth, rankings, Marketplace rewards or canonical item effects.
 
+### Show and save solo practice outcomes
+
+Return to native **Arena → Practice outcomes** after solo moves. The summary shows retained action counts and their effects. **Save practice report…** exports a frozen JSON window, including sequence/bout IDs, observation time and retained/missed/retired coverage. Save before **End session**, which clears the in-app observations. No profile notes or companion identity are exported. Paired outcomes and native-Q2E action selection are not connected; a practice result is not evidence of learned behavior. See [practice report scope](native-arena-practice-report.md) and the [investor demonstration](investor-evidence-walkthrough.md).
+
 ### Arena troubleshooting
 
 Choose **Set up Arena → Advanced**. Use **Use included Arena** when available, or **Choose Arena app…**, then **Check again**. Read the displayed reason. Missing players, incompatible Seed/outfit capabilities or failed acknowledgment require a compatible build; do not reset the companion to bypass them. **Return to Arena** brings an acknowledged session forward.

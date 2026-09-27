@@ -2,6 +2,8 @@
 
 25 September 2026 · Source integration; installation and workflow evidence are recorded separately.
 
+Document preparation wording updated 27 September 2026 for [explicit method selection](native-method-finder.md); the numerical definitions and evidence limits are unchanged.
+
 ARCHi now connects numerical quotient updates, a potential-derived force and typed coupling to the existing document-revision controller. The resulting preference affects **Prepare next step** and the application-authored guidance delivered to local Qwen. The document journal remains the owner of observations, decisions, edits and reviews. There is no separate learning database.
 
 This is the first native numerical domain adapter. It operates on reviewed task approaches. Document reading now has a separate [numerical reading adapter](native-numerical-reading.md); ARC3 retains its existing control policy. Neither adapter enables representation steering or modifies model weights.
@@ -70,12 +72,14 @@ Hard selection rules remain in force. Missing prerequisites, exhausted budget or
 
 | Selected approach | Actual document behavior |
 | --- | --- |
-| Retain | With an empty draft and an eligible Helpful saved method, Prepare can select that method. Local guidance follows the user's supplied method and requirements. |
-| Expand | Prepare an ordinary checked revision and ask for one bounded proposal. |
-| Repair | Detach prepared method attribution and request a fresh approach that checks the current constraints. |
+| Retain | Preserve an explicitly selected method and authored draft. With no method attached and an empty draft, prepare an ordinary checked revision. Local guidance follows the user's supplied method and requirements. |
+| Expand | With no method attached and an empty draft, prepare an ordinary checked revision for one bounded proposal; otherwise preserve the current method and draft. |
+| Repair | Preserve the current method binding and authored draft. With no method attached and an empty draft, prepare a fresh approach that checks the current constraints. |
 | Stop | Do not prepare or dispatch the controlled local request until the inputs are resolved. |
 
-Prepare preserves authored draft text and sends nothing. Send captures the current decision, checks it again against current owner history before generation and journals it. Same-request sibling provider lanes are excluded from that freshness comparison. If the relevant review or method changed during connection, dispatch stops instead of using stale support.
+Prepare enables Revise mode, preserves authored draft text and sends nothing. Choosing a saved method requires the [method finder or full-library preview](native-method-finder.md) and explicit confirmation; Helpful history and numerical preference do not select one automatically. Confirmation rechecks the current draft, passage, requirements, owners and source support. A stale attached method remains visible and blocks Send, including after supporting-source withdrawal. Repair keeps that binding; **Detach procedure** is an explicit user action.
+
+Send captures the current decision, checks it again against current owner history before generation and journals it. Same-request sibling provider lanes are excluded from that freshness comparison. If the relevant review or method changed during connection, dispatch stops instead of using stale support.
 
 Only fixed application-authored lane guidance is included in the local model input. Numerical state, historical bindings and recorded explanations remain native data. External provider lanes receive no local controller payload. Proposal checks, explicit Apply and subsequent review remain responsible for document changes; numerical acceptance does not approve an edit.
 

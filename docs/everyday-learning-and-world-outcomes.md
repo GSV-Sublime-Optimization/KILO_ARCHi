@@ -55,3 +55,5 @@ Relevant checks include [method history](../desktop/Tests/ARCHiDesktopTests/Meth
 
 
 **27 September follow-through:** Work together now has a profile-wide [applied-work review queue](native-document-review-queue.md). It finds earlier unreviewed ordinary and method-based edits after moving to a new copy or restarting. Historical receipt inspection does not restore prose, undo current work or award learning.
+
+**27 September Arena follow-through:** [Practice reports](native-arena-practice-report.md) summarize and export the existing checked solo-action window. Retained, missed and retired actions stay distinct; all metrics cover retained records only. The Unity rules and saved companion development are unchanged. [Investor walkthrough](investor-evidence-walkthrough.md) maps the current mechanisms to inspectable measures and remaining evidence.

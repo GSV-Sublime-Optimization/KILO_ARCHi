@@ -1,8 +1,11 @@
+import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 @MainActor
 struct WorldOutcomeCard: View {
     @ObservedObject var connection: UnityPresentationConnection
+    @State private var exportMessage: String?
 
     var body: some View {
         WorkspaceCard {
@@ -10,9 +13,8 @@ struct WorldOutcomeCard: View {
                 Label("Practice outcomes", systemImage: "arrow.triangle.branch").font(.headline)
                 Text(connection.worldOutcomeStatus).font(.callout).foregroundStyle(.secondary)
                     .accessibilityIdentifier("arena.outcomes-status")
-                if connection.missingWorldOutcomes > 0 {
-                    Text("\(connection.missingWorldOutcomes) actions were missed between updates. This is an incomplete session history.")
-                        .font(.caption).foregroundStyle(.orange)
+                if let report = connection.practiceReport() {
+                    summary(report)
                 }
                 if !connection.worldOutcomes.isEmpty {
                     DisclosureGroup("Recent actions · \(connection.worldOutcomes.count)") {
@@ -36,5 +38,71 @@ struct WorldOutcomeCard: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
         }.accessibilityElement(children: .contain).accessibilityIdentifier("arena.outcomes")
+            .onChange(of: connection.isSharing) { _, _ in exportMessage = nil }
+    }
+
+    private func summary(_ report: ArenaPracticeReport) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("This practice · retained actions").font(.subheadline.weight(.semibold))
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 24) { metrics(report) }
+                VStack(alignment: .leading, spacing: 10) { metrics(report) }
+            }
+            Text(report.actionSummary).font(.caption).foregroundStyle(.secondary)
+            Text(report.outcomeSummary).font(.caption).foregroundStyle(.secondary)
+            Text(report.coverageSummary)
+                .font(.caption)
+                .foregroundStyle(report.missingCount > 0 || report.retiredCount > 0 ? .orange : .secondary)
+                .accessibilityIdentifier("arena.report-coverage")
+            Text("Last checked report · \(Date(timeIntervalSince1970: report.snapshotUpdatedAtUnix).formatted(date: .abbreviated, time: .standard))")
+                .font(.caption2).foregroundStyle(.secondary)
+            Button {
+                saveReport()
+            } label: {
+                Label("Save practice report…", systemImage: "square.and.arrow.up")
+            }.buttonStyle(WorkspaceActionStyle())
+                .accessibilityIdentifier("arena.export-report")
+            Text("Save the current observations before ending practice. The JSON includes actions and coverage; companion notes and identity are excluded.")
+                .font(.caption).foregroundStyle(.secondary)
+            if let exportMessage {
+                Text(exportMessage).font(.caption).textSelection(.enabled)
+                    .accessibilityIdentifier("arena.export-status")
+            }
+        }.padding(.vertical, 6)
+            .accessibilityElement(children: .contain).accessibilityIdentifier("arena.practice-summary")
+    }
+
+    @ViewBuilder private func metrics(_ report: ArenaPracticeReport) -> some View {
+        metric("Actions", value: report.retainedCount)
+        metric("Damage dealt", value: report.damageDealt)
+        metric("Damage taken", value: report.damageTaken)
+        metric("Damage blocked", value: report.damageAbsorbed)
+    }
+
+    private func metric(_ title: String, value: Int) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(value, format: .number).font(.title2.monospacedDigit())
+            Text(title).font(.caption).foregroundStyle(.secondary)
+        }.accessibilityElement(children: .combine)
+    }
+
+    private func saveReport() {
+        guard let report = connection.practiceReport() else {
+            exportMessage = "No checked solo actions are available to save yet."
+            return
+        }
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.json]
+        panel.nameFieldStringValue = "ARCHi-practice-\(report.sessionID.prefix(8)).json"
+        panel.message = "Save the currently retained practice observations. Coverage and limitations are included."
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        do {
+            try connection.exportPracticeReport(report, to: url)
+            exportMessage = "Saved \(report.retainedCount) actions to \(url.lastPathComponent)."
+        } catch {
+            exportMessage = "Report was not saved. \(error.localizedDescription)"
+        }
     }
 }

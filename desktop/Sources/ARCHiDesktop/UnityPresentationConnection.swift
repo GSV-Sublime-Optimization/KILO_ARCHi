@@ -172,6 +172,27 @@ struct UnityPresentationAcknowledgment: Codable {
     @Published private(set) var worldOutcomeStatus = "Open Arena to observe solo practice outcomes."
     @Published private(set) var missingWorldOutcomes = 0
     private var worldOutcomeHistory = WorldOutcomeHistory()
+    private var lastWorldOutcomeSnapshot: WorldOutcomeSnapshot?
+
+    /// A frozen report of checked observations, not a claim that Unity is still
+    /// connected. The observation timestamp and coverage travel with the report.
+    func practiceReport(now: Date = Date()) -> ArenaPracticeReport? {
+        guard isSharing, let observation = lastWorldOutcomeSnapshot,
+              observation.sessionID == sessionID.uuidString else { return nil }
+        return ArenaPracticeReport(history: worldOutcomeHistory, snapshot: observation, capturedAt: now)
+    }
+
+    func exportPracticeReport(_ report: ArenaPracticeReport, to url: URL) throws {
+        // A save panel can outlive the session that opened it. Never relabel its
+        // frozen observations as a new session or silently export after Stop.
+        guard isSharing, report.sessionID == sessionID.uuidString,
+              lastWorldOutcomeSnapshot?.sessionID == report.sessionID else {
+            throw PresentationError.reportSessionEnded
+        }
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        try encoder.encode(report).write(to: url, options: .atomic)
+    }
     private(set) var snapshotURL: URL?
     private(set) var lastSnapshot: UnityPresentationSnapshot?
     private var previousSnapshot: UnityPresentationSnapshot?
@@ -360,7 +381,7 @@ struct UnityPresentationAcknowledgment: Codable {
         destinationRevision = routes ? 1 : nil
         self.destination = destination
         lastSnapshot = nil; previousSnapshot = nil; hasRenderAcknowledgment = false; suspended = false
-        worldOutcomeHistory.reset(); worldOutcomes = []; missingWorldOutcomes = 0
+        worldOutcomeHistory.reset(); lastWorldOutcomeSnapshot = nil; worldOutcomes = []; missingWorldOutcomes = 0
         worldOutcomeStatus = "Waiting for Arena outcome support."
         let root = directory ?? FileManager.default.temporaryDirectory
         let folder = root.appendingPathComponent("archi-unity-\(sessionID.uuidString)", isDirectory: true)
@@ -465,6 +486,7 @@ struct UnityPresentationAcknowledgment: Codable {
             let observation = try WorldOutcomeSnapshot.read(from: snapshotURL,
                 matching: [lastSnapshot, previousSnapshot].compactMap { $0 }, now: now)
             try worldOutcomeHistory.ingest(observation)
+            lastWorldOutcomeSnapshot = observation
             worldOutcomes = worldOutcomeHistory.outcomes
             missingWorldOutcomes = worldOutcomeHistory.missingCount
             switch observation.mode {
@@ -510,7 +532,7 @@ struct UnityPresentationAcknowledgment: Codable {
             try? Self.write(retired, to: snapshotURL)
         }
         isSharing = false; hasRenderAcknowledgment = false; isOpening = false
-        worldOutcomeHistory.reset(); worldOutcomes = []; missingWorldOutcomes = 0
+        worldOutcomeHistory.reset(); lastWorldOutcomeSnapshot = nil; worldOutcomes = []; missingWorldOutcomes = 0
         worldOutcomeStatus = "Session ended. Practice observations were cleared."
         player?.terminate(); player = nil
         status = "Unity presentation stopped. Desktop KIN and saved development are unchanged."
@@ -525,7 +547,7 @@ struct UnityPresentationAcknowledgment: Codable {
     }
 
     enum PresentationError: LocalizedError {
-        case noCompanion, oversized, invalidAcknowledgment, seedAppearanceUnavailable, nativeOnlySeed
+        case noCompanion, oversized, invalidAcknowledgment, seedAppearanceUnavailable, nativeOnlySeed, reportSessionEnded
         var errorDescription: String? {
             switch self {
             case .noCompanion: "The current companion identity is unavailable. Open the native profile first."
@@ -533,6 +555,7 @@ struct UnityPresentationAcknowledgment: Codable {
             case .oversized: "The presentation snapshot exceeds its size limit."
             case .invalidAcknowledgment: "The presentation acknowledgment is not a regular file."
             case .seedAppearanceUnavailable: "This Unity build supports the KIN particle Seed. Choose an updated build to use ARCHi’s Ball of Light."
+            case .reportSessionEnded: "That practice session has ended. Start a new session before exporting its observations."
             }
         }
     }

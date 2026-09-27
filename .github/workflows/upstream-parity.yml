@@ -1,0 +1,60 @@
+name: Upstream parity
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/upstream-parity.yml'
+      - 'docs/KILO_CONVERGENCE.md'
+  workflow_dispatch:
+  schedule:
+    - cron: '23 */6 * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: upstream-parity-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  parity:
+    name: Verify fork contains upstream main
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check out KILO_ARCHi
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Compare with canonical upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags https://github.com/cr8ph8/ARCHi.git             main:refs/remotes/upstream/main
+
+          fork_sha="$(git rev-parse HEAD)"
+          upstream_sha="$(git rev-parse refs/remotes/upstream/main)"
+          merge_base="$(git merge-base HEAD refs/remotes/upstream/main)"
+          read -r fork_only upstream_only < <(
+            git rev-list --left-right --count HEAD...refs/remotes/upstream/main
+          )
+
+          {
+            echo "### ARCHi upstream parity"
+            echo
+            echo "- fork: \`$fork_sha\`"
+            echo "- upstream main: \`$upstream_sha\`"
+            echo "- merge base: \`$merge_base\`"
+            echo "- fork-only commits: $fork_only"
+            echo "- upstream-only commits: $upstream_only"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$upstream_only" -ne 0 ]; then
+            echo "::error::KILO_ARCHi is behind cr8ph8/ARCHi main by $upstream_only commit(s)."
+            git log --oneline --decorate HEAD..refs/remotes/upstream/main
+            exit 1
+          fi
+
+          echo "KILO_ARCHi contains the current upstream main history."

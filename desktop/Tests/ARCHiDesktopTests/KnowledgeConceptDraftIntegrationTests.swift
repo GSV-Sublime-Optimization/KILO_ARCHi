@@ -198,13 +198,26 @@ final class KnowledgeConceptDraftIntegrationTests: XCTestCase {
     private final class Fixture {
         static let passage = "A direct polite request can preserve an action while removing introductory padding."
         static let unrelatedText = "Private invoice 742 and Friday deadline."
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("archi-concept-draft-integration-\(UUID())")
-        let reasoner = ConceptDraftRoleClient(name: "concept-reasoner-fixture")
-        let selector = ConceptDraftRoleClient(name: "concept-selector-fixture")
-        let external = ConceptDraftExternalClient()
+        let directory: URL
+        let reasoner: ConceptDraftRoleClient
+        let selector: ConceptDraftRoleClient
+        let external: ConceptDraftExternalClient
+        let assistant: HamptonReasonsAssistant
+
+        init() {
+            let reasoner = ConceptDraftRoleClient(name: "concept-reasoner-fixture")
+            let selector = ConceptDraftRoleClient(name: "concept-selector-fixture")
+            self.directory = FileManager.default.temporaryDirectory.appendingPathComponent(
+                "archi-concept-draft-integration-\(UUID())"
+            )
+            self.reasoner = reasoner
+            self.selector = selector
+            self.external = ConceptDraftExternalClient()
+            self.assistant = HamptonReasonsAssistant(reasoner: reasoner, contextSelector: selector)
+        }
+
         var preference: URL { directory.appendingPathComponent("preferences.json") }
         var readingURL: URL { preference.deletingPathExtension().appendingPathExtension("reading-sources.json") }
-        lazy var assistant = HamptonReasonsAssistant(reasoner: reasoner, contextSelector: selector)
         lazy var store: CompanionStore = {
             let store = CompanionStore(preferenceURL: preference, assistant: assistant,
                 assistantFactory: { [assistant, external] provider, _ in

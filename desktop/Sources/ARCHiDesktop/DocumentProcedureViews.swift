@@ -71,7 +71,7 @@ struct DocumentProcedureLibraryView: View {
     var body: some View {
         DisclosureGroup("Saved procedures (\(store.documentProcedures.latestProcedures.count))") {
             VStack(alignment: .leading, spacing: 10) {
-                Text("Keep a method after helpful applied work. Matching methods use reviewed outcomes first. Ties use comparable local usage when fully measured. Choose a method for each new passage.")
+                Text("Keep a method after helpful applied work, or author an untested candidate from a reviewed concept. Matching methods use reviewed outcomes first. Ties use comparable local usage when fully measured. Choose a method for each new passage.")
                     .foregroundStyle(.secondary)
                 if let error = store.documentProcedures.loadError { Text(error).foregroundStyle(.orange) }
                 ForEach(store.orderedDocumentProcedures) { procedure in
@@ -228,6 +228,9 @@ private struct DocumentProcedureVersionDetails: View {
         VStack(alignment: .leading, spacing: 5) {
             Text("\(procedure.title) · v\(procedure.revision)").fontWeight(.medium)
             Text(procedure.instruction).textSelection(.enabled)
+            if let origin = procedure.knowledgeOrigin {
+                knowledgeOriginDetails(origin)
+            }
             if let outcomes = store.outcomes(for: procedure) {
                 Text("This version · \(outcomes.helpful) helpful · \(outcomes.needsCorrection) corrected or withdrawn · \(outcomes.awaitingReview) awaiting review")
                     .foregroundStyle(.secondary)
@@ -262,6 +265,44 @@ private struct DocumentProcedureVersionDetails: View {
                 Text("Earlier candidate · retained for history").foregroundStyle(.secondary)
             } else {
                 Text("Candidate · available for a matching passage").foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private func knowledgeOriginDetails(_ origin: KnowledgePageBinding) -> some View {
+        let source = store.readingSources.knowledgePages.first { $0.binding == origin }
+        let outcomes = store.outcomes(for: procedure)
+        let identifier = "\(procedure.id).\(procedure.revision)"
+        return VStack(alignment: .leading, spacing: 5) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("From \(source?.title ?? "Unavailable knowledge page") · v\(origin.revision)")
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("document.procedure-knowledge-origin.\(identifier)")
+                Button("Show source") {
+                    store.selectedKnowledgePageID = origin.id
+                    store.open(.memory)
+                }
+                .buttonStyle(.borderless)
+                .disabled(source == nil)
+                .accessibilityIdentifier("document.procedure-show-source.\(identifier)")
+            }
+            Text("Candidate from a reviewed concept · local use on this Mac")
+                .foregroundStyle(.secondary)
+                .accessibilityIdentifier("document.procedure-local-origin.\(identifier)")
+            if let outcomes {
+                if outcomes.attempts == 0 {
+                    Text("Untested candidate · no demonstrated usefulness yet.")
+                        .foregroundStyle(.secondary)
+                        .accessibilityIdentifier("document.procedure-untested.\(identifier)")
+                } else if outcomes.helpful == 0 {
+                    Text("No helpful applied outcome recorded for this version yet.")
+                        .foregroundStyle(.secondary)
+                        .accessibilityIdentifier("document.procedure-no-helpful-outcome.\(identifier)")
+                }
+            } else {
+                Text("Outcome history is unavailable. This candidate’s usefulness cannot be assessed yet.")
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("document.procedure-outcomes-unavailable.\(identifier)")
             }
         }
     }

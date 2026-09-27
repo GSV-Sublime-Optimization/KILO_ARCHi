@@ -13,7 +13,12 @@ extension CompanionStore {
     /// historical outcome. Exclude it when rechecking a frozen Send decision.
     func makeDocumentQ2EDecision(excludingRequestID: String? = nil) -> HamptonQ2EDecision {
         let input = documentWork.records.filter { $0.requestID != excludingRequestID }
-        let projection = HamptonQ2EOutcomeAdapter(records: input, requirements: documentRequirements)
+        let unavailable = Set(input.compactMap { record -> String? in
+            guard let use = record.procedureUse, documentProcedureKnowledgeUnavailable(use: use) else { return nil }
+            return record.id
+        })
+        let projection = HamptonQ2EOutcomeAdapter(records: input, requirements: documentRequirements,
+            knowledgeUnavailableRecordIDs: unavailable)
         let records = projection.records
         let alternatives = documentProcedures.latestProcedures.filter {
             $0.matches(requirements: documentRequirements) && documentProcedureUnavailable($0.binding) == nil

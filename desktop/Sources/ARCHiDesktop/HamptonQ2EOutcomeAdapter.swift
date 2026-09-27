@@ -35,10 +35,14 @@ struct HamptonQ2EOutcomeBinding: Codable, Equatable, Sendable {
     let feedbackUsageSyncedID: String?
     let procedureUse: DocumentProcedureUse?
     let procedureUseRejected: Bool?
+    /// Derived from the live source owners, never a rewrite of the old outcome.
+    /// Nil preserves prior frozen bindings; true removes current support while
+    /// retaining this attempt and its provenance in the bounded evidence window.
+    let knowledgeDependencyUnavailable: Bool?
     let attributedLane: HamptonQ2ELane?
     let decisionDigest: String?
 
-    init?(record: DocumentWorkRecord) {
+    init?(record: DocumentWorkRecord, knowledgeDependencyUnavailable: Bool = false) {
         if let decision = record.q2eDecision {
             guard decision.isValid, decision.domain == "document-revision",
                   decision.contextID == record.sourceDigest, decision.lane != .stop else { return nil }
@@ -61,6 +65,7 @@ struct HamptonQ2EOutcomeBinding: Codable, Equatable, Sendable {
         checks = record.checks; learning = record.learning; feedback = record.feedback
         feedbackUsageSyncedID = record.feedbackUsageSyncedID
         procedureUse = record.procedureUse; procedureUseRejected = record.procedureUseRejected
+        self.knowledgeDependencyUnavailable = knowledgeDependencyUnavailable ? true : nil
         let control = record.q2eDecision
         attributedLane = control?.lane; decisionDigest = control?.bindingDigest
         guard isValid else { return nil }
@@ -82,6 +87,7 @@ struct HamptonQ2EOutcomeBinding: Codable, Equatable, Sendable {
 
     var disposition: Disposition {
         guard isValid else { return .unknown }
+        if knowledgeDependencyUnavailable == true { return .unknown }
         if procedureUseRejected == true || feedback.map({ $0.verdict != .helpful }) == true
             || (state == .blocked && checks.contains { !$0.passed }) { return .correction }
         return HamptonMethodOutcomes(records: [outcomeRecord]).helpful == 1 ? .support : .unknown
@@ -101,6 +107,8 @@ struct HamptonQ2EOutcomeBinding: Codable, Equatable, Sendable {
               afterRevision.map({ $0 > sourceRevision }) ?? true,
               learning?.isValid ?? true, procedureUse?.isValid ?? true,
               procedureUse != nil || procedureUseRejected == nil,
+              knowledgeDependencyUnavailable == nil || knowledgeDependencyUnavailable == true,
+              procedureUse != nil || knowledgeDependencyUnavailable == nil,
               (attributedLane == nil) == (decisionDigest == nil), attributedLane != .stop else { return false }
         if procedureUse != nil,
            [.undoing, .undone].contains(state) || feedback.map({ $0.verdict != .helpful }) == true {
@@ -177,7 +185,8 @@ struct HamptonQ2EOutcomeAdapter: Sendable {
     let records: [DocumentWorkRecord]
     let evidence: HamptonQ2EOutcomeEvidence
 
-    init(records input: [DocumentWorkRecord], requirements: DocumentWorkRequirements) {
+    init(records input: [DocumentWorkRecord], requirements: DocumentWorkRequirements,
+         knowledgeUnavailableRecordIDs: Set<String> = []) {
         var unique: [String: DocumentWorkRecord] = [:]
         var issue: String?
         for record in input {
@@ -191,7 +200,10 @@ struct HamptonQ2EOutcomeAdapter: Sendable {
         var bindings: [String: HamptonQ2EOutcomeBinding] = [:]
         if issue == nil {
             for record in unique.values {
-                guard let binding = HamptonQ2EOutcomeBinding(record: record) else { issue = "invalid-record"; break }
+                guard let binding = HamptonQ2EOutcomeBinding(record: record,
+                    knowledgeDependencyUnavailable: knowledgeUnavailableRecordIDs.contains(record.id)) else {
+                    issue = "invalid-record"; break
+                }
                 bindings[record.id] = binding
             }
             let feedbackIDs = bindings.values.compactMap { $0.feedback?.id.lowercased() }

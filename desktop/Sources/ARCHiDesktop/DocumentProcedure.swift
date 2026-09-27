@@ -30,7 +30,8 @@ struct DocumentProcedureUse: Codable, Equatable, Hashable, Sendable {
     }
 }
 
-/// Explicitly authored guidance retained after reviewing a helpful applied edit.
+/// Explicitly authored guidance retained from a helpful applied edit or as a
+/// candidate grounded in one exact user-reviewed concept.
 /// The instruction is the user's saved method, never an automatically copied
 /// document, prompt, response, or claim that the method works on later documents.
 struct DocumentProcedure: Codable, Equatable, Identifiable, Sendable {
@@ -48,6 +49,9 @@ struct DocumentProcedure: Codable, Equatable, Identifiable, Sendable {
     /// Nil fields preserve the encoded bytes and bindings of existing v1 methods.
     var supersedes: DocumentProcedureUse? = nil
     var revisionNote: String? = nil
+    /// Exact reviewed concept supporting a candidate or its descendants. No page
+    /// or source prose is copied. Nil preserves existing method binding bytes.
+    var knowledgeOrigin: KnowledgePageBinding? = nil
 
     var binding: DocumentProcedureUse {
         // Withdrawal changes availability, never the identity of an old request.
@@ -63,11 +67,19 @@ struct DocumentProcedure: Codable, Equatable, Identifiable, Sendable {
         UUID(uuidString: id) != nil && revision > 0
             && ProcedureValidation.text(title, characters: 80, bytes: 320)
             && ProcedureValidation.text(instruction, characters: 1_200, bytes: 4_800)
-            && ProcedureValidation.text(originRecordID, characters: 384, bytes: 1_536)
-            && UUID(uuidString: originFeedbackID) != nil
+            && validOriginReference && (knowledgeOrigin?.isValid ?? true)
             && createdAt.timeIntervalSinceReferenceDate.isFinite
             && createdAt > .distantPast && createdAt < .distantFuture
             && validRevision
+    }
+
+    private var validOriginReference: Bool {
+        if originRecordID.isEmpty || originFeedbackID.isEmpty {
+            return revision == 1 && originRecordID.isEmpty && originFeedbackID.isEmpty
+                && knowledgeOrigin?.isValid == true
+        }
+        return ProcedureValidation.text(originRecordID, characters: 384, bytes: 1_536)
+            && UUID(uuidString: originFeedbackID) != nil
     }
 
     private var validRevision: Bool {
@@ -97,7 +109,7 @@ enum DocumentProcedureError: LocalizedError {
     }
 }
 
-/// Separate bounded owner for reviewed methods; opening never writes or resumes
+/// Separate bounded owner for authored methods; opening never writes or resumes
 /// work. A method remains inspectable after its evidence becomes unavailable.
 @MainActor
 final class DocumentProcedureLibrary: ObservableObject {
@@ -108,7 +120,7 @@ final class DocumentProcedureLibrary: ObservableObject {
     private var requiresRecovery = false
     static let maximumProcedures = 64
     private static let maximumBytes = 512 * 1_024
-    private static let schema = "archi-document-procedures/v2"
+    private static let schema = "archi-document-procedures/v3"
 
     private struct Archive: Codable {
         let schema: String
@@ -138,6 +150,11 @@ final class DocumentProcedureLibrary: ObservableObject {
         return procedures.first { $0.binding == binding }
     }
 
+    var isCurrentOnDisk: Bool {
+        do { try assertCurrent(); return true }
+        catch { return false }
+    }
+
     var latestProcedures: [DocumentProcedure] {
         procedures.filter { value in !procedures.contains { $0.id == value.id && $0.revision > value.revision } }
     }
@@ -149,16 +166,23 @@ final class DocumentProcedureLibrary: ObservableObject {
     /// A blocked version needs a later, independently helpful applied result.
     /// Its former origin or failed reuse cannot be recycled as corrective support.
     func canSupportRevision(of binding: DocumentProcedureUse, with record: DocumentWorkRecord,
-                            records: [DocumentWorkRecord]) -> Bool {
+                            records: [DocumentWorkRecord],
+                            knowledgeIsCurrent: (KnowledgePageBinding) -> Bool = { _ in false }) -> Bool {
         guard Set(records.map(\.id)).count == records.count,
               let previous = procedure(matching: binding), latestProcedures.contains(previous),
               previous.revision < UInt64.max,
+              previous.knowledgeOrigin.map(knowledgeIsCurrent) ?? true,
               records.filter({ $0.id == record.id }) == [record], Self.validOrigin(record),
               record.procedureUseRejected != true else { return false }
         if let dependency = record.procedureUse {
-            guard let parent = procedure(matching: dependency), availability(of: parent, records: records) == nil else { return false }
+            guard let parent = procedure(matching: dependency),
+                  availability(of: parent, records: records, knowledgeIsCurrent: knowledgeIsCurrent) == nil else { return false }
+            // Revisions retain one family's exact concept. Ordinary corrective
+            // work may support it, but a different bound concept needs a new
+            // family so its dependency cannot disappear behind old provenance.
+            if let origin = parent.knowledgeOrigin, previous.knowledgeOrigin != origin { return false }
         }
-        if availability(of: previous, records: records) != nil {
+        if availability(of: previous, records: records, knowledgeIsCurrent: knowledgeIsCurrent) != nil {
             let lastProblem = records.filter {
                 ($0.procedureUse == binding && ($0.procedureUseRejected == true || [.undoing, .undone].contains($0.state)
                     || $0.feedback.map { $0.verdict != .helpful } == true))
@@ -172,9 +196,10 @@ final class DocumentProcedureLibrary: ObservableObject {
 
     @discardableResult
     func revise(binding: DocumentProcedureUse, title: String, instruction: String, changeNote: String,
-                from record: DocumentWorkRecord, records: [DocumentWorkRecord]) throws -> DocumentProcedure {
+                from record: DocumentWorkRecord, records: [DocumentWorkRecord],
+                knowledgeIsCurrent: (KnowledgePageBinding) -> Bool = { _ in false }) throws -> DocumentProcedure {
         try assertCurrent()
-        guard canSupportRevision(of: binding, with: record, records: records),
+        guard canSupportRevision(of: binding, with: record, records: records, knowledgeIsCurrent: knowledgeIsCurrent),
               let previous = procedure(matching: binding), let feedback = record.feedback else {
             throw DocumentProcedureError.invalid("Choose the latest method and a current helpful applied result. A blocked version needs later corrective work.")
         }
@@ -183,7 +208,8 @@ final class DocumentProcedureLibrary: ObservableObject {
             instruction: instruction.trimmingCharacters(in: .whitespacesAndNewlines),
             mustBeShorter: record.mustBeShorter, preserveNumbersAndLinks: record.preserveNumbersAndLinks,
             originRecordID: record.id, originFeedbackID: feedback.id, createdAt: Date(), withdrawn: false,
-            supersedes: binding, revisionNote: changeNote.trimmingCharacters(in: .whitespacesAndNewlines))
+            supersedes: binding, revisionNote: changeNote.trimmingCharacters(in: .whitespacesAndNewlines),
+            knowledgeOrigin: previous.knowledgeOrigin)
         guard value.isValid else {
             throw DocumentProcedureError.invalid("Use a name of 1–80 characters, instruction of 1–1,200 characters and change note of 1–600 characters.")
         }
@@ -198,33 +224,74 @@ final class DocumentProcedureLibrary: ObservableObject {
     }
 
     /// Nil means eligible for explicit selection, not automatic use or success.
-    func availability(of procedure: DocumentProcedure, records: [DocumentWorkRecord]) -> String? {
+    func availability(of procedure: DocumentProcedure, records: [DocumentWorkRecord],
+                      knowledgeIsCurrent: (KnowledgePageBinding) -> Bool = { _ in false }) -> String? {
         do { try assertCurrent() }
         catch { return error.localizedDescription }
         guard Set(records.map(\.id)).count == records.count else { return "Document history has duplicate evidence identities." }
-        return unavailable(procedure, records: records, visiting: [])
+        return unavailable(procedure, records: records, visiting: [], knowledgeIsCurrent: knowledgeIsCurrent)
+    }
+
+    /// User-authored method to try. Reviewed knowledge does not manufacture an
+    /// applied result, a helpful review, or evidence that the instruction works.
+    @discardableResult
+    func keepCandidate(from page: KnowledgePage, title: String, instruction: String,
+                       requirements: DocumentWorkRequirements,
+                       knowledgeIsCurrent: (KnowledgePageBinding) -> Bool = { _ in false }) throws -> DocumentProcedure {
+        try assertCurrent()
+        guard page.isValid, page.kind == .concept, page.state == .reviewed,
+              knowledgeIsCurrent(page.binding) else {
+            throw DocumentProcedureError.invalid("Choose a current reviewed concept and its exact supporting sources before saving a candidate method.")
+        }
+        let value = DocumentProcedure(id: UUID().uuidString, revision: 1,
+            title: title.trimmingCharacters(in: .whitespacesAndNewlines),
+            instruction: instruction.trimmingCharacters(in: .whitespacesAndNewlines),
+            mustBeShorter: requirements.mustBeShorter, preserveNumbersAndLinks: requirements.preserveNumbersAndLinks,
+            originRecordID: "", originFeedbackID: "", createdAt: Date(), withdrawn: false,
+            knowledgeOrigin: page.binding)
+        guard value.isValid else {
+            throw DocumentProcedureError.invalid("Use a title of 1–80 characters and an instruction of 1–1,200 characters.")
+        }
+        if let prior = procedures.first(where: {
+            $0.revision == 1 && $0.originRecordID.isEmpty && $0.originFeedbackID.isEmpty
+                && $0.knowledgeOrigin == value.knowledgeOrigin
+                && $0.title.utf8.elementsEqual(value.title.utf8)
+                && $0.instruction.utf8.elementsEqual(value.instruction.utf8)
+                && $0.matches(requirements: requirements)
+        }) { return prior }
+        guard procedures.count < Self.maximumProcedures else { throw DocumentProcedureError.full }
+        // The source owner is live; check again immediately before persistence.
+        guard knowledgeIsCurrent(page.binding) else {
+            throw DocumentProcedureError.invalid("The concept or its source changed before the candidate was saved.")
+        }
+        try persist(procedures + [value])
+        return value
     }
 
     @discardableResult
     func keep(from record: DocumentWorkRecord, title: String, instruction: String,
-              records: [DocumentWorkRecord]) throws -> DocumentProcedure {
+              records: [DocumentWorkRecord],
+              knowledgeIsCurrent: (KnowledgePageBinding) -> Bool = { _ in false }) throws -> DocumentProcedure {
         try assertCurrent()
         guard Set(records.map(\.id)).count == records.count,
               records.filter({ $0.id == record.id }) == [record], Self.validOrigin(record),
               let feedback = record.feedback else {
             throw DocumentProcedureError.invalid("Save a procedure only from the current helpful review of a verified applied edit.")
         }
+        var knowledgeOrigin: KnowledgePageBinding?
         if let reference = record.procedureUse {
             guard let parent = procedure(matching: reference), record.procedureUseRejected != true,
-                  availability(of: parent, records: records) == nil else {
+                  availability(of: parent, records: records, knowledgeIsCurrent: knowledgeIsCurrent) == nil else {
                 throw DocumentProcedureError.invalid("The procedure used for this edit is no longer available.")
             }
+            knowledgeOrigin = parent.knowledgeOrigin
         }
         let value = DocumentProcedure(id: UUID().uuidString, revision: 1,
             title: title.trimmingCharacters(in: .whitespacesAndNewlines),
             instruction: instruction.trimmingCharacters(in: .whitespacesAndNewlines),
             mustBeShorter: record.mustBeShorter, preserveNumbersAndLinks: record.preserveNumbersAndLinks,
-            originRecordID: record.id, originFeedbackID: feedback.id, createdAt: Date(), withdrawn: false)
+            originRecordID: record.id, originFeedbackID: feedback.id, createdAt: Date(), withdrawn: false,
+            knowledgeOrigin: knowledgeOrigin)
         guard value.isValid else {
             throw DocumentProcedureError.invalid("Use a title of 1–80 characters and an instruction of 1–1,200 characters.")
         }
@@ -250,10 +317,22 @@ final class DocumentProcedureLibrary: ObservableObject {
     }
 
     private func unavailable(_ value: DocumentProcedure, records: [DocumentWorkRecord],
-                             visiting: Set<DocumentProcedureUse>) -> String? {
+                             visiting: Set<DocumentProcedureUse>,
+                             knowledgeIsCurrent: (KnowledgePageBinding) -> Bool) -> String? {
         guard value.isValid, procedure(matching: value.binding) == value else { return "This exact procedure version is unavailable." }
         guard !value.withdrawn else { return "You withdrew this procedure." }
         guard !visiting.contains(value.binding) else { return "Procedure evidence contains a dependency cycle." }
+        if let origin = value.knowledgeOrigin, !knowledgeIsCurrent(origin) {
+            return "The reviewed concept or its exact supporting sources changed, were withdrawn, or are unavailable."
+        }
+        let uses = records.filter { $0.procedureUse == value.binding }
+        if uses.contains(where: { $0.procedureUseRejected == true || [.undoing, .undone].contains($0.state)
+            || $0.feedback.map({ $0.verdict != .helpful }) == true }) {
+            return "A later use of this version was corrected, withdrawn, or undone."
+        }
+        // A first candidate has no applied evidence. Its explicit concept
+        // dependency above permits a trial, never a claim of helpful work.
+        if value.revision == 1 && value.originRecordID.isEmpty && value.originFeedbackID.isEmpty { return nil }
         guard let origin = records.first(where: { $0.id == value.originRecordID }), Self.validOrigin(origin),
               origin.feedback?.id == value.originFeedbackID else {
             return "The original helpful applied result or its exact review is no longer available."
@@ -262,18 +341,16 @@ final class DocumentProcedureLibrary: ObservableObject {
               value.preserveNumbersAndLinks == origin.preserveNumbersAndLinks else {
             return "The saved requirements no longer match the original result."
         }
-        let uses = records.filter { $0.procedureUse == value.binding }
-        if uses.contains(where: { $0.procedureUseRejected == true || [.undoing, .undone].contains($0.state)
-            || $0.feedback.map({ $0.verdict != .helpful }) == true }) {
-            return "A later use of this version was corrected, withdrawn, or undone."
-        }
         if let dependency = origin.procedureUse {
             guard origin.procedureUseRejected != true, let parent = procedure(matching: dependency) else {
                 return "A procedure used by the original result is unavailable."
             }
+            if let origin = parent.knowledgeOrigin, value.knowledgeOrigin != origin {
+                return "This method does not retain its supporting procedure's exact knowledge origin."
+            }
             var next = visiting
             next.insert(value.binding)
-            if let reason = unavailable(parent, records: records, visiting: next) {
+            if let reason = unavailable(parent, records: records, visiting: next, knowledgeIsCurrent: knowledgeIsCurrent) {
                 return "An earlier procedure is unavailable: " + reason
             }
         }
@@ -350,17 +427,21 @@ final class DocumentProcedureLibrary: ObservableObject {
         try scanner.validate()
         guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               Set(object.keys) == ["schema", "procedures"],
+              let version = object["schema"] as? String,
+              [schema, "archi-document-procedures/v2", "archi-document-procedures/v1"].contains(version),
               let rows = object["procedures"] as? [[String: Any]], rows.count <= maximumProcedures,
               rows.allSatisfy({
                   let required: Set<String> = ["id", "revision", "title", "instruction", "mustBeShorter",
                       "preserveNumbersAndLinks", "originRecordID", "originFeedbackID", "createdAt", "withdrawn"]
                   let keys = Set($0.keys)
-                  return required.isSubset(of: keys) && keys.isSubset(of: required.union(["supersedes", "revisionNote"]))
+                  let optional: Set<String> = version == schema
+                      ? ["supersedes", "revisionNote", "knowledgeOrigin"] : ["supersedes", "revisionNote"]
+                  return required.isSubset(of: keys) && keys.isSubset(of: required.union(optional))
               }) else {
             throw DocumentProcedureError.unreadable
         }
         let archive = try JSONDecoder().decode(Archive.self, from: data)
-        guard [schema, "archi-document-procedures/v1"].contains(archive.schema), Self.validHistory(archive.procedures),
+        guard Self.validHistory(archive.procedures),
               archive.schema != "archi-document-procedures/v1" || archive.procedures.allSatisfy({ $0.revision == 1 }) else {
             throw DocumentProcedureError.unreadable
         }
@@ -374,6 +455,7 @@ final class DocumentProcedureLibrary: ObservableObject {
             let ordered = family.sorted { $0.revision < $1.revision }
             for (index, value) in ordered.enumerated() {
                 guard value.id == ordered[0].id, value.revision == UInt64(index + 1) else { return false }
+                guard value.knowledgeOrigin == ordered[0].knowledgeOrigin else { return false }
                 if index > 0 {
                     guard value.supersedes == ordered[index - 1].binding,
                           value.createdAt >= ordered[index - 1].createdAt else { return false }

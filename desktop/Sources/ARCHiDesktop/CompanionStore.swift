@@ -479,6 +479,10 @@ final class CompanionStore: ObservableObject {
     }
 
     private func assistantBlockedReason(hasPointing: Bool) -> String? {
+        if preparedDocumentProcedureKnowledge != nil,
+           hasPointing || route == .codex || route == .compare {
+            return "Methods linked to knowledge pages stay on this Mac. Choose a local route before sending."
+        }
         if !selectedKnowledgePages.isEmpty {
             if requestsRevision || hasPointing || route == .codex || route == .compare {
                 return "Selected knowledge pages use local chat. Finish or detach the pages before revising, pointing, or using an external route. Nothing sent."
@@ -498,6 +502,7 @@ final class CompanionStore: ObservableObject {
     /// This is a ceiling explanation, never permission to invoke fallback.
     /// The captured request still passes finishFailedAttempt's complete checks.
     var nextAssistantFallbackBlockedReason: String? {
+        if preparedDocumentProcedureKnowledge != nil { return "This method is linked to a knowledge page; external fallback is disabled." }
         if !selectedKnowledgePages.isEmpty { return "Selected knowledge pages stay local; external fallback is disabled." }
         if representationMeasurementsEnabled { return "Model measurements stay local; external fallback is disabled." }
         if !selectedReadingSourceIDs.isEmpty { return "Selected kept reading copies stay local; external fallback is disabled." }
@@ -1185,14 +1190,16 @@ final class CompanionStore: ObservableObject {
         guard let procedure = documentProcedures.procedure(matching: use) else {
             return "This exact procedure version is unavailable."
         }
-        if let reason = documentProcedures.availability(of: procedure, records: documentWork.records) { return reason }
+        if let reason = documentProcedures.availability(of: procedure, records: documentWork.records,
+            knowledgeIsCurrent: { knowledgeDependenciesAreCurrent([$0]) }) { return reason }
         // Preserve the originating local lesson dependencies through procedure
         // chaining; withdrawing a lesson cannot smuggle it back through a method.
         var current: DocumentProcedure? = procedure
         var visited = Set<DocumentProcedureUse>()
         while let item = current {
-            guard visited.insert(item.binding).inserted,
-                  let origin = documentWork.records.first(where: { $0.id == item.originRecordID }) else {
+            guard visited.insert(item.binding).inserted else { return "The procedure’s source history is cyclic." }
+            if item.knowledgeOrigin != nil && item.originRecordID.isEmpty { break }
+            guard let origin = documentWork.records.first(where: { $0.id == item.originRecordID }) else {
                 return "The procedure’s source history is unavailable."
             }
             if let reason = documentMethodDependencyIssue(origin) { return reason }
@@ -1227,7 +1234,10 @@ final class CompanionStore: ObservableObject {
         return nil
     }
 
-    var canKeepDocumentProcedure: Bool { !isShuttingDown && !isWorking && profileRecoveryBlock == nil }
+    var canKeepDocumentProcedure: Bool {
+        !isShuttingDown && !isWorking && profileRecoveryBlock == nil
+            && pendingDocumentReceipt == nil && documentWork.isCurrentOnDisk
+    }
 
     @discardableResult
     func keepDocumentProcedure(recordID: String, title: String, instruction: String) -> Bool {
@@ -1240,7 +1250,8 @@ final class CompanionStore: ObservableObject {
             return false
         }
         do {
-            _ = try documentProcedures.keep(from: record, title: title, instruction: instruction, records: documentWork.records)
+            _ = try documentProcedures.keep(from: record, title: title, instruction: instruction, records: documentWork.records,
+                knowledgeIsCurrent: { knowledgeDependenciesAreCurrent([$0]) })
             documentWorkMessage = "Procedure kept on this Mac. Select it for a matching passage; every result still needs review."
             return true
         } catch {
@@ -1266,7 +1277,8 @@ final class CompanionStore: ObservableObject {
         let previousUnavailable = documentProcedureUnavailable(use) != nil
         return documentWork.records.filter { record in
             guard canReviewDocument(record),
-                  documentProcedures.canSupportRevision(of: use, with: record, records: documentWork.records),
+                  documentProcedures.canSupportRevision(of: use, with: record, records: documentWork.records,
+                    knowledgeIsCurrent: { knowledgeDependenciesAreCurrent([$0]) }),
                   record.procedureUse.map({ documentProcedureUnavailable($0) == nil }) ?? true else { return false }
             if previousUnavailable && (record.id == previous.originRecordID || record.createdAt <= previous.createdAt) { return false }
             return documentMethodDependencyIssue(record) == nil
@@ -1282,7 +1294,8 @@ final class CompanionStore: ObservableObject {
         }
         do {
             let revision = try documentProcedures.revise(binding: use, title: title, instruction: instruction,
-                changeNote: changeNote, from: record, records: documentWork.records)
+                changeNote: changeNote, from: record, records: documentWork.records,
+                knowledgeIsCurrent: { knowledgeDependenciesAreCurrent([$0]) })
             documentWorkMessage = "Version \(revision.revision) saved as a candidate. Earlier versions and their outcomes remain in history. Choose Use when you want to try it."
             return true
         } catch {
@@ -1428,6 +1441,7 @@ final class CompanionStore: ObservableObject {
         !isShuttingDown && documentWork.isCurrentOnDisk
             && documentWork.records.first(where: { $0.id == record.id }) == record
             && [.applied, .undone].contains(record.state)
+            && !(record.procedureUse.map { documentProcedureKnowledgeUnavailable(use: $0) } ?? false)
             && record.learning?.requestBinding.isValid == true && UUID(uuidString: record.requestID) != nil
             && record.expectedAfterDigest != nil && record.expectedAfterDigest == record.actualAfterDigest
             && record.afterRevision != nil && record.checks.allSatisfy(\.passed) && !record.checks.isEmpty
@@ -1993,7 +2007,8 @@ final class CompanionStore: ObservableObject {
         let request = AssistantRequest(prompt: question, sourceName: knowledge == nil ? sourceName : nil, sourceText: knowledge == nil ? sharedText : "",
             sourceRevision: sourceRevision, placementRevision: placementRevision, settings: nextReplySettings,
             selection: knowledge == nil ? textSelection : nil, revisionTarget: revisionTarget, companion: activeQiMon?.character,
-            localProfile: personalContext?.assistantSnapshot, localKnowledge: knowledge)
+            localProfile: personalContext?.assistantSnapshot, localKnowledge: knowledge,
+            localProcedureKnowledge: procedureUse.flatMap { documentProcedures.procedure(matching: $0)?.knowledgeOrigin }.map { [$0] })
         let requestTaskScope: HamptonTaskScope = revisionTarget != nil ? .passageRevision
             : request.sourceName != nil ? .documentQuestion : .conversation
         let requiresReading = revisionTarget == nil && request.sourceName != nil && !request.sourceText.isEmpty
@@ -2060,10 +2075,11 @@ final class CompanionStore: ObservableObject {
                 localProfile: provider == .qwen ? request.localProfile : nil,
                 localControl: provider == .qwen ? capturedControl : nil,
                 localReading: provider == .qwen ? reading?.plan : nil,
-                localKnowledge: provider == .qwen ? request.localKnowledge : nil)
+                localKnowledge: provider == .qwen ? request.localKnowledge : nil,
+                localProcedureKnowledge: request.localProcedureKnowledge)
             launchLane(provider, request: laneRequest, ticket: ticket, route: selectedRoute,
                        requestID: requestID, inputDigest: digest, pointing: pointing,
-                       routingReason: knowledge != nil ? "Selected reviewed pages and exact passages use local reasoning. Shared document is not sent; no external fallback." : !(reading?.plan.references.isEmpty ?? true) ? "Local Qwen with selected kept copies; external fallback is disabled for this reading."
+                       routingReason: request.localProcedureKnowledge != nil ? "A user-authored method linked to a reviewed page uses local reasoning. Source history stays attached; external fallback is disabled." : knowledge != nil ? "Selected reviewed pages and exact passages use local reasoning. Shared document is not sent; no external fallback." : !(reading?.plan.references.isEmpty ?? true) ? "Local Qwen with selected kept copies; external fallback is disabled for this reading."
                            : selectedRoute == .native ? (representationMeasurementsEnabled
                                ? "Local Qwen with read-only measurements; automatic external fallback is disabled."
                                : "ARCHi-managed local Qwen first; one external fallback only on an eligible failure.")
@@ -2092,7 +2108,12 @@ final class CompanionStore: ObservableObject {
         let allowsExternalFallback = !(provider == .qwen
             && (assistant as? HamptonReasonsAssistant)?.requiresRepresentation == true)
         var dependencies = (request.localReading?.references.map(\.binding) ?? []) + (request.localKnowledge?.readingSources ?? [])
-        var knowledgeDependencies = request.localKnowledge?.bindings ?? []
+        var knowledgeDependencies = (request.localKnowledge?.bindings ?? []) + (request.localProcedureKnowledge ?? [])
+        for binding in request.localProcedureKnowledge ?? [] {
+            if let page = readingSources.latestKnowledgePages.first(where: { $0.binding == binding }) {
+                dependencies += page.anchors.map(\.source)
+            }
+        }
         for lesson in request.localLessons {
             let origin = keptLessons.first(where: { LessonSnapshot(lesson: $0) == lesson })?.origin
             dependencies += origin?.readingSources ?? []
@@ -2709,7 +2730,7 @@ final class CompanionStore: ObservableObject {
             && (request.localReading?.references.isEmpty ?? true)
             && compareResults[provider]?.receipt?.readingDependencies == nil
             && compareResults[provider]?.receipt?.knowledgeDependencies == nil
-            && request.localKnowledge == nil
+            && request.localKnowledge == nil && request.localProcedureKnowledge == nil
             && NativeAssistantFallback.isEligible(error) && compareResults[.codex] == nil
         failLane(provider, message: message)
         guard eligible, !isShuttingDown, isCurrentContent(ticket) else { return }

@@ -119,6 +119,10 @@ struct KnowledgePagesCard: View {
                     Button("Copy Markdown") { copyMarkdown(page) }
                         .accessibilityIdentifier("knowledge.copy.\(page.id)")
                 }.buttonStyle(.borderless).font(.system(size: 11))
+                if page.state == .reviewed, page.kind == .concept {
+                    KnowledgeProcedureCandidateView(store: store, page: page)
+                        .id("\(page.id).\(page.revision).\(page.binding.digest)")
+                }
                 history(for: page)
             }.padding(.top, 8)
         } label: {

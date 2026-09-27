@@ -1,0 +1,38 @@
+import Foundation
+
+@MainActor
+extension CompanionStore {
+    /// The explicit instruction is authored by the user. The reviewed page is
+    /// retained as provenance, never silently promoted into executable guidance.
+    @discardableResult
+    func keepKnowledgeProcedure(page: KnowledgePage, title: String, instruction: String,
+                                requirements: DocumentWorkRequirements) -> Bool {
+        guard canKeepDocumentProcedure, knowledgePageDraft == nil,
+              documentWork.isCurrentOnDisk, knowledgeDependenciesAreCurrent([page.binding]) else {
+            knowledgePageMessage = "Review the current page and finish any open work before saving a method."
+            return false
+        }
+        do {
+            _ = try documentProcedures.keepCandidate(from: page, title: title, instruction: instruction,
+                requirements: requirements, knowledgeIsCurrent: { knowledgeDependenciesAreCurrent([$0]) })
+            knowledgePageMessage = "Candidate saved in Document methods. Choose it for a selected passage to try it locally; no work was sent or credited."
+            return true
+        } catch {
+            knowledgePageMessage = "Candidate was not saved: \(error.localizedDescription)"
+            return false
+        }
+    }
+
+    var preparedDocumentProcedureKnowledge: KnowledgePageBinding? {
+        preparedDocumentProcedure.flatMap { documentProcedures.procedure(matching: $0)?.knowledgeOrigin }
+    }
+
+    /// This assesses current source support, separately from historical feedback
+    /// or counterexamples. No record or token cost is erased on withdrawal.
+    func documentProcedureKnowledgeUnavailable(use: DocumentProcedureUse) -> Bool {
+        guard documentProcedures.loadError == nil, documentProcedures.isCurrentOnDisk,
+              let method = documentProcedures.procedure(matching: use) else { return true }
+        guard let origin = method.knowledgeOrigin else { return false }
+        return !knowledgeDependenciesAreCurrent([origin])
+    }
+}

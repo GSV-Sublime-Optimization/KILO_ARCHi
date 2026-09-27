@@ -1,6 +1,7 @@
 import SwiftUI
 
 enum CompanionGraphLayout: String, CaseIterable, Identifiable {
+    case particles = "Particles"
     case constellation = "Constellation"
     case radial = "Radial"
     case flow = "Flow"
@@ -91,7 +92,7 @@ struct CompanionGraphGeometry {
                     points[node.id] = CGPoint(x: x, y: CGFloat(row) * 102)
                 }
             }
-        case .constellation:
+        case .particles, .constellation:
             let satelliteKinds = kinds.filter { $0 != .companion }
             let dimensions: [CompanionGraphKind: CGSize] = Dictionary(uniqueKeysWithValues: kinds.map { kind in
                 let count = nodes.filter { $0.kind == kind }.count
@@ -181,6 +182,8 @@ struct CompanionGraphGeometry {
 struct CompanionGraphView: View {
     let snapshot: CompanionGraphSnapshot
     let onOpen: (CompanionGraphTarget) -> Void
+    var reduceMotion = false
+    var seedColor: CompanionSeedColor = .original
 
     @State private var selectedID: String?
     @State private var query = ""
@@ -190,11 +193,16 @@ struct CompanionGraphView: View {
     @State private var focusID: String?
     @State private var zoom: CGFloat = 1
     @State private var fitRevision = 0
+    @State private var particleSpread = 1.0
+    @State private var particlePulses = true
+    @State private var particleExportMessage: String?
 
     init(snapshot: CompanionGraphSnapshot, onOpen: @escaping (CompanionGraphTarget) -> Void,
-         initialLayout: CompanionGraphLayout = .constellation, initialSelectionID: String? = nil) {
+         initialLayout: CompanionGraphLayout = .particles, initialSelectionID: String? = nil,
+         reduceMotion: Bool = false, seedColor: CompanionSeedColor = .original) {
         self.snapshot = snapshot
         self.onOpen = onOpen
+        self.reduceMotion = reduceMotion; self.seedColor = seedColor
         _layout = State(initialValue: initialLayout)
         _selectedID = State(initialValue: initialSelectionID)
     }
@@ -323,27 +331,52 @@ struct CompanionGraphView: View {
                 Picker("Graph layout", selection: $layout) {
                     ForEach(CompanionGraphLayout.allCases) { Text($0.rawValue).tag($0) }
                 }
-                .pickerStyle(.segmented).frame(maxWidth: 320)
+                .pickerStyle(.segmented).frame(maxWidth: 375)
                 .disabled(showsList).accessibilityIdentifier("companion-graph.layout")
                 Spacer(minLength: 0)
                 if !showsList {
-                    Button { zoom = max(0.005, zoom - 0.15) } label: { Image(systemName: "minus.magnifyingglass") }
-                        .disabled(zoom <= 0.005).accessibilityLabel("Zoom out")
+                    Button { zoom = max(layout == .particles ? 1 : 0.005, zoom - 0.15) } label: { Image(systemName: "minus.magnifyingglass") }
+                        .disabled(zoom <= (layout == .particles ? 1 : 0.005)).accessibilityLabel("Zoom out")
                     Text("\(Int((zoom * 100).rounded()))%")
                         .font(.system(size: 10, design: .monospaced)).foregroundStyle(.secondary).frame(width: 34)
-                    Button { zoom = min(1.8, zoom + 0.15) } label: { Image(systemName: "plus.magnifyingglass") }
-                        .disabled(zoom >= 1.8).accessibilityLabel("Zoom in")
+                    Button { zoom = min(layout == .particles ? 4 : 1.8, zoom + 0.15) } label: { Image(systemName: "plus.magnifyingglass") }
+                        .disabled(zoom >= (layout == .particles ? 4 : 1.8)).accessibilityLabel("Zoom in")
                     Button("Fit") { fitRevision += 1 }
                         .accessibilityLabel("Fit and center graph").accessibilityIdentifier("companion-graph.fit")
                 }
             }
             .controlSize(.small).buttonStyle(.borderless).padding(12)
+            if layout == .particles && !showsList {
+                HStack(spacing: 10) {
+                    Text("Orb").foregroundStyle(.secondary)
+                    Slider(value: $particleSpread, in: 0...1).frame(maxWidth: 180)
+                        .accessibilityLabel("Spread knowledge particles from orb to constellation")
+                        .accessibilityIdentifier("companion-graph.particle-spread")
+                    Text("Connections").foregroundStyle(.secondary)
+                    Toggle("Pulse", isOn: $particlePulses).toggleStyle(.checkbox)
+                        .accessibilityIdentifier("companion-graph.particle-pulse")
+                    Spacer(minLength: 0)
+                    Button("Export for Houdini…") {
+                        do {
+                            let data = try KnowledgeParticleExport(field: KnowledgeParticleField(snapshot: snapshot)).data()
+                            particleExportMessage = nil
+                            KnowledgeParticleExportPanel.save(data) { particleExportMessage = $0 }
+                        } catch { particleExportMessage = "The particle map could not be prepared." }
+                    }.help("Export the bounded full snapshot as IDs, types, positions and recorded edges. No source text or titles.")
+                        .accessibilityIdentifier("companion-graph.particle-export")
+                }.font(.system(size: 11)).controlSize(.small).padding(.horizontal, 12).padding(.bottom, 10)
+                if let particleExportMessage {
+                    Text(particleExportMessage).font(.caption).foregroundStyle(.secondary).padding(.horizontal, 12).padding(.bottom, 6)
+                }
+            }
             Divider().opacity(0.6)
             Group {
                 if visibleNodes.isEmpty {
                     emptyGraph
                 } else if showsList {
                     nodeList
+                } else if layout == .particles {
+                    particleSurface
                 } else {
                     graphSurface
                 }
@@ -366,9 +399,28 @@ struct CompanionGraphView: View {
 
     private var layoutHint: String {
         switch layout {
+        case .particles: "One particle per record. Lines are recorded links; glow and distance are presentation."
         case .constellation: "Grouped by type. Select a node; scroll or zoom to explore."
         case .radial: "Rings follow recorded links from the companion; unlinked nodes sit outside."
         case .flow: "Columns group record types. Arrows show recorded direction."
+        }
+    }
+
+    private var particleSurface: some View {
+        let field = KnowledgeParticleField(snapshot: snapshot)
+        return GeometryReader { viewport in
+            ScrollViewReader { scroll in
+                ScrollView([.horizontal, .vertical]) {
+                    KnowledgeParticleView(field: field, nodes: visibleNodes, selectedID: selectedID,
+                        spread: particleSpread, pulses: particlePulses, reduceMotion: reduceMotion,
+                        tint: seedColor.accent, onSelect: { selectNode($0) })
+                        .frame(width: max(viewport.size.width, viewport.size.width * zoom),
+                               height: max(viewport.size.height, viewport.size.height * zoom))
+                        .overlay { Color.clear.frame(width: 1, height: 1).id("particle-center").allowsHitTesting(false) }
+                }
+                .onAppear { zoom = 1 }
+                .onChange(of: fitRevision) { _, _ in zoom = 1; scroll.scrollTo("particle-center", anchor: .center) }
+            }
         }
     }
 
@@ -619,7 +671,7 @@ struct CompanionGraphView: View {
     }
 }
 
-private func graphColor(_ kind: CompanionGraphKind) -> Color {
+func graphColor(_ kind: CompanionGraphKind) -> Color {
     switch kind {
     case .companion: Color.teal
     case .source: Color.blue

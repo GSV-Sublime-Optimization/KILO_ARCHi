@@ -53,7 +53,8 @@ struct CompanionGraphWorkspace: View {
             // This clock does not animate nodes or invoke any model.
             TimelineView(.periodic(from: .now, by: 30)) { context in
                 CompanionGraphView(snapshot: store.companionGraphSnapshot(at: context.date),
-                    onOpen: store.openGraphTarget, initialSelectionID: store.selectedGraphNodeID)
+                    onOpen: store.openGraphTarget, initialSelectionID: store.selectedGraphNodeID,
+                    reduceMotion: store.preferences.reduceMotion, seedColor: store.preferences.seedColor)
                     .id(store.selectedGraphNodeID)
             }
             HStack(spacing: 10) {

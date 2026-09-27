@@ -57,6 +57,8 @@ EXACT = RELEASE_FILES | ARC_REPLAY_FILES | {
     "docs/native-knowledge-pages.md",
     "docs/native-source-provenance.md",
     "docs/native-answer-evidence.md",
+    "docs/native-knowledge-constellation.md",
+    "script/houdini_knowledge_particles.py",
     "docs/native-knowledge-chat.md",
     "docs/native-knowledge-methods.md",
 }

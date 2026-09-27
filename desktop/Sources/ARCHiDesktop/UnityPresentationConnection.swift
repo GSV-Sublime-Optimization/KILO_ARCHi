@@ -145,7 +145,7 @@ struct UnityPresentationAcknowledgment: Codable {
             && (destinationRevision ?? 0) == (snapshot.destinationRevision ?? 0)
             && ((snapshot.sessionKind == nil && snapshot.destination == nil && snapshot.destinationRevision == nil) || currentArea != nil)
             && (currentArea == nil || UnityPresentationDestination(rawValue: currentArea!) != nil)
-            && (snapshot.pointPresentation == nil || (pointAssetVersion == 1
+            && (snapshot.pointPresentation == nil || (pointAssetVersion == 2
                 && pointManifestSHA256 == snapshot.pointPresentation?.manifestSHA256
                 && pointKnowledgeSHA256 == snapshot.pointKnowledgeSHA256))
             && renderer == "unity-companion" && updatedAtUnix.isFinite
@@ -308,7 +308,7 @@ struct UnityPresentationAcknowledgment: Codable {
 
     static func supportsPointAssets(_ url: URL) -> Bool {
         isCompatiblePlayer(url)
-            && (Bundle(url: url)?.object(forInfoDictionaryKey: "ARCHiLiminalPointAssetVersion") as? NSNumber)?.intValue == 1
+            && (Bundle(url: url)?.object(forInfoDictionaryKey: "ARCHiLiminalPointAssetVersion") as? NSNumber)?.intValue == 2
     }
 
     func choosePlayer() {

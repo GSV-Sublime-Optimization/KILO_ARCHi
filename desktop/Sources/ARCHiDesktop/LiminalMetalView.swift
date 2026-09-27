@@ -33,7 +33,7 @@ struct LiminalMetalView: NSViewRepresentable {
         let renderer = try LiminalMetalPipeline(device: device)
         let pair = try asset.framePair(progress: progress, detail: .medium)
         let buffers = try renderer.buffers(pair)
-        let description = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .bgra8Unorm_srgb,
+        let description = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .bgra8Unorm,
             width: 512, height: 512, mipmapped: false)
         description.usage = [.renderTarget]
         description.storageMode = .shared
@@ -112,7 +112,7 @@ private struct LiminalMetalPipeline {
         let descriptor = MTLRenderPipelineDescriptor()
         descriptor.vertexFunction = library.makeFunction(name: "liminal_vertex")
         descriptor.fragmentFunction = library.makeFunction(name: "liminal_fragment")
-        descriptor.colorAttachments[0].pixelFormat = .bgra8Unorm_srgb
+        descriptor.colorAttachments[0].pixelFormat = .bgra8Unorm
         descriptor.colorAttachments[0].isBlendingEnabled = true
         descriptor.colorAttachments[0].rgbBlendOperation = .add
         descriptor.colorAttachments[0].alphaBlendOperation = .add
@@ -192,7 +192,12 @@ private struct LiminalMetalPipeline {
         float squared = dot(in.local,in.local);
         if (squared >= 1.0f) discard_fragment();
         float alpha = saturate(exp(-squared*4.0f)*(1.0f-squared));
-        return float4((1.0f-exp(-in.color))*alpha,alpha);
+        float3 linear = 1.0f-exp(-in.color);
+        float3 srgb = select(12.92f*linear, 1.055f*pow(linear,float3(1.0f/2.4f))-0.055f,
+                             linear > 0.0031308f);
+        // AppKit consumes premultiplied display-space RGBA. Encode BEFORE
+        // premultiplication; the unorm target avoids a second RGB conversion.
+        return float4(srgb*alpha,alpha);
     }
     """
 }
@@ -224,7 +229,7 @@ final class LiminalMetalSurface: MTKView, @preconcurrency MTKViewDelegate {
     override init(frame frameRect: NSRect, device: MTLDevice? = nil) {
         let actualDevice = device ?? MTLCreateSystemDefaultDevice()
         super.init(frame: frameRect, device: actualDevice)
-        colorPixelFormat = .bgra8Unorm_srgb
+        colorPixelFormat = .bgra8Unorm
         clearColor = MTLClearColorMake(0, 0, 0, 0)
         framebufferOnly = true
         preferredFramesPerSecond = 30
@@ -328,9 +333,8 @@ final class LiminalMetalSurface: MTKView, @preconcurrency MTKViewDelegate {
         return [23.0 / 119, 65.0 / 119, 107.0 / 119].min { abs($0 - value) < abs($1 - value) }!
     }
     private func requestFrames(_ c: LiminalMetalView, progress: Double) -> String {
-        let position = progress * 119
-        let lo = Int(floor(position)), hi = min(119, lo + 1)
-        let key = "\(c.asset.manifestSHA256):\(c.asset.manifest.frames[lo].file):\(c.asset.manifest.frames[hi].file):\(detail.rawValue)"
+        let index = (try? LiminalPointAsset.sourceFrameIndex(progress: progress)) ?? 0
+        let key = "\(c.asset.manifestSHA256):\(c.asset.manifest.frames[index].file):\(detail.rawValue)"
         guard key != loadedKey, key != loadingKey, failedKey == nil, loading == nil else { return key }
         loadingKey = key
         // Only GPU buffers and bounded anchor samples survive a load. At most
@@ -372,15 +376,13 @@ final class LiminalMetalSurface: MTKView, @preconcurrency MTKViewDelegate {
         guard !usesFallback, let pipeline else { requestFallback(); return }
         let progress = effectiveProgress
         let key = requestFrames(c, progress: progress)
-        guard let frameNumbers, let buffers,
+        guard frameNumbers != nil, let buffers,
               let pass = currentRenderPassDescriptor, let drawable = currentDrawable,
               let command = pipeline.queue.makeCommandBuffer() else { return }
-        let position = progress * 119
         // A slow read may complete behind the owner's timeline. Display that
-        // authenticated pair at its nearest bounded sample while the new pair
-        // loads, rather than rejecting every completed load forever.
-        let fraction = loadedKey == key ? Float(position - floor(position))
-            : Float(min(1, max(0, (position + 1 - Double(frameNumbers.lower)) / Double(max(1, frameNumbers.upper - frameNumbers.lower)))))
+        // authenticated source sample while the next one loads. Both buffers
+        // contain the same rounded v008 frame; never invent fractional motion.
+        let fraction: Float = 0
         displayedFraction = fraction
         do {
             try pipeline.encode(command: command, pass: pass, buffers: buffers, count: pointCount,

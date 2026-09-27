@@ -16,12 +16,12 @@ import liminal_v008_export as exporter
 
 
 def comparison(runtime_count=200000):
-    return {"schema": "archi-liminal-motion-comparison/v1", "status": "passed", "hipSHA256": fmt.HIP_SHA,
+    return {"schema": "archi-liminal-motion-comparison/v2", "status": "passed", "hipSHA256": fmt.HIP_SHA,
             "node": fmt.NODE, "sourceCooked": True, "sampleFrames": list(range(1, 121)),
             "runtimePointCount": runtime_count, "endpointFrames": list(fmt.POSES.values()),
             "checks": {"identityError": 0., "pathLimitError": 0., "endpointPoseError": 0.,
                        "poseAttributeError": 0., "widthError": 0., "idMismatchCount": 0},
-            "interpolation": {"evaluated": True, "halfFrames": fmt.HALF_FRAMES,
+            "interpolation": {"evaluated": True, "subframes": fmt.SUBFRAMES,
                               "comparedPointCount": runtime_count, **{k: 0. for k in fmt.LIMITS}},
             "limits": fmt.LIMITS.copy()}
 
@@ -42,13 +42,23 @@ class LiminalFormatTests(unittest.TestCase):
         self.assertEqual(fmt.SAMPLE.unpack_from(raw)[:3], (4., 5., 6.))
         before = fmt.SAMPLE.pack(0, 0, 0, 0, 0, 0, .01, 1)
         after = fmt.SAMPLE.pack(2, 0, 0, 1, 1, 1, .01, 3)
-        actual = fmt.SAMPLE.pack(1, .02, 0, .5, .5, .5, .01, 2)
-        errors = exporter.comparison_errors(actual, before, after)
+        actual = fmt.SAMPLE.pack(2, .02, 0, 1, 1, 1, .01, 3)
+        errors = exporter.comparison_errors(actual, before, after, .5)
         self.assertAlmostEqual(errors["position"], .02)
         receipt = comparison()
         receipt["interpolation"].update(errors)
         with self.assertRaisesRegex(fmt.InvalidAsset, "exceeds limits"):
             fmt.validate_comparison(receipt)
+
+    def test_source_clock_holds_lower_then_rounds_half_up(self):
+        before = fmt.SAMPLE.pack(0, 0, 0, 0, 0, 0, .01, 1)
+        after = fmt.SAMPLE.pack(2, 0, 0, 1, 1, 1, .02, 3)
+        for fraction, actual in ((.25, before), (.49, before), (.5, after), (.75, after)):
+            self.assertEqual(exporter.comparison_errors(actual, before, after, fraction), dict.fromkeys(fmt.LIMITS, 0.))
+        old = comparison(); old['schema'] = 'archi-liminal-motion-comparison/v1'
+        with self.assertRaises(fmt.InvalidAsset): fmt.validate_comparison(old)
+        missing = comparison(); missing['interpolation']['subframes'] = fmt.SUBFRAMES[::3]
+        with self.assertRaises(fmt.InvalidAsset): fmt.validate_comparison(missing)
 
     def test_comparison_rejects_unexecuted_incomplete_or_false_ids(self):
         fmt.validate_comparison(comparison())
@@ -107,7 +117,7 @@ class LiminalFormatTests(unittest.TestCase):
                     "pointCount": 8, "runtimePointCount": 4, "encoding": fmt.ENCODING,
                     "coordinates": {"space": "houdini-sop-local", "handedness": "right", "upAxis": "+Y", "units": "authored-scene-units",
                                     "nativeMapping": [1, 1, 1], "unityMapping": [1, 1, -1], "objectToWorldRowMajor": [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]},
-                    "appearance": fmt.APPEARANCE, "timeline": {"fps": 24, "firstFrame": 1, "lastFrame": 120, "interpolation": "linear", "poseFrames": fmt.POSES},
+                    "appearance": fmt.APPEARANCE, "timeline": {"fps": 24, "firstFrame": 1, "lastFrame": 120, "interpolation": "nearest-half-up", "poseFrames": fmt.POSES},
                     "bounds": bounds, "master": ref("endpoints.bin"), "cohorts": ref("master-cohorts.bin"),
                     "lod": {"algorithm": "sha256-rank-v1", "counts": [50000, 100000, 200000], "ids": ref("lod-ids.bin")},
                     "frames": [{"frame": i, **ref("frames/0001.bin")} for i in range(1, 121)],

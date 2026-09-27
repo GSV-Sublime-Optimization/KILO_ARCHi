@@ -17,11 +17,12 @@ import zlib
 
 HIP_SHA = "2a56c4faf40a8920109df44e8bc2dad599b2b45b67a26bf2bc4fd0c93dd60cc1"
 NODE = "/obj/LIMINAL_POINTFORM/PARTICLE_CHOREOGRAPHY"
-SCHEMA = "archi-liminal-point-asset/v1"
+SCHEMA = "archi-liminal-point-asset/v2"
 COUNT, RUNTIME_COUNT = 800000, 200000
 MAX_PACKAGE, MAX_JSON = 1024**3, 1024**2
 POSES = {"standing": 24, "curled": 66, "orb": 108}
-HALF_FRAMES = [24.5, 30.5, 36.5, 42.5, 48.5, 54.5, 59.5, 72.5, 78.5, 84.5, 90.5, 96.5, 102.5, 107.5]
+SUBFRAMES = [base+offset for base in (24, 30, 36, 42, 48, 54, 59, 72, 78, 84, 90, 96, 102, 107)
+             for offset in (.25, .5, .75)]
 LIMITS = {"position": .01, "color": .01, "radius": .00001, "emission": .05}
 CONTROL_VALUES = {"point_count": COUNT, "size_gain": .4, "glow_gain": 1,
                   "curl_frequency": 2.1, "release_stagger": .045, "lid_opening": 1.15,
@@ -206,7 +207,7 @@ def reference_png_pixels(payload):
 def validate_comparison(receipt):
     keys(receipt, ("schema", "status", "hipSHA256", "node", "sourceCooked", "sampleFrames", "runtimePointCount",
                    "endpointFrames", "checks", "interpolation", "limits"), "comparison")
-    require(receipt["schema"] == "archi-liminal-motion-comparison/v1" and receipt["status"] == "passed"
+    require(receipt["schema"] == "archi-liminal-motion-comparison/v2" and receipt["status"] == "passed"
             and receipt["hipSHA256"] == HIP_SHA and receipt["node"] == NODE and receipt["sourceCooked"] is True,
             "source comparison unqualified")
     require(receipt["sampleFrames"] == list(range(1, 121)) and receipt["runtimePointCount"] == RUNTIME_COUNT
@@ -216,8 +217,8 @@ def validate_comparison(receipt):
     require(type(checks["idMismatchCount"]) is int and checks["idMismatchCount"] == 0, "ID mismatch")
     require(all(number(v) and 0 <= v <= .00001 for k, v in checks.items() if k != "idMismatchCount"), "source diagnostics exceed limits")
     interp = receipt["interpolation"]
-    keys(interp, ("evaluated", "halfFrames", "comparedPointCount", *LIMITS), "interpolation")
-    require(interp["evaluated"] is True and interp["halfFrames"] == HALF_FRAMES
+    keys(interp, ("evaluated", "subframes", "comparedPointCount", *LIMITS), "interpolation")
+    require(interp["evaluated"] is True and interp["subframes"] == SUBFRAMES
             and interp["comparedPointCount"] == RUNTIME_COUNT and receipt["limits"] == LIMITS, "interpolation unqualified")
     require(all(number(interp[k]) and 0 <= interp[k] <= limit for k, limit in LIMITS.items()), "interpolation exceeds limits")
 
@@ -252,7 +253,7 @@ def validate_package(directory):
         "nativeMapping": [1, 1, 1], "unityMapping": [1, 1, -1]}, "coordinate mismatch")
     require(isinstance(coords["objectToWorldRowMajor"], list) and len(coords["objectToWorldRowMajor"]) == 16
             and all(number(v) for v in coords["objectToWorldRowMajor"]), "invalid object transform")
-    require(manifest["timeline"] == {"fps": 24, "firstFrame": 1, "lastFrame": 120, "interpolation": "linear", "poseFrames": POSES}, "timeline mismatch")
+    require(manifest["timeline"] == {"fps": 24, "firstFrame": 1, "lastFrame": 120, "interpolation": "nearest-half-up", "poseFrames": POSES}, "timeline mismatch")
     require(manifest["motionControls"] == CONTROL_VALUES, "motion controls mismatch")
     expected_files, checked = {"manifest.json"}, {}
     def check_ref(ref, size=None, name=None):

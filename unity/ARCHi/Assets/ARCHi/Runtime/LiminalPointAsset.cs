@@ -95,7 +95,7 @@ namespace ARCHi.Port
         {
             public bool evaluated;
             public int comparedPointCount;
-            public float[] halfFrames;
+            public float[] subframes;
             public float position, color, radius, emission;
         }
         public sealed class SamplePair
@@ -127,7 +127,7 @@ namespace ARCHi.Port
             string json = ReadBoundedJSON(manifestPath, MaximumJSONBytes, expectedDigest);
             var m = JsonUtility.FromJson<Manifest>(json);
             asset.Description = m;
-            if (m == null || m.schema != "archi-liminal-point-asset/v1" || m.assetID != "liminal-v008"
+            if (m == null || m.schema != "archi-liminal-point-asset/v2" || m.assetID != "liminal-v008"
                 || m.source == null || m.source.hipSHA256 != SourceDigest || !m.source.originalUnchanged
                 || m.source.node != "/obj/LIMINAL_POINTFORM/PARTICLE_CHOREOGRAPHY"
                 || m.pointCount != MasterCount || m.runtimePointCount != MaximumCount
@@ -142,7 +142,7 @@ namespace ARCHi.Port
                 || m.appearance == null || m.appearance.colorSpace != "linear-rec709" || m.appearance.radiusAttribute != "pscale"
                 || m.appearance.emissionAttribute != "heat" || m.appearance.emissionRule != "Cd*heat"
                 || m.timeline == null || m.timeline.fps != 24 || m.timeline.firstFrame != 1 || m.timeline.lastFrame != 120
-                || m.timeline.interpolation != "linear" || m.timeline.poseFrames == null
+                || m.timeline.interpolation != "nearest-half-up" || m.timeline.poseFrames == null
                 || m.timeline.poseFrames.standing != 24 || m.timeline.poseFrames.curled != 66 || m.timeline.poseFrames.orb != 108
                 || m.lod == null || m.lod.algorithm != "sha256-rank-v1" || m.lod.counts == null
                 || m.lod.counts.Length != 3 || m.lod.counts[0] != MinimumCount || m.lod.counts[1] != 100000 || m.lod.counts[2] != MaximumCount
@@ -195,7 +195,7 @@ namespace ARCHi.Port
             foreach (var r in refs.Values) { total += r.bytes; if (total > MaximumPackageBytes) throw new InvalidDataException("Point package exceeds 1 GiB."); }
             asset.Verify(m.comparison, cancellation);
             var comparison = JsonUtility.FromJson<Comparison>(ReadBoundedJSON(asset.CheckedPath(m.comparison.file), MaximumJSONBytes, m.comparison.sha256));
-            if (comparison == null || comparison.schema != "archi-liminal-motion-comparison/v1" || comparison.status != "passed"
+            if (comparison == null || comparison.schema != "archi-liminal-motion-comparison/v2" || comparison.status != "passed"
                 || comparison.hipSHA256 != SourceDigest || comparison.node != m.source.node || !comparison.sourceCooked
                 || comparison.runtimePointCount != MaximumCount || comparison.sampleFrames == null || comparison.sampleFrames.Length != 120
                 || comparison.endpointFrames == null || comparison.endpointFrames.Length != 3 || comparison.endpointFrames[0] != 24
@@ -204,7 +204,12 @@ namespace ARCHi.Port
                 || !Within(comparison.checks.pathLimitError, .00001f) || !Within(comparison.checks.endpointPoseError, .00001f)
                 || !Within(comparison.checks.poseAttributeError, .00001f) || !Within(comparison.checks.widthError, .00001f)
                 || comparison.interpolation == null || !comparison.interpolation.evaluated || comparison.interpolation.comparedPointCount != MaximumCount
-                || !Equal(comparison.interpolation.halfFrames, new float[] {24.5f,30.5f,36.5f,42.5f,48.5f,54.5f,59.5f,72.5f,78.5f,84.5f,90.5f,96.5f,102.5f,107.5f})
+                || !Equal(comparison.interpolation.subframes, new float[] {
+                    24.25f,24.5f,24.75f,30.25f,30.5f,30.75f,36.25f,36.5f,36.75f,
+                    42.25f,42.5f,42.75f,48.25f,48.5f,48.75f,54.25f,54.5f,54.75f,
+                    59.25f,59.5f,59.75f,72.25f,72.5f,72.75f,78.25f,78.5f,78.75f,
+                    84.25f,84.5f,84.75f,90.25f,90.5f,90.75f,96.25f,96.5f,96.75f,
+                    102.25f,102.5f,102.75f,107.25f,107.5f,107.75f})
                 || !Within(comparison.interpolation.position,.01f) || !Within(comparison.interpolation.color,.01f)
                 || !Within(comparison.interpolation.radius,.00001f) || !Within(comparison.interpolation.emission,.05f))
                 throw new InvalidDataException("The source motion comparison did not qualify.");
@@ -250,8 +255,13 @@ namespace ARCHi.Port
         {
             if(frame<1||frame>120 || (count!=MinimumCount&&count!=100000&&count!=MaximumCount))throw new InvalidDataException("Invalid LOD or frame.");
             var a=ReadFrame(Description.frames[frame-1],count,cancellation);
-            var b=frame==120 || Description.frames[frame-1].file==Description.frames[frame].file?a:ReadFrame(Description.frames[frame],count,cancellation);
-            return new SamplePair{first=a,second=b,frame=frame,count=count};
+            // v008's authored $F controls select one integer sample, including at subframes.
+            return new SamplePair{first=a,second=a,frame=frame,count=count};
+        }
+        public static int FrameForProgress(float progress)
+        {
+            if(!Finite(progress))throw new InvalidDataException("Invalid point progress.");
+            return 1+(int)Math.Floor(Math.Max(0f,Math.Min(1f,progress))*119f+.5f);
         }
         public SamplePair Endpoint(float progress,int count)
         {

@@ -31,8 +31,10 @@ the exact file/revision before any future code reuse.
 
 - Preserve the 800,000-point endpoint master. Derive nested 50k/100k/200k subsets
   from immutable IDs; density changes never mint or reorder knowledge records.
-- Interpolate the same two baked samples on both GPUs. Measure half-frame error
-  against Houdini. Do not regenerate curl noise independently in two languages.
+- Use the same nearest-half-up sample on both GPUs, matching the measured v008
+  `$F` clock. Version 1’s linear assumption failed the real source comparison.
+  Check quarter/half/three-quarter frames without changing error tolerances.
+  Do not regenerate curl noise independently in two languages.
 - Use linear color data, bounded radiance and premultiplied transparent output.
   Compare the actual garnet/gold endpoints over both light and dark backgrounds.
 - Load/authenticate frames off the UI thread. Bound the cache; stop hidden

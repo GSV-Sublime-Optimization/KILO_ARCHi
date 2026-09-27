@@ -27,6 +27,9 @@ Shader "ARCHi/Liminal Baked Point Cloud" {
        _Palette<3.5?float3(.52,.10,1):_Palette<4.5?float3(1,.65,.06):float3(1,1,1);
     return lerp(hi.xxx,tint*hi,saturate((hi-lo)/hi));
    }
+   float encodeSRGB(float value) {
+    return value<=.0031308 ? 12.92*value : 1.055*pow(value,1.0/2.4)-.055;
+   }
    v2f vert(uint vertex:SV_VertexID, uint instance:SV_InstanceID) {
     float2 corners[6]={float2(-1,-1),float2(1,-1),float2(1,1),float2(-1,-1),float2(1,1),float2(-1,1)};
     PointSample a=_FrameA[instance],b=_FrameB[instance];
@@ -49,8 +52,14 @@ Shader "ARCHi/Liminal Baked Point Cloud" {
     float r2=dot(i.corner,i.corner);clip(1-r2);
     float alpha=saturate(exp(-r2*4)*(1-r2)*_Opacity);
     float3 radiance=min(i.color*i.emission*_LightIntensity,8);
-    // Baked colors are linear Rec.709. Unity handles the render-target conversion.
-    return float4((1-exp(-radiance))*alpha,alpha);
+    float3 presentationColor=1-exp(-radiance);
+    // Linear Rec.709 -> tone map -> sRGB (Gamma project) -> premultiply -> composite.
+    // Encode before premultiplication so translucent edges retain the same color.
+    // Linear projects retain linear output for Unity's render-target conversion.
+    #if defined(UNITY_COLORSPACE_GAMMA)
+    presentationColor=float3(encodeSRGB(presentationColor.r),encodeSRGB(presentationColor.g),encodeSRGB(presentationColor.b));
+    #endif
+    return float4(presentationColor*alpha,alpha);
    }
    ENDCG
   }

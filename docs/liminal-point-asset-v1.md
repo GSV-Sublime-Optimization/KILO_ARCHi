@@ -1,6 +1,8 @@
-# Liminal point asset v1
+# Liminal point asset v2 — preserved v008 source clock
 
-This is the shared, source-bound contract for native Metal and Unity presentation. It does not create knowledge records or grant an evolution milestone. The exporter is an authoring tool for Houdini's `hython`; ordinary Python can validate the resulting package. Until a real Houdini run succeeds, the runtime asset remains unavailable.
+The filename is retained for existing links. Version 1 assumed linear subframe motion and never qualified a production asset. The licensed source run showed that the pinned transition controls use `smooth($F,24,60)` and `smooth($F,72,108)`: quarter frames hold the lower sample, while half/three-quarter frames hold the upper sample. Version 2 makes this measured nearest-half-up clock explicit; v1 packages are rejected. Motion tolerances are unchanged. The original HIP and VEX are unchanged.
+
+This is the shared, source-bound contract for native Metal and Unity presentation. It does not create knowledge records or grant an evolution milestone. The exporter is an authoring tool for Houdini's `hython`; ordinary Python can validate the resulting package. The first licensed export correctly failed its v1 interpolation check. Qualification now requires the v2 clock comparison and separate renderer review.
 
 The only accepted authoring scene is `Liminal-v008-lion-spin-blend.hiplc`, SHA-256 `2a56c4faf40a8920109df44e8bc2dad599b2b45b67a26bf2bc4fd0c93dd60cc1`. v002 exports are rejected. Output is a new directory, never an overwrite. A separate new working directory contains a source copy; the original scene and dependencies are read-only inputs. No scene is saved back and no render is launched.
 
@@ -21,7 +23,7 @@ Master records are in ascending original ID order, exactly 0 through 799,999. Co
 
 The rank for ID i is SHA-256 of UTF-8 `archi-liminal-lod/v1\n` + the lowercase pinned HIP digest + `\n` + the base-10 ID with no leading zeros or final newline. Sort lexicographically by the 32 digest bytes, then integer ID. Retain the first 200,000 IDs. The first 50,000, 100,000 and 200,000 records form nested LODs. Every level uses actual sampled source motion; it does not regenerate an orb, noise, targets or colors.
 
-There are manifest entries for all integer frames 1 through 120 at 24 fps. Endpoint frames are standing 24, curled 66 and orb 108. A frame's time in seconds is `(frame-1)/24`. The complete 120-frame clip occupies five seconds, including its last frame's display interval. Identical complete sample files may be stored once: later frame entries then refer to the earlier filename, hash and length. No approximation qualifies for deduplication. Runtime interpolation is componentwise linear between adjacent samples; hold the first/last sample outside the clip. Radius and emission remain nonnegative. Runtime reads only its chosen LOD prefix from the two adjacent files.
+There are manifest entries for all integer frames 1 through 120 at 24 fps. Endpoint frames are standing 24, curled 66 and orb 108. A frame's time in seconds is `(frame-1)/24`. The complete 120-frame clip occupies five seconds, including its last frame's display interval. Identical complete sample files may be stored once: later frame entries then refer to the earlier filename, hash and length. No approximation qualifies for deduplication. Runtime selects frame `floor(clamp(progress,0,1)*119+0.5)+1`, matching the source $F clock; hold the first/last sample outside the clip. It does not blend between two poses or generate intermediate states. Radius and emission remain nonnegative. Runtime reads only its chosen LOD prefix from the selected file and shares that buffer across both shader inputs. Display refresh may exceed the 24 Hz authored motion cadence; the separate 30 fps rendering target remains.
 
 ## Coordinate and appearance conventions
 
@@ -35,7 +37,7 @@ Positions are the actual local SOP `P` values from `/obj/LIMINAL_POINTFORM/PARTI
 
 ```json
 {
-  "schema": "archi-liminal-point-asset/v1",
+  "schema": "archi-liminal-point-asset/v2",
   "assetID": "liminal-v008",
   "source": {
     "hipSHA256": "2a56c4faf40a8920109df44e8bc2dad599b2b45b67a26bf2bc4fd0c93dd60cc1",
@@ -53,7 +55,7 @@ Positions are the actual local SOP `P` values from `/obj/LIMINAL_POINTFORM/PARTI
     "objectToWorldRowMajor": [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]
   },
   "appearance": {"colorSpace": "linear-rec709", "radiusAttribute": "pscale", "emissionAttribute": "heat", "emissionRule": "Cd*heat"},
-  "timeline": {"fps": 24, "firstFrame": 1, "lastFrame": 120, "interpolation": "linear", "poseFrames": {"standing": 24, "curled": 66, "orb": 108}},
+  "timeline": {"fps": 24, "firstFrame": 1, "lastFrame": 120, "interpolation": "nearest-half-up", "poseFrames": {"standing": 24, "curled": 66, "orb": 108}},
   "bounds": {"min": [-3, -3, -3], "max": [3, 3, 3], "maximumRadius": 0.01, "maximumEmission": 8},
   "master": {"file": "endpoints.bin", "sha256": "SHA256", "bytes": 80000000},
   "cohorts": {"file": "master-cohorts.bin", "sha256": "SHA256", "bytes": 6400000},
@@ -81,17 +83,17 @@ The fixed whole-clip camera looks from +Z toward −Z, with +X right and +Y up: 
 
 ## Comparison receipt and admission
 
-`comparison.json` contains `schema: archi-liminal-motion-comparison/v1`, `status: passed`, the pinned `hipSHA256`, the qualified `node`, `sourceCooked: true`, `sampleFrames: [1..120]`, `runtimePointCount: 200000`, `endpointFrames: [24,66,108]`, `checks`, `interpolation`, and `limits`.
+`comparison.json` contains `schema: archi-liminal-motion-comparison/v2`, `status: passed`, the pinned `hipSHA256`, the qualified `node`, `sourceCooked: true`, `sampleFrames: [1..120]`, `runtimePointCount: 200000`, `endpointFrames: [24,66,108]`, `checks`, `interpolation`, and `limits`.
 
 `checks` records maxima for `identityError`, `pathLimitError`, `endpointPoseError`, `poseAttributeError`, `widthError`, and integer `idMismatchCount`. ID mismatches must be zero; diagnostic/pose/width errors must not exceed 0.00001 authored units. All attributes are finite, radius/emission nonnegative, source/curled ID order identical at every sampled frame, and both cohort values in 0...63. Each exported endpoint LOD record must also match its corresponding full-master record exactly after binary32 packing.
 
-`interpolation` contains `evaluated: true`, `halfFrames`, `comparedPointCount: 200000`, and maximum errors `position`, `color`, `radius`, `emission`. Half frames are `[24.5,30.5,36.5,42.5,48.5,54.5,59.5,72.5,78.5,84.5,90.5,96.5,102.5,107.5]`. The exporter cooks actual Houdini geometry at each half frame and compares all 200,000 runtime IDs against interpolation of the surrounding integer-frame files. Position error is Euclidean distance; color is maximum absolute component error; radius/emission are absolute error.
+`interpolation` contains `evaluated: true`, `subframes`, `comparedPointCount: 200000`, and maximum errors `position`, `color`, `radius`, `emission`. The 42 subframes are each base in `[24,30,36,42,48,54,59,72,78,84,90,96,102,107]` plus `.25`, `.5`, `.75`, in that order. The exporter reads frozen geometry at each explicit frame, then compares all 200,000 IDs to the lower integer sample for `.25` and the upper integer sample for `.5` / `.75`. Position error is Euclidean distance; color is maximum absolute component error; radius/emission are absolute error. The exact source expressions and their HScript language are pinned as well as VEX, inputs and parameters.
 
 `limits` is exactly `{"position":0.01,"color":0.01,"radius":0.00001,"emission":0.05}`. All comparison keys described above are required; unknown keys are rejected.
 
-Admission limits are position ≤0.01 authored units, color ≤0.01 linear RGB, radius ≤0.00001 authored units and emission ≤0.05. These are explicit initial tolerances, not measured success. A failure retains diagnostics without writing a qualified manifest. Changing tolerances requires a reviewed contract change. Endpoint renders, whole-clip subframe equivalence, native/Unity display equivalence, performance and owner visual acceptance remain separate qualifications.
+Admission limits are position ≤0.01 authored units, color ≤0.01 linear RGB, radius ≤0.00001 authored units and emission ≤0.05. These are explicit initial tolerances, not measured success. A failure retains diagnostics without writing a qualified manifest. Changing tolerances requires a reviewed contract change. Endpoint renders, unsampled subframe equivalence, native/Unity display equivalence, performance and owner visual acceptance remain separate qualifications.
 
-The validator verifies structural bounds, every file hash/length, binary values, rank and IDs, nested LOD correspondence, endpoint/master correspondence and receipt completeness. A receipt is source evidence, not cryptographic proof that Houdini ran; validation cannot turn a fabricated or unexecuted receipt into a trusted authoring run. No successful receipt or production package is supplied until the pinned scene is cooked successfully.
+The validator verifies structural bounds, every file hash/length, binary values, rank and IDs, nested LOD correspondence, endpoint/master correspondence and receipt completeness. A receipt is source evidence, not cryptographic proof that Houdini ran; validation cannot turn a fabricated or unexecuted receipt into a trusted authoring run. Only a passing source run may create a package manifest. Native/Unity review and installed acceptance remain additional gates.
 
 ## Authoring command and bounded operation
 
@@ -106,12 +108,12 @@ Keep the two Python files together. Use an installed, licensed Houdini `hython` 
 python3 script/liminal_v008_validate.py "/path/to/new/LiminalV008"
 ```
 
-The exporter pins and copies the HIP and four actual FBX/PNG dependencies, preserving the inspected `$HIP/../geo/...` paths. It rejects scene/VEX changes, missing parameters, unexpected source connections, changed object transforms, count/ID/cohort differences, nonfinite fields, cook errors and warnings. It does not substitute another scene, change motion parameters, run a ROP, or save the scene. Source and dependency hashes are rechecked after cooking. No Houdini installation is downloaded or licensed by this tool.
+The exporter pins and copies the HIP and four actual FBX/PNG dependencies, preserving the inspected `$HIP/../geo/...` paths. It rejects scene/VEX changes, missing parameters, unexpected source connections, changed object transforms, count/ID/cohort differences, nonfinite fields, cook errors and warnings. It does not substitute another scene, change motion parameters, run a ROP, or save the scene. Source and dependency hashes are rechecked after cooking. The exporter requires the Indie license category before copying, after loading and before writing a successful receipt. A failed run retains those checks and per-subframe diagnostics in its authoring directory. No Houdini installation is downloaded or licensed by this tool.
 
-Geometry extraction uses HOM bulk binary attribute buffers. One cook and fixed-size array buffers are retained, with full endpoint rows streamed through 4,096-record chunks. The tool never creates 800,000 Python `hou.Point` objects or holds the complete clip in memory. It retains three pose-vector buffers and at most a few sampled-frame buffers; Houdini's internal scene/cook cache is separate from this exporter memory bound. A worst-case package without deduplication has 855,200,000 binary bytes, plus bounded JSON and three small PNGs, below 1 GiB. Source copies and endpoint scratch buffers live only in the separate authoring directory and are not part of the runtime package.
+Geometry extraction uses `geometryAtFrame(frame)` frozen geometry and HOM bulk binary attribute buffers. One cook and fixed-size array buffers are retained, with full endpoint rows streamed through 4,096-record chunks. The tool never creates 800,000 Python `hou.Point` objects or holds the complete clip in memory. It retains three pose-vector buffers and at most a few sampled-frame buffers; Houdini's internal scene/cook cache is separate from this exporter memory bound. A worst-case package without deduplication has 855,200,000 binary bytes, plus bounded JSON and three small PNGs, below 1 GiB. Source copies and endpoint scratch buffers live only in the separate authoring directory and are not part of the runtime package.
 
 `manifest.json` is written only after source and interpolation checks, then independently validated. Any later validation failure revokes that newly written manifest and writes `export-failure.json` in the authoring directory; interpolation failures also retain `comparison-failed.json`. Successful authoring writes `export-receipt.json` there, explicitly leaving runtime display qualification and owner visual acceptance false. The exporter never creates the separate product `qualification.json` or claims installed-app acceptance.
 
 The focused synthetic tests are `python3 -B scripts/tests/test_liminal_v008_format.py`. They check packing/ranking, incomplete or unexecuted receipt rejection, motion error detection, traversal/link/duplicate-key rejection, source pin rejection, file corruption, incorrect endpoint joins and image/sample binding. Synthetic fixtures are not v008 source-cook evidence.
 
-Implementation follows SideFX's [bulk geometry attribute API](https://www.sidefx.com/docs/houdini/hom/hou/Geometry.html), [SOP cooking API](https://www.sidefx.com/docs/houdini/hom/hou/SopNode.html), and [HIP loading API](https://www.sidefx.com/docs/houdini/hom/hou/hipFile.html). Actual authoring, image and interpolation receipts remain unavailable until an equipped machine runs this command.
+Implementation follows SideFX's [bulk geometry attribute API](https://www.sidefx.com/docs/houdini/hom/hou/Geometry.html), [SOP cooking API](https://www.sidefx.com/docs/houdini/hom/hou/SopNode.html), and [HIP loading API](https://www.sidefx.com/docs/houdini/hom/hou/hipFile.html). The source clock decision follows the actual v008 probe and SideFX’s [time variable reference](https://www.sidefx.com/docs/houdini/network/expressions.html) and [explicit frame geometry API](https://www.sidefx.com/docs/houdini/hom/hou/SopNode.html).

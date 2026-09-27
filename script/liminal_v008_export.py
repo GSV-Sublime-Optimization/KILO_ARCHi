@@ -25,6 +25,7 @@ INPUTS = ["/obj/LIMINAL_POINTFORM/ASSIGN_LION_COLOR_COHORT",
           "/obj/LIMINAL_POINTFORM/CURL_GUIDE_MOTION"]
 CONTROL_NODE = "/obj/LIMINAL_CONTROLS"
 POSE_ATTRIBUTES = ("sourceP", "curlP", "targetP")
+CONTROL_EXPRESSIONS = {"lion_to_curl": "smooth($F,24,60)", "curl_to_orb": "smooth($F,72,108)"}
 
 
 def write_bytes(path, data):
@@ -114,14 +115,18 @@ def pack_rows(attributes, ids):
     return result
 
 
-def comparison_errors(actual, before, after):
+def comparison_errors(actual, before, after, fraction):
+    contract.require(contract.number(fraction) and 0 <= fraction <= 1, "invalid sample fraction")
     contract.require(len(actual) == len(before) == len(after) and len(actual) % 32 == 0,
                      "comparison sample length mismatch")
     errors = {key: 0. for key in contract.LIMITS}
     for real, start, end in zip(contract.SAMPLE.iter_unpack(actual), contract.SAMPLE.iter_unpack(before),
                                 contract.SAMPLE.iter_unpack(after)):
         contract.require(all(contract.number(v) for v in (*real, *start, *end)), "nonfinite interpolation sample")
-        delta = [abs(real[k]-(start[k]+end[k])*.5) for k in range(8)]
+        # v008's $F controls hold rounded integer frames. Linear interpolation
+        # creates states that the unchanged source does not produce.
+        expected = start if fraction < .5 else end
+        delta = [abs(real[k]-expected[k]) for k in range(8)]
         errors["position"] = max(errors["position"], math.sqrt(sum(v*v for v in delta[:3])))
         errors["color"] = max(errors["color"], *delta[3:6])
         errors["radius"] = max(errors["radius"], delta[6])
@@ -150,6 +155,10 @@ class SourceCook:
                              "curled source merge transforms unexpectedly")
         for name in (*contract.CONTROL_VALUES, "lion_to_curl", "curl_to_orb"):
             contract.require(self.controls.parm(name) is not None, f"required motion parameter missing: {name}")
+        for name, expression in CONTROL_EXPRESSIONS.items():
+            contract.require(self.controls.parm(name).expressionLanguage() == hou.exprLanguage.Hscript
+                             and self.controls.parm(name).expression() == expression,
+                             f"source frame expression changed: {name}")
         for node_path in ("/obj/LIMINAL_POINTFORM/LION_COLOR_CENTERS", "/obj/CURLED_LION_SOURCE/CURL_COLOR_CENTERS"):
             node = hou.node(node_path)
             contract.require(node is not None and node.parm("num_clusters") is not None
@@ -178,11 +187,10 @@ class SourceCook:
         if self.transform is None:
             self.transform = transform
         contract.require(transform == self.transform, "animated object transform unsupported; cannot drop motion")
-        self.node.cook(force=True)
+        geo = self.node.geometryAtFrame(frame)
         contract.require(not self.node.errors() and not self.node.warnings(),
                          f"source cook diagnostics at {frame}: {self.node.errors()} {self.node.warnings()}")
-        geo = self.node.geometry()
-        curled = self.node.inputs()[1].geometry()
+        curled = self.node.inputs()[1].geometryAtFrame(frame)
         contract.require(geo.intrinsicValue("pointcount") == contract.COUNT
                          and curled.intrinsicValue("pointcount") == contract.COUNT, "full 800000 source/curled points required")
         ids, curled_ids = bulk(geo, "id", 1, "i", hou), bulk(curled, "id", 1, "i", hou)
@@ -283,11 +291,21 @@ def export(args):
         import hou
     except ImportError as error:
         raise contract.InvalidAsset("Houdini hou module unavailable; run this script with installed hython. No source cook was performed.") from error
+    # This pinned .hiplc workflow must not silently fall back to Apprentice or
+    # another license mode. HOM reports the category, not the checked-out SKU.
+    def require_indie(stage):
+        category = hou.licenseCategory()
+        contract.require(category == hou.licenseCategoryType.Indie,
+                         f"Indie license category required at {stage}: {category}")
+        return {"stage": stage, "category": "Indie"}
+
+    license_checks = [require_indie("before-source-copy")]
     source_path, output, work = args.source.resolve(), args.output.absolute(), args.work_directory.absolute()
     copy = prepare_copy(source_path, output, work)
     source = None
     try:
         hou.hipFile.load(str(copy), suppress_save_prompt=True, ignore_load_warnings=False)
+        license_checks.append(require_indie("after-source-load"))
         source = SourceCook(hou)
         ids = contract.ranked_ids()
         write_bytes(output/"lod-ids.bin", contract.little_bytes(ids))
@@ -318,19 +336,25 @@ def export(args):
                 for row in contract.SAMPLE.iter_unpack(raw): contract.include_row(bounds, row)
             frames.append({"frame": frame, **ref})
         errors = {key: 0. for key in contract.LIMITS}
-        for frame in contract.HALF_FRAMES:
+        frame_errors = []
+        for frame in contract.SUBFRAMES:
             print(f"Comparing actual Houdini subframe: {frame}", flush=True)
             attributes = source.cook(frame)
             real = pack_rows(attributes, ids)
             del attributes
             lower = math.floor(frame)
             measured = comparison_errors(real, (output/frames[lower-1]["file"]).read_bytes(),
-                                          (output/frames[lower]["file"]).read_bytes())
+                                          (output/frames[lower]["file"]).read_bytes(), frame-lower)
+            frame_errors.append({"frame": frame, "errors": measured})
             for key in errors: errors[key] = max(errors[key], measured[key])
-        receipt = {"schema": "archi-liminal-motion-comparison/v1", "status": "passed", "hipSHA256": contract.HIP_SHA,
+        # Retain authoring diagnostics separately; they do not relax the shared
+        # runtime receipt or qualify a failed motion comparison.
+        write_json(work/"motion-diagnostics.json", {"sampleFrames": frames, "comparisons": frame_errors,
+                   "licenseCategoryChecks": license_checks, "limits": contract.LIMITS})
+        receipt = {"schema": "archi-liminal-motion-comparison/v2", "status": "passed", "hipSHA256": contract.HIP_SHA,
                    "node": contract.NODE, "sourceCooked": True, "sampleFrames": list(range(1, 121)),
                    "runtimePointCount": contract.RUNTIME_COUNT, "endpointFrames": list(contract.POSES.values()),
-                   "checks": source.checks, "interpolation": {"evaluated": True, "halfFrames": contract.HALF_FRAMES,
+                   "checks": source.checks, "interpolation": {"evaluated": True, "subframes": contract.SUBFRAMES,
                    "comparedPointCount": contract.RUNTIME_COUNT, **errors}, "limits": contract.LIMITS}
         # Keep exact failed comparison in authoring work; never call a failed receipt passed in the package.
         try:
@@ -353,7 +377,7 @@ def export(args):
             "coordinates": {"space": "houdini-sop-local", "handedness": "right", "upAxis": "+Y", "units": "authored-scene-units",
                             "nativeMapping": [1, 1, 1], "unityMapping": [1, 1, -1], "objectToWorldRowMajor": source.transform},
             "appearance": contract.APPEARANCE, "timeline": {"fps": 24, "firstFrame": 1, "lastFrame": 120,
-                                                           "interpolation": "linear", "poseFrames": contract.POSES},
+                                                           "interpolation": "nearest-half-up", "poseFrames": contract.POSES},
             "bounds": bounds, "master": master, "cohorts": contract.file_ref(output/"master-cohorts.bin", output),
             "lod": {"algorithm": "sha256-rank-v1", "counts": [50000, 100000, 200000],
                     "ids": contract.file_ref(output/"lod-ids.bin", output)}, "frames": frames,
@@ -361,7 +385,9 @@ def export(args):
             "comparison": contract.file_ref(output/"comparison.json", output)}
         write_json(output/"manifest.json", manifest)
         result = contract.validate_package(output)
+        license_checks.append(require_indie("before-export-receipt"))
         write_json(work/"export-receipt.json", {**result, "sourceCooked": True, "originalUnchanged": True,
+                                               "licenseCategoryChecks": license_checks,
                                                "runtimeDisplayQualified": False, "ownerVisualAcceptance": False})
         return result
     except Exception as error:
@@ -370,7 +396,8 @@ def export(args):
             (output/"manifest.json").unlink()
         failure = {"schema": "archi-liminal-export-failure/v1", "status": "failed", "error": str(error),
                    "hipSHA256": contract.HIP_SHA, "node": contract.NODE, "qualifiedManifest": False,
-                   "framesCooked": source.frames_cooked if source else [], "checks": source.checks if source else {}}
+                   "framesCooked": source.frames_cooked if source else [], "checks": source.checks if source else {},
+                   "licenseCategoryChecks": license_checks}
         write_json(work/"export-failure.json", failure)
         raise
 

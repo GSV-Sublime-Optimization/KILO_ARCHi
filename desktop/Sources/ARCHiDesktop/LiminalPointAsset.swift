@@ -187,18 +187,18 @@ struct LiminalPointAsset: Sendable {
                      manifest: manifest, artIDs: artIDs)
     }
 
-    /// Call off the main thread. Only two chosen prefixes are retained. All bytes
+    /// Call off the main thread. One chosen prefix is shared by both shader inputs. All bytes
     /// in each opened sample are hashed and validated before a prefix reaches GPU.
     func framePair(progress: Double, detail: Detail = .medium) throws -> FramePair {
+        let index = try Self.sourceFrameIndex(progress: progress)
+        let frame = try loadFrame(manifest.frames[index], detail: detail)
+        return .init(lower: frame, upper: frame, fraction: 0)
+    }
+
+    static func sourceFrameIndex(progress: Double) throws -> Int {
         guard progress.isFinite else { throw Failure.invalidValues }
-        let position = min(1, max(0, progress)) * 119
-        let lowerIndex = Int(floor(position)), upperIndex = min(119, lowerIndex + 1)
-        let a = manifest.frames[lowerIndex], b = manifest.frames[upperIndex]
-        let first = try loadFrame(a, detail: detail)
-        let second = a.reference == b.reference
-            ? Frame(frame: b.frame, pointCount: first.pointCount, data: first.data)
-            : try loadFrame(b, detail: detail)
-        return .init(lower: first, upper: second, fraction: Float(position - Double(lowerIndex)))
+        // The pinned source uses $F rather than $FF: half frames round up.
+        return Int(floor(min(1, max(0, progress)) * 119 + 0.5))
     }
 
     /// Explicit CPU reference image from actual endpoint samples, when supplied.
@@ -283,7 +283,7 @@ struct LiminalPointAsset: Sendable {
     }
 
     private static func validateManifest(_ m: Manifest) throws {
-        guard m.schema == "archi-liminal-point-asset/v1", m.assetID == "liminal-v008",
+        guard m.schema == "archi-liminal-point-asset/v2", m.assetID == "liminal-v008",
               m.source.hipSHA256 == sourceSHA256, m.source.node == sourceNode, m.source.originalUnchanged,
               !m.source.houdiniVersion.isEmpty, m.source.houdiniVersion.utf8.count <= 80, m.source.dependencies.count <= 64,
               m.pointCount == 800_000, m.runtimePointCount == 200_000,
@@ -294,7 +294,7 @@ struct LiminalPointAsset: Sendable {
               m.coordinates.objectToWorldRowMajor.count == 16, m.coordinates.objectToWorldRowMajor.allSatisfy(\.isFinite),
               m.appearance.colorSpace == "linear-rec709", m.appearance.radiusAttribute == "pscale",
               m.appearance.emissionAttribute == "heat", m.appearance.emissionRule == "Cd*heat",
-              m.timeline.fps == 24, m.timeline.firstFrame == 1, m.timeline.lastFrame == 120, m.timeline.interpolation == "linear",
+              m.timeline.fps == 24, m.timeline.firstFrame == 1, m.timeline.lastFrame == 120, m.timeline.interpolation == "nearest-half-up",
               m.timeline.poseFrames == ["standing": 24, "curled": 66, "orb": 108],
               m.lod.algorithm == "sha256-rank-v1", m.lod.counts == [50_000, 100_000, 200_000],
               m.master.file == "endpoints.bin", m.master.bytes == 80_000_000,
@@ -361,7 +361,7 @@ struct LiminalPointAsset: Sendable {
     private struct Comparison: Decodable {
         struct Interpolation: Decodable {
             let evaluated: Bool
-            let halfFrames: [Double]
+            let subframes: [Double]
             let comparedPointCount: Int
             let position: Double
             let color: Double
@@ -385,17 +385,17 @@ struct LiminalPointAsset: Sendable {
         let object = try StrictJSON.object(data)
         try exactKeys(object, ["schema", "status", "hipSHA256", "node", "sourceCooked", "sampleFrames", "runtimePointCount", "endpointFrames", "checks", "interpolation", "limits"])
         guard let interpolation = object["interpolation"] as? [String: Any] else { throw Failure.invalidComparison }
-        try exactKeys(interpolation, ["evaluated", "halfFrames", "comparedPointCount", "position", "color", "radius", "emission"])
+        try exactKeys(interpolation, ["evaluated", "subframes", "comparedPointCount", "position", "color", "radius", "emission"])
         let c: Comparison
         do { c = try JSONDecoder().decode(Comparison.self, from: data) } catch { throw Failure.invalidComparison }
         let diagnostics = ["identityError", "pathLimitError", "endpointPoseError", "poseAttributeError", "widthError"]
-        guard c.schema == "archi-liminal-motion-comparison/v1", c.status == "passed", c.hipSHA256 == sourceSHA256,
+        guard c.schema == "archi-liminal-motion-comparison/v2", c.status == "passed", c.hipSHA256 == sourceSHA256,
               c.node == sourceNode, c.sourceCooked, c.sampleFrames == Array(1...120), c.runtimePointCount == 200_000,
               c.endpointFrames == [24, 66, 108], Set(c.checks.keys) == Set(diagnostics + ["idMismatchCount"]),
               c.checks["idMismatchCount"] == 0,
               diagnostics.allSatisfy({ (c.checks[$0] ?? .infinity).isFinite && (0...0.00001).contains(c.checks[$0] ?? .infinity) }),
               c.interpolation.evaluated, c.interpolation.comparedPointCount == 200_000,
-              c.interpolation.halfFrames == [24.5, 30.5, 36.5, 42.5, 48.5, 54.5, 59.5, 72.5, 78.5, 84.5, 90.5, 96.5, 102.5, 107.5],
+              c.interpolation.subframes == [24, 30, 36, 42, 48, 54, 59, 72, 78, 84, 90, 96, 102, 107].flatMap({ base in [0.25, 0.5, 0.75].map { Double(base) + $0 } }),
               (0...0.01).contains(c.interpolation.position), (0...0.01).contains(c.interpolation.color),
               (0...0.00001).contains(c.interpolation.radius), (0...0.05).contains(c.interpolation.emission),
               c.limits == ["position": 0.01, "color": 0.01, "radius": 0.00001, "emission": 0.05] else { throw Failure.invalidComparison }

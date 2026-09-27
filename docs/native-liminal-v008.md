@@ -4,8 +4,9 @@ This increment connects an authenticated Houdini point package to the existing
 desktop, Companion room and Arena presentation owners. It does not create a new
 companion, profile store, memory store, or evolution rule.
 
-**Activation remains blocked until the real v008 package and both renderer
-endpoint reviews qualify.** Existing Liminal/KIN appearances remain available.
+**The real v008 package and both renderer endpoints now qualify for local
+activation.** The package is installed; the full installed walkthrough and
+performance qualification remain open. Existing Liminal/KIN appearances remain available.
 An exporter, a compiled renderer, and synthetic contract checks do not establish
 the completed visual upgrade or a 30 fps result.
 
@@ -14,8 +15,9 @@ the completed visual upgrade or a 30 fps result.
 The [point-asset contract](liminal-point-asset-v1.md) pins the v008 HIP and the
 pre-strip choreography node. The exporter preserves a copied source/dependency
 tree, retains the 800,000-point endpoint master, and produces nested 50k, 100k,
-and 200k IDs and 120 sampled frames. It measures bounded motion and half-frame
-interpolation error against the source cook. v002 exports are rejected.
+and 200k IDs and 120 sampled frames. It measures bounded motion and 42
+quarter/half/three-quarter samples against the source cook. Version 2 follows
+v008’s nearest-half-up `$F` timing; v1 linear packages and v002 exports are rejected.
 
 [The research register](research/liminal-rendering-techniques-2026-09-27.md)
 records the official documentation, GitHub references and implementation
@@ -32,6 +34,10 @@ decisions. No third-party example art or renderer code was imported.
 - `UnityPresentationConnection` sends a small versioned descriptor and receives
   actual point-renderer acknowledgments. Assets stay outside the heartbeat.
   An older helper cannot acknowledge a selected v008 appearance as rendered.
+  Both the helper's `ARCHiLiminalPointAssetVersion` plist capability and its
+  rendered acknowledgment must be `2`; a v1 linear helper is rejected before
+  packaging or point-presentation handoff. The small presentation envelope
+  retains schema version 1 because its fields are unchanged.
 - `LiminalKnowledgeBindings` projects current graph records onto disjoint
   clusters of existing art IDs. Filtering does not reassign clusters. Retired
   IDs remain reserved during the session. This map is disposable presentation
@@ -87,13 +93,29 @@ launched the embedded Arena, received its current-appearance acknowledgment and
 ended the session back in native ownership. The optional manual signal preview
 restored the chosen colors when its sample quality fell below the threshold.
 
-This confirms the existing companion handoff and installed preview only. No real
-v008 package is present yet; it remains unavailable in the appearance selector.
+This confirms the existing companion handoff and installed preview only. The subsequent source-clock upgrade installs the real
+v008 package into both runtimes and enables its existing appearance selector.
 Houdini 22.0.429 for Apple Silicon is installed locally, matching the source
 version. Its disk image, SideFX signature and Apple notarization were verified.
-License entitlement and the owner's Indie eligibility review remain pending.
-A licensed source export, point-renderer endpoint parity and 30 fps acceptance
-remain open.
+The owner completed the Engine Indie order and connected its license. A licensed
+source export now passes: 800,000 master points, 200,000 runtime IDs, 73 distinct
+frame files and zero measured errors across 42 checked subframes. The source HIP
+and dependencies are unchanged. The 554,689,051-byte package includes actual-data
+transparent reference endpoints, not beauty renders.
+
+The first v1 export was rejected because linear interpolation disagreed with the
+source’s integer `$F` clock. Version 2 preserves that authored clock and pins both
+HScript control expressions; no error tolerance was relaxed. Both production renderers now agree at the reviewed standing, curled and orb
+endpoints (Original palette, 100k points, 512×512). Common-black brightness differs
+by at most 0.114%; bounds match. Correct sRGB encoding precedes alpha accumulation.
+Unity review explicitly runs its final transparency pass once. These are endpoint
+checks, not a claim about live automatic composition or sustained frame rate.
+
+The guarded updater installed the matching native and capability-v2 Unity helper
+with the same manifest in both locations. All 31 baseline profile files were
+preserved. The existing Liminal selector enables v008 and its pose controls.
+Installed transition/selection/handoff, restart, palette, reduced-motion and
+30 fps acceptance remain separate open checks.
 The existing Unity MCP bridge is connected to the runtime project, separate from
 the older presentation pilot. No new remote Houdini MCP server is required for
 the existing local `hython` exporter.

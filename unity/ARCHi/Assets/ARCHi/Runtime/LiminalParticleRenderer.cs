@@ -196,10 +196,9 @@ namespace ARCHi.Port
             else if(qualityAge>8&&frameAverage<.0355f&&desiredCount<200000){desiredCount=desiredCount==50000?100000:200000;qualityAge=0;}
             if(!still&&!Inspection&&Ready&&sampling==null&&!sampleFailure){
                 float next=Mathf.MoveTowards(playhead,descriptor.progress,Mathf.Min(Time.unscaledDeltaTime,.1f)*24f/119f);
-                renderDirty|=next!=playhead;playhead=next;
+                playhead=next;
             }
-            float frame=1+playhead*119;
-            int first=Mathf.Clamp(Mathf.FloorToInt(frame),1,120);
+            int first=LiminalPointAsset.FrameForProgress(playhead);
             if(reduced&&sampling==null&&(pair==null||!pair.endpointFallback||pair.frame!=first||pair.count!=desiredCount))Publish(asset.Endpoint(playhead,desiredCount));
             if(!reduced&&!sampleFailure&&sampling==null&&(pair==null||pair.endpointFallback||pair.frame!=first||pair.count!=desiredCount)){
                 var current=asset;int count=desiredCount;
@@ -207,8 +206,9 @@ namespace ARCHi.Port
                 sampling=Task.Run(()=>current.ReadPair(first,count,token),token);
             }
             if(BuffersReady){
-                blend=pair.endpointFallback?0:Mathf.Clamp01(frame-pair.frame);
-                RenderedProgress=pair.endpointFallback?pair.endpointProgress:(pair.frame-1+blend)/119f;
+                // The source rounds $F half-up. Blending adjacent samples would invent motion.
+                blend=0;
+                RenderedProgress=pair.endpointFallback?pair.endpointProgress:(pair.frame-1)/119f;
                 if(!externalContext&&renderDirty){roomCamera.Render();renderDirty=false;}
             }
         }

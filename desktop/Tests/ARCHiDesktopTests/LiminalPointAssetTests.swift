@@ -4,6 +4,19 @@ import XCTest
 
 /// Small synthetic contract fixtures only. None is a qualified Houdini package.
 final class LiminalPointAssetTests: XCTestCase {
+    func testSourceClockRoundsHalfUpAndRejectsLegacyLinearManifest() throws {
+        for (frame, expected) in [(36.25, 35), (36.49, 35), (36.5, 36), (36.75, 36)] {
+            XCTAssertEqual(try LiminalPointAsset.sourceFrameIndex(progress: (frame - 1) / 119), expected)
+        }
+        XCTAssertEqual(try LiminalPointAsset.sourceFrameIndex(progress: -1), 0)
+        XCTAssertEqual(try LiminalPointAsset.sourceFrameIndex(progress: 2), 119)
+        XCTAssertThrowsError(try LiminalPointAsset.sourceFrameIndex(progress: .nan))
+        var legacy = manifest(); legacy["schema"] = "archi-liminal-point-asset/v1"
+        try assertRejected(legacy)
+        var linear = manifest(), timeline = linear["timeline"] as! [String: Any]
+        timeline["interpolation"] = "linear"; linear["timeline"] = timeline
+        try assertRejected(linear)
+    }
     private let digest = String(repeating: "a", count: 64)
     private var bounds: LiminalPointAsset.Manifest.Bounds {
         .init(min: [-3, -3, -3], max: [3, 3, 3], maximumRadius: 0.01, maximumEmission: 8)
@@ -24,7 +37,7 @@ final class LiminalPointAssetTests: XCTestCase {
 
     func testDuplicateEscapedKeysUnknownFieldsAndChangedSourceFailClosed() throws {
         let encoded = String(decoding: try json(manifest()), as: UTF8.self)
-        let duplicate = Data(("{\"\\u0073chema\":\"archi-liminal-point-asset/v1\"," + encoded.dropFirst()).utf8)
+        let duplicate = Data(("{\"\\u0073chema\":\"archi-liminal-point-asset/v2\"," + encoded.dropFirst()).utf8)
         XCTAssertThrowsError(try LiminalPointAsset.decodeManifest(duplicate, expectedSHA256: LiminalPointAsset.digest(duplicate)))
         var unknown = manifest(); unknown["acceptAnyway"] = true
         try assertRejected(unknown)
@@ -171,7 +184,7 @@ final class LiminalPointAssetTests: XCTestCase {
     }
 
     private func manifest() -> [String: Any] {
-        ["schema": "archi-liminal-point-asset/v1", "assetID": "liminal-v008",
+        ["schema": "archi-liminal-point-asset/v2", "assetID": "liminal-v008",
          "source": ["hipSHA256": LiminalPointAsset.sourceSHA256, "houdiniVersion": "22.0.429",
                     "node": LiminalPointAsset.sourceNode, "originalUnchanged": true, "dependencies": []] as [String: Any],
          "pointCount": 800_000, "runtimePointCount": 200_000,
@@ -181,7 +194,7 @@ final class LiminalPointAssetTests: XCTestCase {
                          "nativeMapping": [1, 1, 1], "unityMapping": [1, 1, -1],
                          "objectToWorldRowMajor": [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]] as [String: Any],
          "appearance": ["colorSpace": "linear-rec709", "radiusAttribute": "pscale", "emissionAttribute": "heat", "emissionRule": "Cd*heat"],
-         "timeline": ["fps": 24, "firstFrame": 1, "lastFrame": 120, "interpolation": "linear",
+         "timeline": ["fps": 24, "firstFrame": 1, "lastFrame": 120, "interpolation": "nearest-half-up",
                       "poseFrames": ["standing": 24, "curled": 66, "orb": 108]] as [String: Any],
          "bounds": ["min": [-3, -3, -3], "max": [3, 3, 3], "maximumRadius": 0.01, "maximumEmission": 8] as [String: Any],
          "master": reference("endpoints.bin", bytes: 80_000_000), "cohorts": reference("master-cohorts.bin", bytes: 6_400_000),
@@ -194,11 +207,11 @@ final class LiminalPointAssetTests: XCTestCase {
          "comparison": reference("comparison.json", bytes: 100)]
     }
     private func comparison() -> [String: Any] {
-        ["schema": "archi-liminal-motion-comparison/v1", "status": "passed", "hipSHA256": LiminalPointAsset.sourceSHA256,
+        ["schema": "archi-liminal-motion-comparison/v2", "status": "passed", "hipSHA256": LiminalPointAsset.sourceSHA256,
          "node": LiminalPointAsset.sourceNode, "sourceCooked": true, "sampleFrames": Array(1...120), "runtimePointCount": 200_000,
          "endpointFrames": [24, 66, 108], "checks": ["identityError": 0, "pathLimitError": 0, "endpointPoseError": 0,
             "poseAttributeError": 0, "widthError": 0, "idMismatchCount": 0],
-         "interpolation": ["evaluated": true, "halfFrames": [24.5, 30.5, 36.5, 42.5, 48.5, 54.5, 59.5, 72.5, 78.5, 84.5, 90.5, 96.5, 102.5, 107.5],
+         "interpolation": ["evaluated": true, "subframes": [24, 30, 36, 42, 48, 54, 59, 72, 78, 84, 90, 96, 102, 107].flatMap { base in [0.25, 0.5, 0.75].map { Double(base) + $0 } },
             "comparedPointCount": 200_000, "position": 0, "color": 0, "radius": 0, "emission": 0] as [String: Any],
          "limits": ["position": 0.01, "color": 0.01, "radius": 0.00001, "emission": 0.05]]
     }

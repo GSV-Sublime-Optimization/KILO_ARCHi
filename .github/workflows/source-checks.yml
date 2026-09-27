@@ -33,7 +33,7 @@ jobs:
           import subprocess
 
           root = Path.cwd()
-          tracked = set(subprocess.check_output(['git', 'ls-files', '-z']).decode().split('\\0')) - {''}
+          tracked = set(subprocess.check_output(['git', 'ls-files', '-z']).decode().split('\0')) - {''}
           expected = tracked - {'SOURCE_SHA256SUMS'}
           listed = set()
           for line in Path('SOURCE_SHA256SUMS').read_text().splitlines():

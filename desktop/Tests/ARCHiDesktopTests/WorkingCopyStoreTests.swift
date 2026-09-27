@@ -5,6 +5,79 @@ import Testing
 
 @MainActor
 struct WorkingCopyStoreTests {
+    @Test func pendingReviewQueueSurvivesNewCopyAndRestartWithoutRestoringOrRatingWork() async throws {
+        let rig = RevisionStoreRig(); defer { rig.drain() }
+        try await rig.begin()
+        let proposal = try rig.local.complete(replacement: "Clear copy.")
+        try await rig.wait { !rig.store.isWorking }
+        #expect(rig.store.documentReviewQueue?.records.isEmpty == true, "A proposal is not an applied outcome")
+        rig.store.applyPassageRevision(provider: .qwen, targetID: proposal.target.id)
+        let applied = try #require(rig.store.currentDocumentOutcome)
+        #expect(rig.store.documentReviewQueue?.records.isEmpty == true, "Current outcome already has its review card")
+        rig.store.share(text: "Different working copy.", name: "next.txt")
+        rig.store.documentRequirements.mustBeShorter.toggle()
+        #expect(rig.store.documentReviewQueue?.records.map(\.id) == [applied.id], "Past review is independent of new requirements")
+        let journalURL = rig.directory.appendingPathComponent("preferences.document-work.json")
+        let bytes = try Data(contentsOf: journalURL)
+        let reopened = CompanionStore(preferenceURL: rig.directory.appendingPathComponent("preferences.json"), assistant: RevisionStoreClient())
+        defer { Task { await reopened.shutdownAssistant() } }
+        let revision = reopened.sourceRevision
+        let first = try #require(reopened.documentReviewQueue)
+        #expect(first.records.map(\.id) == [applied.id])
+        #expect(first == reopened.documentReviewQueue)
+        #expect(reopened.sharedText.isEmpty && !reopened.canUndoWorkingCopyEdit)
+        #expect(reopened.sourceRevision == revision)
+        #expect(reopened.documentWork.records.first?.feedback == nil)
+        #expect(reopened.evolution.usefulReceipts.isEmpty && reopened.documentProcedures.procedures.isEmpty)
+        #expect(try Data(contentsOf: journalURL) == bytes, "Opening the queue writes no journal data")
+    }
+
+    @Test func pendingReviewQueueExplicitReviewUpdatesOnlyItsOutcomeAndKeepsNewCopyUndo() async throws {
+        let rig = RevisionStoreRig(); defer { rig.drain() }
+        try await rig.begin()
+        let first = try rig.local.complete(replacement: "First clear copy.")
+        try await rig.wait { !rig.store.isWorking }
+        rig.store.applyPassageRevision(provider: .qwen, targetID: first.target.id)
+        let earlier = try #require(rig.store.currentDocumentOutcome)
+        rig.local.request = nil
+        try await rig.begin(text: "A different source passage.")
+        let second = try rig.local.complete(replacement: "Second clear copy.")
+        try await rig.wait { !rig.store.isWorking }
+        rig.store.applyPassageRevision(provider: .qwen, targetID: second.target.id)
+        let current = try #require(rig.store.currentDocumentOutcome)
+        let text = rig.store.sharedText, revision = rig.store.sourceRevision
+        #expect(rig.store.documentReviewQueue?.records.map(\.id) == [earlier.id])
+        #expect(rig.store.reviewDocument(id: earlier.id, verdict: .helpful))
+        #expect(rig.store.documentReviewQueue?.records.isEmpty == true)
+        #expect(rig.store.currentDocumentOutcome?.id == current.id)
+        #expect(rig.store.currentDocumentOutcome?.feedback == nil)
+        #expect(rig.store.sharedText == text && rig.store.sourceRevision == revision && rig.store.canUndoWorkingCopyEdit)
+        #expect(rig.store.evolution.usefulReceipts.isEmpty, "A review does not save companion learning")
+        #expect(rig.store.keepDocumentProcedure(recordID: earlier.id, title: "Clear prose", instruction: "Use plain language."))
+        #expect(rig.store.documentProcedures.procedures.first?.originRecordID == earlier.id)
+        rig.store.undoWorkingCopyEdit()
+        #expect(rig.store.sharedText == "A different source passage.", "Historical review cannot redirect the current Undo")
+    }
+
+    @Test func pendingReviewQueueCannotPresentExternallyChangedHistoryAsEmptyOrReviewable() async throws {
+        let rig = RevisionStoreRig(); defer { rig.drain() }
+        try await rig.begin()
+        let proposal = try rig.local.complete(replacement: "Clear copy.")
+        try await rig.wait { !rig.store.isWorking }
+        rig.store.applyPassageRevision(provider: .qwen, targetID: proposal.target.id)
+        let earlier = try #require(rig.store.currentDocumentOutcome)
+        rig.store.share(text: "Unrelated copy.", name: "later.txt")
+        #expect(rig.store.documentReviewQueue?.records.map(\.id) == [earlier.id])
+        let url = rig.directory.appendingPathComponent("preferences.document-work.json")
+        let bytes = try Data(contentsOf: url)
+        try (bytes + Data(" ".utf8)).write(to: url)
+        #expect(rig.store.documentReviewQueue == nil)
+        #expect(!rig.store.reviewDocument(id: earlier.id, verdict: .helpful))
+        #expect(rig.store.sharedText == "Unrelated copy.")
+        try bytes.write(to: url)
+        #expect(rig.store.documentReviewQueue?.records.map(\.id) == [earlier.id])
+    }
+
     @Test func currentOutcomeFollowsExactAppliedCopyAndNeverRehydratesFromHistory() async throws {
         let rig = RevisionStoreRig(); defer { rig.drain() }
         try await rig.begin()

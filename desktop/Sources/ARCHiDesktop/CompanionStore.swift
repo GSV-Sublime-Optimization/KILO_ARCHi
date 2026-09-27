@@ -1460,7 +1460,22 @@ final class CompanionStore: ObservableObject {
 
     func canReviewDocument(_ record: DocumentWorkRecord) -> Bool {
         !isShuttingDown && documentWork.isCurrentOnDisk
-            && documentWork.records.first(where: { $0.id == record.id }) == record
+            && documentReviewEvidenceIsCurrent(record)
+    }
+
+    /// Read-only recovery of pending reviews across working copies and restarts.
+    /// Check the journal once for this bounded projection; action owners still
+    /// check it again when the user submits an individual review.
+    var documentReviewQueue: DocumentReviewQueue? {
+        guard !isShuttingDown, !isWorking, profileRecoveryBlock == nil,
+              pendingDocumentReceipt == nil, documentWork.isCurrentOnDisk else { return nil }
+        let reviewable = Set(documentWork.records.filter(documentReviewEvidenceIsCurrent).map(\.id))
+        return DocumentReviewQueue(records: documentWork.records, historyIsCurrent: true,
+            reviewableRecordIDs: reviewable, currentOutcomeID: currentDocumentOutcome?.id)
+    }
+
+    private func documentReviewEvidenceIsCurrent(_ record: DocumentWorkRecord) -> Bool {
+        documentWork.records.first(where: { $0.id == record.id }) == record
             && [.applied, .undone].contains(record.state)
             && !(record.procedureUse.map { documentProcedureKnowledgeUnavailable(use: $0) } ?? false)
             && record.learning?.requestBinding.isValid == true && UUID(uuidString: record.requestID) != nil

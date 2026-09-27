@@ -28,6 +28,7 @@ struct DocumentWorkHistory: View {
                 DocumentOutcomeView(store: store, record: outcome)
                     .id(outcome.id)
             }
+            DocumentReviewQueueView(store: store)
             HamptonTaskWorkCard(store: store)
             if store.requestsRevision { HamptonDocumentControlView(store: store) }
             else { DocumentReadingTools(store: store) }

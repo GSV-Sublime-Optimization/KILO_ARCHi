@@ -89,8 +89,11 @@ restored the chosen colors when its sample quality fell below the threshold.
 
 This confirms the existing companion handoff and installed preview only. No real
 v008 package is present yet; it remains unavailable in the appearance selector.
-The exact-source Houdini 22.0.429 Apple Silicon installer has been downloaded and
-its disk image, SideFX signature and Apple notarization verified. Authoring
-installation/licensing, source export, point-renderer endpoint parity and 30 fps
-acceptance remain open. The existing Unity MCP bridge is connected to the runtime
-project, separate from the older presentation pilot.
+Houdini 22.0.429 for Apple Silicon is installed locally, matching the source
+version. Its disk image, SideFX signature and Apple notarization were verified.
+License entitlement and the owner's Indie eligibility review remain pending.
+A licensed source export, point-renderer endpoint parity and 30 fps acceptance
+remain open.
+The existing Unity MCP bridge is connected to the runtime project, separate from
+the older presentation pilot. No new remote Houdini MCP server is required for
+the existing local `hython` exporter.

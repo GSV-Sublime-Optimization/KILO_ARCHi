@@ -552,6 +552,11 @@ ed0e07d7f498e1d2dd3d8fbd05dcb58d5473a46b5e984180ae2a9eeef1d95478  docs/native-me
 1eec9249c228eb6b69fa472717d13484d5c93f58fbcf9f003d48d04673ab340c  docs/native-record-lookup.md
 7a39f6ce289a61feb3361950ee92c0704d8478bce086d707d75013af3e2fea53  docs/native-task-memory-outcomes.md
 f9a4e931ed6306148f8e4ff4d097a4907781c85f5209bce5dcbabf78a1c3db06  docs/representation-source.md
+a53dd0baea05405b69d978cba91c47c384ac75b6ab562c24a4fab68ecba298a0  docs/research/2026-09-27-evidence-diversity-and-retrieval/README.md
+a6d4c1407d75ef9f6003523f72fb8071cfeeb4c3b58858f3fcbe2720a2994b82  docs/research/2026-09-27-evidence-diversity-and-retrieval/evidence-and-math.md
+86cc8e6247b28245df70cac26ee100b385f046e7b4debd466c8a9f37867fa599  docs/research/2026-09-27-evidence-diversity-and-retrieval/native-integration-map.md
+adde0b9126822439fc70486898c96ecdbf20c1db1a91559c60b0c87e42baca8c  docs/research/2026-09-27-evidence-diversity-and-retrieval/review-receipt.json
+bea413a7d1f8b752d5f7b861aa1cef14e3127da06f25537672246438cbbe11b6  docs/research/2026-09-27-evidence-diversity-and-retrieval/sources.json
 a9c4901186b8c83960094aa73ae95f25a215c95e213b840c14b369d11c8e25ce  docs/research/native-record-lookup-result-2026-09-26.json
 1c48f70a2b3ab4cef4a9c25df1e7a043c0dbde2f7af14081234a1bc3b735a688  docs/research/task-reader-result-2026-09-26.json
 38c6d6075fe07a68931e8666e65e907c597b6f001ac1dfd850a5092d913e461a  docs/siggraph-local-companion-integration.md

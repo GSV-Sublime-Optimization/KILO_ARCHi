@@ -105,3 +105,19 @@ Before presenting a package upstream, produce a concise delta report covering:
 - release/distribution state.
 
 The goal is not to replace ARCHi with the Greater System. The goal is to let both systems sharpen each other while preserving a clean path back to Patrick's project.
+
+## Upstream parity sentinel
+
+The fork carries a deterministic GitHub Actions guard at `.github/workflows/upstream-parity.yml`.
+
+Its contract is deliberately narrow:
+
+- fetch `cr8ph8/ARCHi@main` as the canonical stable upstream;
+- prove that upstream `main` is an ancestor of the exact KILO commit under test;
+- report exact fork, upstream and merge-base SHAs plus ahead/behind counts;
+- fail when KILO is behind stable upstream;
+- never auto-merge upstream changes;
+- never treat an open/draft upstream branch or pull request as stable product authority.
+
+Active upstream draft work must be reconciled on a dedicated branch with its exact head SHA recorded. Stable parity and development-candidate parity are separate claims.
+

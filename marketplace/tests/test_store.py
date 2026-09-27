@@ -1,6 +1,7 @@
 import copy
 import os
 import sqlite3
+import stat
 import tempfile
 import unittest
 import uuid
@@ -70,7 +71,10 @@ class StoreTests(unittest.TestCase):
         self.assertEqual(len(token_hash), 64)
         self.assertNotIn(self.token.encode(), self.path.read_bytes())
         self.assertNotIn(PASSWORD.encode(), self.path.read_bytes())
-        self.assertEqual(os.stat(self.path).st_mode & 0o777, 0o600)
+        info = os.stat(self.path)
+        self.assertTrue(stat.S_ISREG(info.st_mode))
+        if hasattr(os, "getuid"):
+            self.assertEqual(info.st_mode & 0o777, 0o600)
 
     def test_session_failure_expiry_and_logout(self):
         self.assert_error("unauthorized", "POST", "/v1/sessions", body={"handle": "synthetic_owner", "password": "wrong but long enough"})
@@ -239,16 +243,31 @@ class StoreTests(unittest.TestCase):
         self.assert_error("storage_unavailable", "GET", f'/v1/listings/{published["id"]}/versions/2/package')
         self.assertEqual(self.call("GET", "/v1/inventory").value["total"], 0)
 
+    def test_reparse_attribute_is_classified_as_indirect_storage(self):
+        from marketplace.store import _is_link_or_reparse
+
+        class SyntheticStat:
+            st_mode = stat.S_IFREG
+            st_file_attributes = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+
+        self.assertTrue(_is_link_or_reparse(SyntheticStat()))
+
     def test_refuses_symlink_permissive_or_unrelated_database(self):
         link = self.path.with_name("linked.sqlite3")
-        link.symlink_to(self.path)
-        with self.assertRaises(OSError):
-            Store(link)
-        mode_path = self.path.with_name("permissive.sqlite3")
-        mode_path.touch(mode=0o644)
-        mode_path.chmod(0o644)
-        with self.assertRaises(ValueError):
-            Store(mode_path)
+        try:
+            link.symlink_to(self.path)
+        except OSError:
+            if os.name != "nt":
+                raise
+        else:
+            with self.assertRaises((OSError, ValueError)):
+                Store(link)
+        if hasattr(os, "getuid"):
+            mode_path = self.path.with_name("permissive.sqlite3")
+            mode_path.touch(mode=0o644)
+            mode_path.chmod(0o644)
+            with self.assertRaises(ValueError):
+                Store(mode_path)
         unrelated = self.path.with_name("unrelated.sqlite3")
         unrelated.touch(mode=0o600)
         with sqlite3.connect(unrelated) as db:

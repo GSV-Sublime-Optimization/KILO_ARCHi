@@ -1,0 +1,29 @@
+schema: gsv.project/v1
+id: kilo-archi
+name: KILO_ARCHi
+repo: GSV-Sublime-Optimization/KILO_ARCHi
+domain: application
+maturity: active-upstream-collaboration
+build_profile: hybrid
+os: [macos]
+privacy: public
+agent_policy: supervised
+release: manual
+authority: external-collaboration adaptation of ARCHi; local branch contracts may own their delta but do not supersede cr8ph8/ARCHi upstream identity
+notes: >
+  This GSV repository is an active external-collaboration adaptation/fork of
+  cr8ph8/ARCHi, registered behind Kilo_Core's external_repos membrane with
+  review-first / PR-only mutation. Preserve upstream identity and license.
+  Within the adaptation, preserve ARCHi's ownership split: Native Swift owns
+  assistance, permissions, working-copy state, kept lessons and saved companion
+  development; Unity is presentation/practice; retained TypeScript Journey/battle
+  code keeps its domain ownership; Qwen/Codex are bounded inference lanes. Source
+  readiness is not Beta, signing, notarization, redistribution, or release proof.
+upstream:
+  - {name: cr8ph8/ARCHi, via: git fork/upstream collaboration, required: true, note: "External upstream identity; local GSV delta does not supersede upstream provenance"}
+  - {name: local-qwen, via: desktop native runtime manager, required: false, note: "Managed local Ollama/Qwen lane; model/runtime installation remains external"}
+  - {name: codex-account-integration, via: bounded fallback/compare lane, required: false, note: "External lane only after explicit admission; no silent fallback loop"}
+downstream:
+  - {name: native-app, surface: desktop/, consumers: [macos-user]}
+  - {name: unity-companion, surface: unity/ARCHi/, consumers: [native-handoff, local-practice]}
+  - {name: creator-marketplace, surface: marketplace/, consumers: [native-app]}

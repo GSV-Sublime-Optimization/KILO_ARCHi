@@ -509,6 +509,16 @@ struct WorkTogetherReplyLane: View {
                     DocumentWorkCheckView(verification: store.documentVerification(proposal))
                     passage("Before", text: proposal.target.selection.quote, proposed: false)
                     passage("After", text: proposal.replacement, proposed: true)
+                    if result.urlBoundaryRestoration != nil, let original = result.originalRevision {
+                        Text("ARCHi restored the source’s spacing after one link. Review this version before Apply.")
+                            .font(.caption).foregroundStyle(.secondary)
+                            .accessibilityIdentifier("work.url-spacing-restored.\(provider.name.lowercased())")
+                        DisclosureGroup("Original model wording") {
+                            passage("Original proposal", text: original.replacement, proposed: false)
+                        }
+                        .font(.caption)
+                        .accessibilityIdentifier("work.original-revision.\(provider.name.lowercased())")
+                    }
                 } else {
                     Text(proposal.decision == .clarify ? "A little more detail would help." : "No change proposed.")
                         .font(.system(size: 13, weight: .medium))

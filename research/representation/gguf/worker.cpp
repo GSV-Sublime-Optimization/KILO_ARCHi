@@ -32,7 +32,10 @@
 using json = nlohmann::json;
 using Clock = std::chrono::steady_clock;
 constexpr size_t MAX_REQUEST_BYTES = 8 * 1024 * 1024;
-constexpr const char * BACKEND = "llama.cpp:161755f29";
+#ifndef ARCHI_GGUF_BACKEND
+#define ARCHI_GGUF_BACKEND "llama.cpp:161755f29"
+#endif
+constexpr const char * BACKEND = ARCHI_GGUF_BACKEND;
 constexpr const char * TEMPLATE = "<|im_start|>system\n{{system}}<|im_end|>\n<|im_start|>user\n{{input}}"
     "\n\nReturn exactly one JSON object matching this schema:\n{{schema}}"
     "<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n";
@@ -61,6 +64,13 @@ static std::string string_field(const json & object, const char * key, size_t ma
 static void digest_field(const json & object, const char * key) {
     require(std::regex_match(string_field(object, key, 64), std::regex("[0-9a-f]{64}")),
             "Invalid SHA256 digest");
+}
+static void validate_compatibility_blob(const json & object) {
+#ifdef ARCHI_QWEN35_BLOB
+    require(string_field(object, "model_name") == "qwen3.5:9b" &&
+            string_field(object, "model_blob_digest") == ARCHI_QWEN35_BLOB,
+            "This text compatibility worker is restricted to the verified Ollama Qwen3.5:9b blob");
+#endif
 }
 static int integer_field(const json & object, const char * key, int low, int high) {
     require(object.contains(key) && object[key].is_number_integer(), "Missing integer field");
@@ -101,6 +111,7 @@ struct Request {
 };
 static Request validate(const json & object) {
     require(object.is_object(), "Request must be an object");
+    validate_compatibility_blob(object);
     require(string_field(object, "schema") == "archi-gguf-shadow-request/v1", "Unknown request schema");
     require(string_field(object, "mode") == "shadow", "Only read-only shadow mode is supported");
     require(std::regex_match(string_field(object, "request_id"),
@@ -352,6 +363,7 @@ struct CalibrationRequest {
 };
 static CalibrationRequest validate_calibration(const json & object) {
     require(object.is_object(), "Calibration request must be an object");
+    validate_compatibility_blob(object);
     require(string_field(object, "schema") == "archi-gguf-calibration-request/v1", "Unknown calibration schema");
     require(string_field(object, "purpose") == "synthetic-reader-calibration", "Unsupported acquisition purpose");
     require(object.contains("synthetic_only") && object["synthetic_only"].is_boolean() && object["synthetic_only"].get<bool>(),

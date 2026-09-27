@@ -52,6 +52,8 @@ struct DocumentWorkRecord: Codable, Equatable, Identifiable, Sendable {
     var procedureUseRejected: Bool? = nil
     /// Exact native control decision captured before dispatch; nil on older work.
     var q2eDecision: HamptonQ2EDecision? = nil
+    /// Optional native repair provenance; never contains source or response text.
+    var urlBoundaryRestoration: DocumentURLBoundaryRestoration? = nil
 
     var hasPendingFeedbackUsageSync: Bool {
         feedback.map { feedbackUsageSyncedID != $0.id } ?? false
@@ -213,6 +215,17 @@ final class DocumentWorkJournal: ObservableObject {
                 throw DocumentWorkJournalError.invalid("Undo must retain its pending record before success.")
             }
         }
+        if old.urlBoundaryRestoration != nil {
+            guard old.urlBoundaryRestoration == new.urlBoundaryRestoration,
+                  old.proposedDigest == new.proposedDigest, old.expectedAfterDigest == new.expectedAfterDigest,
+                  old.checks == new.checks else {
+                throw DocumentWorkJournalError.invalid("Native URL restoration provenance cannot be changed or removed.")
+            }
+        } else if new.urlBoundaryRestoration != nil {
+            guard old.state == .proposing, new.state == .ready else {
+                throw DocumentWorkJournalError.invalid("Native URL restoration belongs to the initial checked proposal.")
+            }
+        }
         if [.applying, .applied, .undoing, .undone].contains(old.state)
             || (old.state == .failed && old.expectedAfterDigest != nil) {
             guard old.proposedDigest == new.proposedDigest, old.expectedAfterDigest == new.expectedAfterDigest,
@@ -273,6 +286,16 @@ final class DocumentWorkJournal: ObservableObject {
                 throw DocumentWorkJournalError.invalid("The native control decision does not match this dispatched document work.")
             }
         }
+        if let restoration = record.urlBoundaryRestoration {
+            guard restoration.isValid, record.preserveNumbersAndLinks, record.provider == AssistantProvider.qwen.rawValue,
+                  restoration.targetID == record.targetID, restoration.sourceDigest == record.sourceDigest,
+                  restoration.restoredReplacementDigest == record.proposedDigest,
+                  record.expectedAfterDigest != nil, record.state != .proposing,
+                  record.checks.allSatisfy(\.passed),
+                  record.checks.first(where: { $0.id == "links" })?.passed == true else {
+                throw DocumentWorkJournalError.invalid("Native URL restoration must match the checked target and proposal.")
+            }
+        }
         if record.procedureUse != nil,
            [.undoing, .undone].contains(record.state) || record.feedback.map({ $0.verdict != .helpful }) == true {
             guard record.procedureUseRejected == true else {
@@ -321,9 +344,13 @@ final class DocumentWorkJournal: ObservableObject {
         let fields: Set<String> = ["id", "requestID", "provider", "targetID", "sourceDigest", "sourceRevision",
             "selectionStart", "selectionLength", "mustBeShorter", "preserveNumbersAndLinks", "createdAt", "updatedAt",
             "state", "proposedDigest", "expectedAfterDigest", "actualAfterDigest", "afterRevision", "checks", "detail",
-            "learning", "feedback", "feedbackUsageSyncedID", "procedureUse", "procedureUseRejected", "q2eDecision"]
+            "learning", "feedback", "feedbackUsageSyncedID", "procedureUse", "procedureUseRejected", "q2eDecision", "urlBoundaryRestoration"]
         guard rows.allSatisfy({ row in
             guard Set(row.keys).isSubset(of: fields), let checks = row["checks"] as? [[String: Any]] else { return false }
+            if let restoration = row["urlBoundaryRestoration"] {
+                guard let object = restoration as? [String: Any], Set(object.keys) == ["algorithm", "targetID", "sourceDigest",
+                    "originalReplacementDigest", "restoredReplacementDigest", "restoredBoundaryCount", "separatorUTF8Length"] else { return false }
+            }
             return checks.allSatisfy { Set($0.keys) == ["id", "title", "passed"] }
         }) else { throw DocumentWorkJournalError.unreadable }
         let archive = try JSONDecoder().decode(Archive.self, from: data)

@@ -44,12 +44,20 @@ def main():
     parser.add_argument("--cmake", type=Path)
     parser.add_argument("--fetch", action="store_true")
     parser.add_argument("--bootstrap-cmake", action="store_true")
+    parser.add_argument("--qwen35-mrope-compat", action="store_true",
+                        help="Opt in to the hash-pinned Qwen3.5 three-section loader patch with a distinct backend identity")
+    parser.add_argument("--qwen35-text-compat", action="store_true",
+                        help="Opt in to the exact-blob Ollama Qwen3.5 base-text adapter")
     args = parser.parse_args()
+    if args.qwen35_mrope_compat and args.qwen35_text_compat:
+        parser.error("Choose exactly one compatibility adapter")
     if sys.platform != "darwin" or platform.machine() != "arm64":
         raise SystemExit("This recipe supports native macOS arm64 only; no translation fallback.")
     output = args.output.resolve()
     if not output.is_relative_to(REPO / "output"):
         raise SystemExit("Build output must be under this checkout's ignored output/ directory.")
+    if (args.qwen35_mrope_compat or args.qwen35_text_compat) and (output / "runtime").exists():
+        raise SystemExit("Compatibility builds need a new output directory; preserve existing sealed runtimes.")
     downloads = output / "downloads"
     downloads.mkdir(parents=True, exist_ok=True)
     archive = downloads / "llama.cpp-161755f29.tar.gz"
@@ -73,6 +81,18 @@ def main():
             if not member.name or not (source / member.name).resolve().is_relative_to(source):
                 raise SystemExit("Unsafe archive path.")
             tar.extract(member, source, filter="data")
+    compatibility_patch = None
+    backend_revision = "llama.cpp:161755f29"
+    if args.qwen35_mrope_compat:
+        import loader_compat
+        compatibility_patch = loader_compat.apply(source)
+        backend_revision = loader_compat.BACKEND
+    model_compile_flags = []
+    if args.qwen35_text_compat:
+        import text_loader_compat
+        compatibility_patch = text_loader_compat.apply(source)
+        backend_revision = text_loader_compat.BACKEND
+        model_compile_flags = ['-DARCHI_QWEN35_BLOB="' + text_loader_compat.MODEL_BLOB + '"']
     cmake = args.cmake or output / "build-tools/cmake/data/bin/cmake"
     if not cmake.exists():
         system_cmake = shutil.which("cmake")
@@ -107,6 +127,8 @@ def main():
         run("/usr/bin/codesign", "--force", "--sign", "-", target)
     worker = runtime / "archi-gguf-shadow"
     run("xcrun", "clang++", "-std=c++17", "-O2", "-arch", "arm64", "-Wno-deprecated-declarations",
+        '-DARCHI_GGUF_BACKEND="' + backend_revision + '"',
+        *model_compile_flags,
         HERE / "worker.cpp", "-I", source / "include", "-I", source / "ggml/include",
         "-I", source / "vendor/nlohmann", "-L", build / "bin", "-Wl,-rpath,@loader_path",
         "-lllama", "-lggml", "-lggml-base", "-o", worker)
@@ -115,16 +137,21 @@ def main():
     shutil.copyfile(HERE / "JSON_LICENSE.MIT", runtime / "JSON_LICENSE.MIT")
     upstream_files = ["include/llama.h", "ggml/include/ggml.h", "ggml/include/ggml-cpu.h",
                       "ggml/include/ggml-backend.h", "ggml/include/ggml-opt.h", "ggml/include/gguf.h",
-                      "ggml/include/ggml-alloc.h", "src/models/qwen3.cpp", "src/models/qwen35.cpp", "vendor/nlohmann/json.hpp"]
+                      "ggml/include/ggml-alloc.h", "src/models/qwen3.cpp", "src/models/qwen35.cpp", "src/llama-model-loader.cpp", "vendor/nlohmann/json.hpp"]
     manifest = {
-        "schema": "archi-gguf-worker-build/v1", "backend_revision": "llama.cpp:161755f29",
+        "schema": "archi-gguf-worker-build/v1", "backend_revision": backend_revision,
         "upstream_revision": REVISION, "source_archive_url": ARCHIVE_URL,
         "source_archive_sha256": ARCHIVE_SHA256, "architecture": "arm64", "execution": "cpu",
         "mode": "shadow", "research_modes": ["acquire-calibration", "validate-calibration"],
         "shadow_token_rules": ["last", "prompt-last"],
         "model_loaded": False, "inference_executed": False,
         "worker_source_sha256": digest(HERE / "worker.cpp"), "recipe_sha256": digest(Path(__file__)),
-        "upstream_file_sha256": {path: digest(source / path) for path in upstream_files},
+        "compatibility_patch": compatibility_patch,
+        "upstream_file_sha256": {
+            path: (compatibility_patch["upstream_sha256"]
+                   if compatibility_patch and path == compatibility_patch["target"] else digest(source / path))
+            for path in upstream_files},
+        "compiled_source_file_sha256": {path: digest(source / path) for path in upstream_files},
         "cmake_flags": flags,
         "runtime_sha256": {path.name: digest(path) for path in sorted(runtime.iterdir()) if path.name != "build-manifest.json" and path.is_file()},
         "compiler": run("xcrun", "clang++", "--version", capture_output=True, text=True).stdout.strip(),

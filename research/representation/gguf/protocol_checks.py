@@ -16,14 +16,14 @@ def sha(value):
     return hashlib.sha256(value.encode()).hexdigest()
 
 
-def request():
+def request(backend="llama.cpp:161755f29"):
     template = ("<|im_start|>system\n{{system}}<|im_end|>\n<|im_start|>user\n{{input}}"
                 "\n\nReturn exactly one JSON object matching this schema:\n{{schema}}"
                 "<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n")
     basis = {
         "namespace": "synthetic-protocol-only", "model_digest": "1" * 64,
         "model_blob_digest": "2" * 64, "tokenizer_digest": "2" * 64,
-        "template_digest": sha(template), "backend_revision": "llama.cpp:161755f29", "precision": "Q4_K_M",
+        "template_digest": sha(template), "backend_revision": backend, "precision": "Q4_K_M",
         "basis_digest": "4" * 64, "reader_digest": "5" * 64, "calibration_digest": "6" * 64,
         "layer": "l_out-0", "names": ["synthetic-protocol-only"], "directions": [[1, 0]],
         "center": [0, 0], "score_offset": [0], "score_scale": [1],
@@ -59,8 +59,18 @@ def check(worker, value, accepted):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("worker", type=Path)
+    parser.add_argument("--backend", default="llama.cpp:161755f29")
+    parser.add_argument("--exact-qwen35-blob", action="store_true")
     args = parser.parse_args()
-    fixture = request()
+    fixture = request(args.backend)
+    if args.exact_qwen35_blob:
+        from text_loader_compat import MODEL_BLOB
+        fixture["model_name"] = "qwen3.5:9b"
+        fixture["model_blob_digest"] = MODEL_BLOB
+        fixture["basis"]["model_blob_digest"] = MODEL_BLOB
+        fixture["basis"]["tokenizer_digest"] = MODEL_BLOB
+        fixture["basis_payload"] = json.dumps(fixture["basis"], sort_keys=True, separators=(",", ":"))
+        fixture["basis_payload_digest"] = sha(fixture["basis_payload"])
     check(args.worker, fixture, True)
     cases = [
         ("mode", "bounded"), ("prompt", "unbound replacement"), ("input_digest", "0" * 64),
@@ -83,7 +93,13 @@ def main():
     data = json.dumps(fixture)
     check(args.worker, data[:-1] + ',"mode":"shadow"}', False)
     check(args.worker, '[', False)
-    print(json.dumps({"checks_passed": 14, "kind": "protocol-only", "model_loaded": False, "inference_executed": False}))
+    changed = copy.deepcopy(fixture)
+    changed["basis"]["backend_revision"] = args.backend + "+different"
+    changed["basis_payload"] = json.dumps(changed["basis"], sort_keys=True, separators=(",", ":"))
+    changed["basis_payload_digest"] = sha(changed["basis_payload"])
+    check(args.worker, changed, False)
+    print(json.dumps({"checks_passed": 15, "kind": "protocol-only", "backend_revision": args.backend,
+                      "model_loaded": False, "inference_executed": False}))
 
 
 if __name__ == "__main__":

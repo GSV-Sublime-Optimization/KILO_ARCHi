@@ -1428,8 +1428,13 @@ final class CompanionStore: ObservableObject {
         guard var record = documentRecord(requestID: requestID, provider: provider), record.state == .proposing else {
             throw WorkingCopyRevisionError.staleTarget
         }
-        let checked = documentVerification(proposal)
-        record.proposedDigest = WorkingCopyEditReceipt.digest(proposal.replacement)
+        let originalChecks = documentVerification(proposal)
+        let restoration = provider == .qwen && originalChecks.checks.filter({ !$0.passed }).map(\.id) == ["links"]
+            ? DocumentURLBoundaryPreservation.restore(proposal, text: sharedText, sourceRevision: sourceRevision) : nil
+        let effective = restoration?.proposal ?? proposal
+        let checked = documentVerification(effective)
+        record.proposedDigest = WorkingCopyEditReceipt.digest(effective.replacement)
+        record.urlBoundaryRestoration = restoration?.restoration
         record.expectedAfterDigest = checked.predictedDigest
         record.checks = checked.checks.map { .init(id: $0.id, title: $0.title, passed: $0.passed) }
         if let receipt = compareResults[provider]?.receipt {
@@ -1441,9 +1446,16 @@ final class CompanionStore: ObservableObject {
         }
         record.state = checked.canApply ? .ready : .blocked
         record.updatedAt = wallClock()
-        record.detail = checked.canApply ? "Mechanical checks passed. Review meaning and facts before Apply."
+        record.detail = checked.canApply ? (restoration == nil
+            ? "Mechanical checks passed. Review meaning and facts before Apply."
+            : "ARCHi restored the source's spacing after one link. Mechanical checks passed; review before Apply.")
             : "No edit applied. The proposal needs clarification or fails a requested mechanical constraint."
         try documentWork.save(record)
+        if let restoration {
+            compareResults[provider]?.originalRevision = proposal
+            compareResults[provider]?.urlBoundaryRestoration = restoration.restoration
+            compareResults[provider]?.revision = effective
+        }
     }
 
     func canReviewDocument(_ record: DocumentWorkRecord) -> Bool {
@@ -2668,8 +2680,9 @@ final class CompanionStore: ObservableObject {
         guard !isShuttingDown, enabled != representationMeasurementsEnabled else { return }
         if enabled {
             guard representationReader?.modelName == qwenModel,
+                  representationReader?.hasLimitedShadowReport == true,
                   GGUFRepresentationClient.bundledWorkerAvailable else {
-                representationNotice = "A matching reader and the bundled local measurement runtime are required."
+                representationNotice = "A matching reader with a complete passing calibration report and the bundled local measurement runtime are required. Legacy readers can be inspected but cannot enable measurements."
                 return
             }
         }

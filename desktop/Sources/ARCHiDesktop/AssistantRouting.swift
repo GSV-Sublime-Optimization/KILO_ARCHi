@@ -84,5 +84,12 @@ struct AssistantLaneResult: Equatable, Sendable {
     var status: String
     var state: AssistantLaneState
     var receipt: AssistantLaneReceipt?
-    var revision: PassageRevisionProposal? = nil
+    var revision: PassageRevisionProposal? = nil {
+        didSet {
+            if revision == nil { originalRevision = nil; urlBoundaryRestoration = nil }
+        }
+    }
+    /// Present only when native separator restoration produced the preview.
+    var originalRevision: PassageRevisionProposal? = nil
+    var urlBoundaryRestoration: DocumentURLBoundaryRestoration? = nil
 }

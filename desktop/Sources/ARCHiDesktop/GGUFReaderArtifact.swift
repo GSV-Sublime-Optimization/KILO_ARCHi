@@ -93,8 +93,16 @@ struct GGUFReaderArtifact: Sendable {
         let tokenRule: String
         if version == schemaVersion {
             guard value.tokenRule == "prompt-last", value.measurementScope == promptFinalMeasurementScope,
+                  value.namespace == "hampton.experimental.synthetic-record-field-support.v1",
+                  value.readerName == "synthetic-record-field-support",
                   let report = value.calibrationReport else { throw GGUFReaderArtifactError.invalidCalibrationReport }
-            summary = try calibrationSummary(report, digest: value.calibrationDigest)
+            summary = try GGUFReaderQualification.validate(report,
+                digest: value.calibrationDigest, modelName: value.modelName,
+                modelDigest: value.modelDigest, modelBlobDigest: value.modelBlobDigest,
+                templateDigest: value.templateDigest, backendRevision: value.backendRevision,
+                layer: value.layer, readerDigest: value.readerDigest,
+                directions: value.directions, center: value.center,
+                scoreOffset: value.scoreOffset, scoreScale: value.scoreScale)
             tokenRule = "prompt-last"
         } else {
             summary = nil
@@ -142,29 +150,6 @@ struct GGUFReaderArtifact: Sendable {
 
     static func digest(_ bytes: Data) -> String {
         SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined()
-    }
-
-    private static func calibrationSummary(_ report: String, digest expectedDigest: String) throws -> GGUFReaderCalibrationSummary {
-        let bytes = Data(report.utf8)
-        guard !bytes.isEmpty, bytes.count <= 64 * 1024, digest(bytes) == expectedDigest,
-              hasUniqueKeys(bytes, maximumDepth: 16),
-              (try? JSONSerialization.jsonObject(with: bytes)) is [String: Any],
-              let value = try? JSONDecoder().decode(CalibrationReport.self, from: bytes),
-              value.schema == "archi-gguf-reader-calibration/v1",
-              value.status == "limited-shadow-pass",
-              value.measurementScope == promptFinalMeasurementScope,
-              value.tokenRule == "prompt-last", value.prefillOnly != false,
-              (1...24).contains(value.fitCount), (1...24).contains(value.calibrationCount),
-              (8...24).contains(value.holdoutCount),
-              value.fitCount + value.calibrationCount + value.holdoutCount <= 24,
-              value.holdoutCorrect == value.holdoutCount,
-              value.holdoutAccuracy.isFinite, (0...1).contains(value.holdoutAccuracy),
-              abs(value.holdoutAccuracy - Double(value.holdoutCorrect) / Double(value.holdoutCount)) <= 1e-9 else {
-            throw GGUFReaderArtifactError.invalidCalibrationReport
-        }
-        return GGUFReaderCalibrationSummary(fitCount: value.fitCount, calibrationCount: value.calibrationCount,
-            holdoutCount: value.holdoutCount, holdoutCorrect: value.holdoutCorrect,
-            holdoutAccuracy: value.holdoutAccuracy)
     }
 
     /// Foundation otherwise accepts duplicate object keys. Reject duplicate
@@ -231,18 +216,6 @@ struct GGUFReaderArtifact: Sendable {
         let calibrationReport: String?
     }
 
-    private struct CalibrationReport: Decodable {
-        let schema: String
-        let status: String
-        let measurementScope: String
-        let tokenRule: String
-        let prefillOnly: Bool?
-        let fitCount: Int
-        let calibrationCount: Int
-        let holdoutCount: Int
-        let holdoutCorrect: Int
-        let holdoutAccuracy: Double
-    }
 }
 
 struct GGUFReaderCalibrationSummary: Sendable {

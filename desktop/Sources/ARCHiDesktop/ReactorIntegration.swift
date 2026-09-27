@@ -57,6 +57,7 @@ struct LiveCompanionPresence: View {
                     treatment: store.preferences.visualTreatment, recipe: store.presentationRecipe,
                     naturalVariation: store.presentationNaturalVariation, equipment: store.preferences.equipment,
                     lightExpression: store.kinLightExpression, seedColor: store.preferences.seedColor)
+                    .environment(\.liminalPointProgress, role == .cursor ? LiminalV008Runtime.orbProgress : store.preferences.liminalPointProgress)
             }
         }.frame(width: size, height: size)
         .accessibilityValue(store.activeQiMon == nil ? "" : store.kinLightExpression.label)

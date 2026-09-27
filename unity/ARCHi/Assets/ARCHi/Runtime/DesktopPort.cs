@@ -118,6 +118,7 @@ namespace ARCHi.Port
 
         private void OnDisable()
         {
+            if (nativePoints != null) { Destroy(nativePoints.gameObject); nativePoints = null; }
             if (arena != null) Destroy(arena.gameObject);
             arena = null;
             cueActive = false;
@@ -388,9 +389,11 @@ namespace ARCHi.Port
             arena = area.AddComponent<ArenaWorkspace>();
             arena.Initialize(root, quiet || reduceMotion, () => {
                 arena = null;
+                nativePoints?.UseRoom();
                 if (nativeStage != null) nativeStage.gameObject.SetActive(true);
             });
             if (NativeBound) {
+                arena.SetPointRenderer(nativePoints);
                 arena.ApplyNativePresentation(nativeSnapshot, NativeStaticMotion);
                 nativeBridge.ObserveWorldActions(arena);
                 if (nativeStage != null) nativeStage.gameObject.SetActive(false);

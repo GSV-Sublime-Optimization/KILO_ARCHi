@@ -146,6 +146,18 @@ if [[ -n "$UNITY_PLAYER" ]]; then
     [[ "$(/usr/libexec/PlistBuddy -c 'Print :ARCHiNativePresentationProtocol' "$UNITY_PLAYER/Contents/Info.plist")" == "1" ]] || exit 2
     codesign --verify --deep --strict "$UNITY_PLAYER"
     cp -R "$UNITY_PLAYER" "$BUNDLE_DIR/Contents/Resources/UnityCompanion.app"
+    # Point assets are optional and must already be source/render qualified.
+    # A new native build preserves an existing qualified package by default.
+    LIMINAL_PACKAGE="${ARCHI_LIMINAL_PACKAGE:-/Applications/ARCHi.app/Contents/Resources/LiminalV008}"
+    LIMINAL_QUALIFICATION="${ARCHI_LIMINAL_QUALIFICATION:-/Applications/ARCHi.app/Contents/Resources/LiminalV008-qualification.json}"
+    if [[ -d "$LIMINAL_PACKAGE" ]]; then
+        [[ "$(/usr/libexec/PlistBuddy -c 'Print :ARCHiLiminalPointAssetVersion' "$UNITY_PLAYER/Contents/Info.plist")" == "1" ]] || { echo "The selected helper cannot render the qualified Liminal package." >&2; exit 2; }
+        python3 "$REPO_ROOT/script/package_liminal_v008.py" "$LIMINAL_PACKAGE" "$LIMINAL_QUALIFICATION" \
+            "$BUNDLE_DIR/Contents/Resources" "$BUNDLE_DIR/Contents/Resources/UnityCompanion.app/Contents/Resources/Data/StreamingAssets"
+    elif [[ -n "${ARCHI_LIMINAL_PACKAGE:-}" ]]; then
+        echo "The explicitly selected Liminal v008 package is missing. Nothing was installed." >&2
+        exit 2
+    fi
     # Unity owns a rendering window inside ARCHi's session, not a second Dock
     # product. Only adapt and re-sign this generated copy; preserve the source.
     plutil -replace LSUIElement -bool YES "$BUNDLE_DIR/Contents/Resources/UnityCompanion.app/Contents/Info.plist"

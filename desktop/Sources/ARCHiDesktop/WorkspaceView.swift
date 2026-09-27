@@ -477,6 +477,7 @@ private struct AppearanceWorkspace: View {
             if store.keptQiMon?.character == .kin {
                 ProtoAppearanceCard(store: store)
             }
+            LiminalV008AppearanceCard(store: store)
             CompanionWardrobeCard(store: store)
             if store.activeQiMon != nil {
                 DisclosureGroup("Light & sound") { personalLightAbilities.padding(.top, 14) }
@@ -520,7 +521,7 @@ private struct AppearanceWorkspace: View {
                 if store.canChooseStartingForm && store.presentationForm == .companion && store.presentationFamily == nil {
                     SettingsRow(title: "Companion finish", detail: "Choose the original, soft Pearl or long-eared aqua Proto.", icon: "paintpalette") {
                         Picker("Companion finish", selection: $store.preferences.visualTreatment) {
-                            ForEach(CompanionVisualTreatment.allCases) { treatment in
+                            ForEach(CompanionVisualTreatment.allCases.filter { $0 != .liminalV008 }) { treatment in
                                 Text(treatment.rawValue).tag(treatment)
                             }
                         }

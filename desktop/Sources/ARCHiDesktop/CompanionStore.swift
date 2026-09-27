@@ -47,6 +47,7 @@ struct CompanionPreferences: Codable, Equatable {
     var seedAppearance: CompanionSeedAppearance = .kinParticles
     var seedColor: CompanionSeedColor = .original
     var visualTreatment: CompanionVisualTreatment = .original
+    var liminalPointProgress: Double = 107.0 / 119.0
     var equipment: CompanionEquipment = .empty
     var tone = "Calm"
     var replyLength = 0.35
@@ -58,7 +59,8 @@ struct CompanionPreferences: Codable, Equatable {
     var musicalVolume = 0.35
 
     var isValid: Bool {
-        equipment.isValid && size.isFinite && (0.65...1.6).contains(size)
+        liminalPointProgress.isFinite && (0...1).contains(liminalPointProgress)
+        && equipment.isValid && size.isFinite && (0.65...1.6).contains(size)
         && replyLength.isFinite && (0...1).contains(replyLength)
         && musicalVolume.isFinite && (0...1).contains(musicalVolume)
         && ["Calm", "Direct", "Playful", "Warm"].contains(tone)
@@ -75,6 +77,7 @@ extension CompanionPreferences {
         seedAppearance = try values.decodeIfPresent(CompanionSeedAppearance.self, forKey: .seedAppearance) ?? .kinParticles
         seedColor = try values.decodeIfPresent(CompanionSeedColor.self, forKey: .seedColor) ?? .original
         visualTreatment = try values.decodeIfPresent(CompanionVisualTreatment.self, forKey: .visualTreatment) ?? .original
+        liminalPointProgress = try values.decodeIfPresent(Double.self, forKey: .liminalPointProgress) ?? 107.0 / 119.0
         equipment = try values.decodeIfPresent(CompanionEquipment.self, forKey: .equipment) ?? .empty
         tone = try values.decode(String.self, forKey: .tone)
         replyLength = try values.decode(Double.self, forKey: .replyLength)
@@ -808,6 +811,18 @@ final class CompanionStore: ObservableObject {
         open(.nodeLab)
         workspaceRoutingNotice = node == nil ? "That ARC result is unavailable in this profile's Activity map. No replacement was selected." : nil
         return node != nil
+    }
+
+    /// Resolve the current record again at interaction time. This opens the
+    /// existing inspector; it does not run the target action or admit memory.
+    @discardableResult
+    func inspectKnowledgeParticle(nodeID: String, graphDigest: String) -> Bool {
+        let graph = companionGraphSnapshot()
+        guard LiminalKnowledgeBindings.digest(graph) == graphDigest,
+              graph.nodes.contains(where: { $0.id == nodeID }) else { return false }
+        selectedGraphNodeID = nodeID
+        open(.nodeLab)
+        return true
     }
 
     func canOpenARCEvidenceForUsage(taskID: String) -> Bool {

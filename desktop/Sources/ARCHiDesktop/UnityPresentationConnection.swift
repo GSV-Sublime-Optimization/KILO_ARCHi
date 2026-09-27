@@ -41,6 +41,8 @@ struct UnityPresentationSnapshot: Codable, Equatable {
     var destinationRevision: Int? = nil
     var seedAppearance: String? = nil
     var seedColor: String? = nil
+    var pointPresentation: LiminalPointPresentation? = nil
+    var pointKnowledgeSHA256: String? = nil
 
     func hasSamePresentation(as other: Self) -> Bool {
         sessionID == other.sessionID && originDigest == other.originDigest && body == other.body
@@ -52,6 +54,7 @@ struct UnityPresentationSnapshot: Codable, Equatable {
             && staffCrown == other.staffCrown && active == other.active
             && sessionKind == other.sessionKind && destination == other.destination
             && destinationRevision == other.destinationRevision && seedAppearance == other.seedAppearance && seedColor == other.seedColor
+            && pointPresentation == other.pointPresentation && pointKnowledgeSHA256 == other.pointKnowledgeSHA256
     }
 
     @MainActor static func capture(store: CompanionStore, sessionID: UUID, revision: Int,
@@ -123,6 +126,9 @@ struct UnityPresentationAcknowledgment: Codable {
     var seedColor: String? = nil
     var seedAssetSHA256: String? = nil
     var bodyAssetSHA256: String? = nil
+    var pointAssetVersion: Int? = nil
+    var pointManifestSHA256: String? = nil
+    var pointKnowledgeSHA256: String? = nil
 
     func matches(_ snapshot: UnityPresentationSnapshot, now: Date) -> Bool {
         schemaVersion == 1 && sessionID == snapshot.sessionID && originDigest == snapshot.originDigest
@@ -139,6 +145,9 @@ struct UnityPresentationAcknowledgment: Codable {
             && (destinationRevision ?? 0) == (snapshot.destinationRevision ?? 0)
             && ((snapshot.sessionKind == nil && snapshot.destination == nil && snapshot.destinationRevision == nil) || currentArea != nil)
             && (currentArea == nil || UnityPresentationDestination(rawValue: currentArea!) != nil)
+            && (snapshot.pointPresentation == nil || (pointAssetVersion == 1
+                && pointManifestSHA256 == snapshot.pointPresentation?.manifestSHA256
+                && pointKnowledgeSHA256 == snapshot.pointKnowledgeSHA256))
             && renderer == "unity-companion" && updatedAtUnix.isFinite
             && now.timeIntervalSince1970 - updatedAtUnix >= -5
             && now.timeIntervalSince1970 - updatedAtUnix <= 5
@@ -174,6 +183,11 @@ struct UnityPresentationAcknowledgment: Codable {
     @Published private(set) var arenaAdviceTracking: ArenaAdviceTracking?
     private var worldOutcomeHistory = WorldOutcomeHistory()
     private var lastWorldOutcomeSnapshot: WorldOutcomeSnapshot?
+    private var pointBindings: LiminalKnowledgeBindings?
+    private var pointSidecar: LiminalKnowledgeBindings.Sidecar?
+    private var pointSidecarDigest: String?
+    private var lastPointSelectionSequence = 0
+
 
     /// A frozen report of checked observations, not a claim that Unity is still
     /// connected. The observation timestamp and coverage travel with the report.
@@ -290,6 +304,11 @@ struct UnityPresentationAcknowledgment: Codable {
     static func supportsPersonalSeeds(_ url: URL) -> Bool {
         supportsSeedAppearances(url)
             && (Bundle(url: url)?.object(forInfoDictionaryKey: "ARCHiPersonalSeedVersion") as? NSNumber)?.intValue == 1
+    }
+
+    static func supportsPointAssets(_ url: URL) -> Bool {
+        isCompatiblePlayer(url)
+            && (Bundle(url: url)?.object(forInfoDictionaryKey: "ARCHiLiminalPointAssetVersion") as? NSNumber)?.intValue == 1
     }
 
     func choosePlayer() {
@@ -422,6 +441,7 @@ struct UnityPresentationAcknowledgment: Codable {
         destinationRevision = routes ? 1 : nil
         self.destination = destination
         lastSnapshot = nil; previousSnapshot = nil; hasRenderAcknowledgment = false; suspended = false
+        pointBindings = nil; pointSidecar = nil; pointSidecarDigest = nil; lastPointSelectionSequence = 0
         worldOutcomeHistory.reset(); lastWorldOutcomeSnapshot = nil; worldOutcomes = []; missingWorldOutcomes = 0
         arenaAdviceTracking = nil
         worldOutcomeStatus = "Waiting for Arena outcome support."
@@ -484,17 +504,43 @@ struct UnityPresentationAcknowledgment: Codable {
 
     func publish(store: CompanionStore, now: Date = Date(), systemReduceMotion: Bool? = nil) throws {
         guard isSharing, let snapshotURL, store.activeQiMon?.originDigest == originDigest,
-              let snapshot = UnityPresentationSnapshot.capture(store: store, sessionID: sessionID,
+              var snapshot = UnityPresentationSnapshot.capture(store: store, sessionID: sessionID,
                     revision: revision + 1, active: !suspended, now: now,
                     systemReduceMotion: systemReduceMotion ?? NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
                     destination: requestedDestination, destinationRevision: destinationRevision, localPractice: isLocalPractice)
         else { throw PresentationError.noCompanion }
+        if LiminalV008Runtime.applies(form: store.presentationForm, family: store.presentationFamily, treatment: store.preferences.visualTreatment),
+           store.preferences.seedAppearance == .hamptonLiminal,
+           let selectedPlayer, Self.supportsPointAssets(selectedPlayer),
+           let asset = LiminalV008Runtime.asset {
+            if pointBindings == nil {
+                pointBindings = try LiminalKnowledgeBindings(manifestSHA256: asset.manifestSHA256, lowDetailIDs: asset.lowDetailIDs)
+            }
+            let sidecar = try pointBindings!.project(store.companionGraphSnapshot(at: now),
+                sessionID: snapshot.sessionID, originDigest: snapshot.originDigest)
+            let bytes = try sidecar.data()
+            let digest = LiminalKnowledgeBindings.sha256(bytes)
+            if digest != pointSidecarDigest {
+                let target = snapshotURL.appendingPathExtension("knowledge")
+                try bytes.write(to: target, options: .atomic)
+                try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: target.path)
+            }
+            pointSidecar = sidecar; pointSidecarDigest = digest
+            snapshot.pointPresentation = .init(schemaVersion: 1, assetID: "liminal-v008",
+                manifestSHA256: asset.manifestSHA256, progress: store.preferences.liminalPointProgress,
+                motion: snapshot.reduceMotion || snapshot.quiet ? "reduced" : "sampled",
+                color: store.preferences.seedColor.rawValue, visible: snapshot.visible && snapshot.active)
+            snapshot.pointKnowledgeSHA256 = digest
+        } else {
+            pointSidecar = nil; pointSidecarDigest = nil
+        }
         try Self.write(snapshot, to: snapshotURL)
         previousSnapshot = lastSnapshot
         lastSnapshot = snapshot; revision = snapshot.revision
         // Compare acknowledgments with the newly published presentation. An old
         // body's ACK must not label a new body as rendered, even for one tick.
         readAcknowledgment(now: now)
+        consumeKnowledgeSelection(store: store, now: now)
         if suspended { status = "Unity presentation paused." }
         else if hasRenderAcknowledgment {
             status = isLocalPractice ? "Unity Arena · local roster practice. Nothing is saved to a companion."
@@ -527,6 +573,21 @@ struct UnityPresentationAcknowledgment: Codable {
             return
         }
         readWorldOutcomes(now: now)
+    }
+
+    private func consumeKnowledgeSelection(store: CompanionStore, now: Date) {
+        guard isSharing, hasRenderAcknowledgment, !suspended,
+              let snapshotURL, let sidecar = pointSidecar, let latest = lastSnapshot,
+              latest.visible && latest.active,
+              let data = try? Self.readAcknowledgmentData(at: snapshotURL.appendingPathExtension("selection")),
+              let selection = try? JSONDecoder().decode(LiminalKnowledgeSelection.self, from: data) else { return }
+        let revisions = Set([latest, previousSnapshot].compactMap { $0 }
+            .filter { $0.hasSamePresentation(as: latest) }.map(\.revision))
+        let graph = store.companionGraphSnapshot(at: now)
+        guard let node = selection.resolves(in: sidecar, graph: graph, revisions: revisions,
+            after: lastPointSelectionSequence, now: now) else { return }
+        lastPointSelectionSequence = selection.sequence
+        _ = store.inspectKnowledgeParticle(nodeID: node.id, graphDigest: sidecar.graphDigest)
     }
 
     private func readWorldOutcomes(now: Date) {
@@ -586,6 +647,7 @@ struct UnityPresentationAcknowledgment: Codable {
             try? Self.write(retired, to: snapshotURL)
         }
         isSharing = false; hasRenderAcknowledgment = false; isOpening = false
+        pointBindings = nil; pointSidecar = nil; pointSidecarDigest = nil; lastPointSelectionSequence = 0
         worldOutcomeHistory.reset(); lastWorldOutcomeSnapshot = nil; worldOutcomes = []; missingWorldOutcomes = 0
         arenaAdviceTracking = nil
         worldOutcomeStatus = "Session ended. Practice observations were cleared."

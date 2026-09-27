@@ -6,6 +6,7 @@ enum CompanionVisualTreatment: String, CaseIterable, Identifiable, Codable {
     case original = "Original"
     case pearlStudy = "Pearl study"
     case protoStudy = "Proto expression"
+    case liminalV008 = "Liminal v008"
     var id: String { rawValue }
 }
 
@@ -152,6 +153,7 @@ enum CompanionVisualAsset {
                                   recipe: CompanionAppearanceRecipe?, naturalVariation: CompanionNaturalVariation?) -> String {
         if family == nil && form == .velaSeed { return "Vela · Opal Seed" }
         if family == nil && form == .velaLantern { return "Vela · Lantern Wing" }
+        if LiminalV008Runtime.applies(form: form, family: family, treatment: treatment) { return "Hampton · Liminal v008 particles" }
         if family == nil && form == .hamptonSeed { return "Hampton · Liminal Seed" }
         if family == nil && form == .corePearl { return "ARCHi · Ball of Light" }
         if family == nil && form == .particleSeed { return "KIN · Particle Seed look" }
@@ -184,6 +186,9 @@ enum CompanionVisualAsset {
                              recipe: CompanionAppearanceRecipe? = nil, naturalVariation: CompanionNaturalVariation? = nil,
                              equipment: CompanionEquipment = .empty,
                              assetAvailable: Bool? = nil, seedColor: CompanionSeedColor = .original) -> String {
+        if LiminalV008Runtime.applies(form: form, family: family, treatment: treatment), let asset = LiminalV008Runtime.asset {
+            return "liminal-v008-" + LiminalKnowledgeBindings.sha256(Data((asset.manifestSHA256 + seedColor.rawValue + equipment.canonicalIdentity).utf8))
+        }
         let original = baseAppearanceID(form: form, family: family, treatment: treatment, recipe: recipe,
             naturalVariation: naturalVariation, assetAvailable: assetAvailable)
         let base = SeedColorRendering.identity(base: original, form: form, family: family, color: seedColor)

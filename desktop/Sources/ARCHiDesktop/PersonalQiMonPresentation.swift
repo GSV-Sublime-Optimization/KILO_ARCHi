@@ -52,6 +52,11 @@ extension CompanionStore {
     }
 
     func unityPresentationUnavailableReason(for player: URL?) -> String? {
+        if LiminalV008Runtime.applies(form: presentationForm, family: presentationFamily,
+                                     treatment: preferences.visualTreatment),
+           player.map({ !UnityPresentationConnection.supportsPointAssets($0) }) ?? true {
+            return "Update the included Arena to bring Liminal’s v008 particles with you. Your current desktop appearance stays in place."
+        }
         if [.velaSeed, .velaLantern].contains(presentationForm)
             || [.velaSeed, .velaLantern].contains(cursorPresentationForm) {
             return "Vela is available on your desktop. The included Arena does not yet support this form. Choose another Seed or form to enter."

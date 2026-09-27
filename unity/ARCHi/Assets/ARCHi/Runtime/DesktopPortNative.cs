@@ -8,6 +8,8 @@ namespace ARCHi.Port
         private NativeEvolutionBridge nativeBridge;
         private NativePresentationSnapshot nativeSnapshot;
         private KinEvolutionStage nativeStage;
+        private LiminalParticleRenderer nativePoints;
+        public LiminalParticleRenderer PointRenderer => nativePoints;
         private string nativeAppearance = "kin";
         private Image nativeBodyImage;
         private NativeStaffDrawing nativeStaffDrawing;
@@ -56,6 +58,7 @@ namespace ARCHi.Port
             var nameLabel = root.Q<Label>("kin-greeting");
             if (nameLabel != null) nameLabel.text = local ? "A place to practice." : nativeSnapshot == null ? "Waiting for ARCHi." : "Hello, I’m " + nativeSnapshot.displayName + ".";
             if (local) {
+                nativePoints?.Suspend();
                 if (nativeStage != null) { nativeStage.gameObject.SetActive(false); Destroy(nativeStage.gameObject); nativeStage = null; }
                 if (explanation != null) explanation.text = "Choose a roster study inside Arena. It does not create a companion.";
                 var badge = root.Q<Image>("seed-cursor-image");
@@ -93,9 +96,28 @@ namespace ARCHi.Port
                 nativeBodyImage.style.right = 0;
                 nativeBodyImage.style.top = 0;
                 nativeBodyImage.style.bottom = 0;
+                nativeBodyImage.RegisterCallback<PointerDownEvent>(e => {
+                    if (nativePoints?.Inspection != true) return;
+                    var rect = nativeBodyImage.contentRect;
+                    float side = Mathf.Min(rect.width, rect.height);
+                    if (side <= 0) return;
+                    var local = e.localPosition;
+                    nativePoints.Pick(new Vector2((local.x - (rect.width - side) * .5f) / side,
+                        1 - (local.y - (rect.height - side) * .5f) / side));
+                    e.StopPropagation();
+                });
                 bodyImage.parent.Insert(bodyImage.parent.IndexOf(bodyImage) + 1, nativeBodyImage);
             }
             nativeBodyImage.image = nativeStage?.Texture;
+            if (nativeSnapshot?.pointPresentation != null) {
+                if (nativePoints == null) {
+                    var points = new GameObject("Liminal v008 point presentation");
+                    nativePoints = points.AddComponent<LiminalParticleRenderer>();
+                    nativePoints.Initialize(transform);
+                    nativePoints.Selected += (nodeID, pointID) => nativeBridge?.SelectPointKnowledge(nodeID, pointID);
+                }
+                nativePoints.Configure(nativeSnapshot, NativeStaticMotion);
+            } else nativePoints?.Configure(nativeSnapshot, true);
             if (nativeStaffDrawing == null)
             {
                 staff.Clear();
@@ -104,6 +126,10 @@ namespace ARCHi.Port
             }
             nativeStaffDrawing.SetRecipe(nativeSnapshot?.staffPalette, nativeSnapshot?.staffCrown);
             RefreshNativeVisuals();
+            var pointStatus = root?.Q<Label>("liminal-point-status");
+            if (pointStatus != null) pointStatus.text = nativePoints?.Status ?? "Point presentation unavailable.";
+            var inspect = root?.Q<Button>("liminal-inspect");
+            if (inspect != null) inspect.SetEnabled(nativePoints?.CanInspect == true);
         }
 
         public void ApplyNativePresentation(NativePresentationSnapshot value, bool fresh)
@@ -127,7 +153,7 @@ namespace ARCHi.Port
             ConfigureNativeView();
             RefreshAll();
             if (!NativeArenaAvailable) arena?.Close();
-            else if (arena != null) arena.ApplyNativePresentation(value, NativeStaticMotion);
+            else if (arena != null) { arena.SetPointRenderer(nativePoints); arena.ApplyNativePresentation(value, NativeStaticMotion); }
             if (value.destinationRevision > nativeDestinationRevision) {
                 nativeDestinationRevision = value.destinationRevision;
                 if (value.Destination == "arena") OpenArena(); else arena?.Close();
@@ -138,6 +164,7 @@ namespace ARCHi.Port
         public void SuspendNativePresentation(string reason)
         {
             nativeFresh = false;
+            nativePoints?.Suspend();
             arena?.Close();
             seedMotion.Apply(nativeSnapshot?.lightMode ?? "rest", true, Time.unscaledTimeAsDouble);
             nativeState = reason;
@@ -150,6 +177,7 @@ namespace ARCHi.Port
         private void StopNativeMotion()
         {
             nativeStopped = true;
+            nativePoints?.Freeze(true);
             seedMotion.Apply(nativeSnapshot?.lightMode ?? "rest", true, Time.unscaledTimeAsDouble);
             nativeStage?.Apply(firstLight, true, nativeSnapshot?.lightMode ?? "rest", false);
             if (arena != null && nativeSnapshot != null) arena.ApplyNativePresentation(nativeSnapshot, true);
@@ -159,6 +187,7 @@ namespace ARCHi.Port
         private void ResumeNativeMotion()
         {
             nativeStopped = false;
+            nativePoints?.Freeze(NativeStaticMotion);
             seedMotion.Apply(nativeSnapshot?.lightMode ?? "rest", NativeStaticMotion, Time.unscaledTimeAsDouble);
             if (nativeSnapshot != null) nativeStage?.Apply(firstLight, NativeStaticMotion, nativeSnapshot.lightMode, false);
             RefreshAll();
@@ -170,6 +199,10 @@ namespace ARCHi.Port
             if (!NativeBound || arena != null) return;
             nativeStage?.Tick(nativeSnapshot != null && nativeSnapshot.visible && (firstLight || nativeStage.Progress > 0));
             RefreshNativeVisuals();
+            var pointStatus = root?.Q<Label>("liminal-point-status");
+            if (pointStatus != null) pointStatus.text = nativePoints?.Status ?? "Point presentation unavailable.";
+            var inspect = root?.Q<Button>("liminal-inspect");
+            if (inspect != null) inspect.SetEnabled(nativePoints?.CanInspect == true);
         }
 
         private void RefreshNativeVisuals()
@@ -177,12 +210,17 @@ namespace ARCHi.Port
             if (!NativeBound || bodyImage == null) return;
             var visible = nativeSnapshot != null && nativeSnapshot.visible && !nativeSnapshot.LocalPractice;
             var progress = nativeStage == null ? 0 : nativeStage.Progress;
+            bool pointVisible = nativePoints?.Visible == true || nativePoints?.EndpointTexture != null;
             // The Seed endpoint and reference badge share the authored art and chosen palette.
             bodyImage.image = seedTexture;
             if (firstLight && nativeAppearance == "proto") bodyTitle.text = "First Light · Proto expression";
             bodyImage.style.rotate = new Rotate(new Angle((float)seedMotion.Sample(Time.unscaledTimeAsDouble).angle));
-            bodyImage.style.opacity = visible ? 1 - progress : 0;
-            if (nativeBodyImage != null) nativeBodyImage.style.opacity = visible ? progress : 0;
+            bodyImage.style.opacity = visible && !pointVisible ? 1 - progress : 0;
+            if (nativeBodyImage != null) {
+                nativeBodyImage.image = pointVisible ? (nativePoints.EndpointTexture != null ? (UnityEngine.Texture)nativePoints.EndpointTexture : nativePoints.Texture) : nativeStage?.Texture;
+                nativeBodyImage.style.opacity = visible ? (pointVisible ? 1 : progress) : 0;
+                nativeBodyImage.pickingMode = nativePoints?.Inspection == true ? PickingMode.Position : PickingMode.Ignore;
+            }
             if (nativeSnapshot?.LocalPractice == true) bodyTitle.text = "Local roster";
             staff.style.display = visible && equipped ? DisplayStyle.Flex : DisplayStyle.None;
             cueHalo.style.opacity = 0;
@@ -218,6 +256,16 @@ namespace ARCHi.Port
             card.Add(image);
             card.Add(Text((nativeAppearance == "proto" ? "Proto expression · desktop artwork" : "Current desktop artwork reference"), 10, Muted));
             card.Add(MakeButton(nativeStopped ? "Resume Unity motion" : "Pause Unity motion", () => { if (nativeStopped) ResumeNativeMotion(); else StopNativeMotion(); }, "native-pause-motion"));
+            if (nativeSnapshot?.pointPresentation != null) {
+                var state = Text(nativePoints?.Status ?? "Checking point presentation…", 11, Muted);
+                state.name = "liminal-point-status"; card.Add(state);
+                var inspect = MakeButton(nativePoints?.Inspection == true ? "Leave knowledge inspection" : "Inspect knowledge points", () => {
+                    nativePoints?.SetInspection(nativePoints?.Inspection != true);
+                    RefreshAll();
+                }, "liminal-inspect");
+                inspect.SetEnabled(nativePoints?.CanInspect == true); card.Add(inspect);
+                card.Add(Paragraph("Inspection opens an existing Activity map record. It does not create knowledge or change your companion.", 11));
+            }
             detail.Add(card);
         }
 

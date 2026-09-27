@@ -90,6 +90,9 @@ struct CompanionPresenceArt: View {
     var equipment: CompanionEquipment = .empty
     var lightExpression: KinLightExpression = .resting
     var seedColor: CompanionSeedColor = .original
+    var snapshotOnly = false
+    var pointSnapshotImage: NSImage? = nil
+    @Environment(\.liminalPointProgress) private var pointProgress
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
 
     private var effectiveRecipe: CompanionAppearanceRecipe? {
@@ -108,8 +111,11 @@ struct CompanionPresenceArt: View {
     static func png(form: CompanionForm, family: EvolutionFamily?, treatment: CompanionVisualTreatment = .original,
                     recipe: CompanionAppearanceRecipe? = nil, naturalVariation: CompanionNaturalVariation? = nil,
                     equipment: CompanionEquipment = .empty, seedColor: CompanionSeedColor = .original) -> Data? {
+        let usesPoints = LiminalV008Runtime.applies(form: form, family: family, treatment: treatment)
+        let pointImage = usesPoints ? LiminalV008Runtime.snapshot(progress: LiminalV008Runtime.orbProgress, seedColor: seedColor) : nil
+        guard !usesPoints || pointImage != nil else { return nil }
         let renderer = ImageRenderer(content: CompanionPresenceArt(form: form, family: family, size: 256, reduceMotion: true,
-            treatment: treatment, recipe: recipe, naturalVariation: naturalVariation, equipment: equipment, seedColor: seedColor))
+            treatment: treatment, recipe: recipe, naturalVariation: naturalVariation, equipment: equipment, seedColor: seedColor, snapshotOnly: true, pointSnapshotImage: pointImage))
         renderer.scale = 2
         guard let image = renderer.nsImage, let tiff = image.tiffRepresentation,
               let bitmap = NSBitmapImageRep(data: tiff) else { return nil }
@@ -138,7 +144,15 @@ struct CompanionPresenceArt: View {
     /// occupies the same frame, without becoming part of the individual recipe.
     private var character: some View {
         Group {
-            if family == nil, CompanionVisualAsset.tealBody(for: form) != nil {
+            if LiminalV008Runtime.applies(form: form, family: family, treatment: treatment), let asset = LiminalV008Runtime.asset {
+                if snapshotOnly, let image = pointSnapshotImage {
+                    Image(nsImage: image).resizable().interpolation(.high).scaledToFit()
+                } else if !snapshotOnly {
+                    LiminalAnimatedPresence(asset: asset, progress: pointProgress,
+                        reduceMotion: reduceMotion || systemReduceMotion, seedColor: seedColor,
+                        lightIntensity: Float(1 + KinLightEmission.intensity(mode: lightExpression.mode, phase: 0)))
+                }
+            } else if family == nil, CompanionVisualAsset.tealBody(for: form) != nil {
                 // These authored bodies are static studies. Keep native, reduced
                 // motion and the hosted PNG exactly on the same frame.
                 Group {

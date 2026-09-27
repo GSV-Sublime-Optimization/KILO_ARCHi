@@ -280,7 +280,7 @@ struct NativePreferenceDocument: Codable, Equatable {
 
     private static func validatePreferenceKeys(_ object: [String: Any]) throws {
         try validateKeys(object, required: ["form", "tone", "replyLength", "size", "adaptive", "reduceMotion", "quiet"],
-                         optional: ["workspaceAppearance", "seedAppearance", "seedColor", "visualTreatment", "equipment", "musicalCues", "musicalVolume"])
+                         optional: ["workspaceAppearance", "seedAppearance", "seedColor", "visualTreatment", "liminalPointProgress", "equipment", "musicalCues", "musicalVolume"])
     }
 
     private static func validateKeys(_ object: [String: Any], required: Set<String>, optional: Set<String> = []) throws {

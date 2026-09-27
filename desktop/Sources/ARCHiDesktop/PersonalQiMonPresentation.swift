@@ -36,12 +36,15 @@ extension CompanionStore {
         case .kin: "First Light"
         case .corePearl: "Ball of Light"
         case .hamptonSeed: "Liminal Seed"
+        case .velaSeed: "Opal Seed"
+        case .velaLantern: "Lantern Wing"
         default: "Particle Seed"
         }
     }
 
     var requiresPersonalSeedPresentation: Bool {
-        activeQiMon != nil && (preferences.seedColor != .original || preferences.seedAppearance == .hamptonLiminal)
+        activeQiMon != nil && (preferences.seedColor != .original
+            || preferences.seedAppearance == .hamptonLiminal || preferences.seedAppearance == .vela)
     }
 
     var unityPresentationUnavailableReason: String? {
@@ -49,6 +52,10 @@ extension CompanionStore {
     }
 
     func unityPresentationUnavailableReason(for player: URL?) -> String? {
+        if [.velaSeed, .velaLantern].contains(presentationForm)
+            || [.velaSeed, .velaLantern].contains(cursorPresentationForm) {
+            return "Vela is available on your desktop. The included Arena does not yet support this form. Choose another Seed or form to enter."
+        }
         guard requiresPersonalSeedPresentation else { return nil }
         guard let player, UnityPresentationConnection.supportsPersonalSeeds(player) else {
             return "Update the included Arena to bring your selected Seed and color along. Your desktop appearance stays as you chose it."

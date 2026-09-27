@@ -33,6 +33,7 @@ enum CompanionForm: String, CaseIterable, Identifiable, Codable {
     case kinSeed = "KIN · Core Seed"
     case particleSeed = "Particle Seed"
     case hamptonSeed = "Hampton · Liminal Seed"
+    case velaSeed = "Vela Seed", velaLantern = "Vela Lantern"
     var id: String { rawValue }
 
     /// Related local drawings of the same companion, not additional individuals.

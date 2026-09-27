@@ -150,6 +150,8 @@ enum CompanionVisualAsset {
 
     private static func baseLabel(form: CompanionForm, family: EvolutionFamily?, treatment: CompanionVisualTreatment,
                                   recipe: CompanionAppearanceRecipe?, naturalVariation: CompanionNaturalVariation?) -> String {
+        if family == nil && form == .velaSeed { return "Vela · Opal Seed" }
+        if family == nil && form == .velaLantern { return "Vela · Lantern Wing" }
         if family == nil && form == .hamptonSeed { return "Hampton · Liminal Seed" }
         if family == nil && form == .corePearl { return "ARCHi · Ball of Light" }
         if family == nil && form == .particleSeed { return "KIN · Particle Seed look" }
@@ -196,6 +198,9 @@ enum CompanionVisualAsset {
     private static func baseAppearanceID(form: CompanionForm, family: EvolutionFamily?, treatment: CompanionVisualTreatment,
                                          recipe: CompanionAppearanceRecipe?, naturalVariation: CompanionNaturalVariation?,
                                          assetAvailable: Bool?) -> String {
+        if family == nil && (form == .velaSeed || form == .velaLantern) {
+            return "\(VelaGeometry.revision):\(form.rawValue)"
+        }
         if family == nil && form == .hamptonSeed {
             return (assetAvailable ?? (hamptonSeedImage != nil)) ? "h1-\(hamptonSeedDigest)" : "hampton-liminal-native-fallback-v1"
         }

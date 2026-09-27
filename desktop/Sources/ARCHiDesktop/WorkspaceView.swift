@@ -454,6 +454,7 @@ private struct AppearanceWorkspace: View {
             PersonalContextCard(store: store)
             SeedDesignTestCard(store: store)
             SeedAppearanceCard(store: store)
+            VelaEvolutionCard(store: store)
             QiMonCard(store: store)
             if !store.hasPersonalQiMon {
             HStack(spacing: 24) {
@@ -482,7 +483,7 @@ private struct AppearanceWorkspace: View {
             if store.canChooseStartingForm {
             DisclosureGroup("Explore more forms") {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 124, maximum: 190), spacing: 12)], spacing: 12) {
-                ForEach(CompanionForm.starterChoices.filter { $0 != .corePearl && $0 != .particleSeed && $0 != .hamptonSeed }) { form in
+                ForEach(CompanionForm.additionalFormChoices) { form in
                     Button {
                         store.chooseStartingForm(form)
                     } label: {
@@ -498,16 +499,17 @@ private struct AppearanceWorkspace: View {
                                 if store.presentationFamily == nil && form == store.presentationForm { Image(systemName: "checkmark.circle.fill").font(.system(size: 11)).foregroundStyle(WorkspaceTheme.accent) }
                             }
                             .frame(minHeight: 30)
-                            Text(form.isStillArtwork ? "Still artwork" : " ")
+                            Text(form == .velaLantern ? "Visual form study" : form.isStillArtwork ? "Still artwork" : " ")
                                 .font(.system(size: 10)).foregroundStyle(.secondary)
-                                .accessibilityHidden(!form.isStillArtwork)
+                                .accessibilityHidden(!form.isStillArtwork && form != .velaLantern)
                         }
                         .frame(maxWidth: .infinity).padding(.horizontal, 8).padding(.vertical, 14)
                         .background(store.presentationFamily == nil && form == store.presentationForm ? WorkspaceTheme.accent.opacity(0.30) : WorkspaceTheme.accent.opacity(0.08), in: RoundedRectangle(cornerRadius: 18))
                         .overlay(RoundedRectangle(cornerRadius: 18).stroke(store.presentationFamily == nil && form == store.presentationForm ? WorkspaceTheme.accent.opacity(0.65) : .secondary.opacity(0.12), lineWidth: 1))
                     }.buttonStyle(.plain)
                         .accessibilityLabel("Choose \(form.rawValue) form")
-                        .accessibilityHint(form.isStillArtwork ? "Still artwork for the same companion." : "Change the companion’s starting form.")
+                        .accessibilityHint(form == .velaLantern ? "Try a visual form study. This does not award growth."
+                            : form.isStillArtwork ? "Still artwork for the same companion." : "Change the companion’s starting form.")
                         .accessibilityAddTraits(store.presentationFamily == nil && form == store.presentationForm ? [.isSelected] : [])
                 }
             }
@@ -1075,6 +1077,8 @@ private extension CompanionForm {
         case .corePearl: "A translucent aqua ball of light. One continuing core, with room to become."
         case .particleSeed: "Gold and garnet particles gather around a steady ivory core."
         case .hamptonSeed: "A sea-glass core and open gold arcs, with room to become."
+        case .velaSeed: "An opal light holds a warm core within folded, translucent lantern wings."
+        case .velaLantern: "Vela’s Lantern Wing study: open opal wings shelter the same warm core. A visual possibility for a later form."
         case .orbitField: "A fine green-blue orbit gathers around a small pearl, with sparks tracing its field."
         case .lightForm: "Translucent mint petals open around a luminous pearl, held within a delicate orbit of light."
         case .ribbon: "A fluid line that gives your desk a little movement."

@@ -78,6 +78,7 @@ struct UnityPresentationSnapshot: Codable, Equatable {
         let proto = CompanionVisualAsset.usesProto(store.preferences.visualTreatment)
         let seedDigest: String
         switch store.preferences.seedAppearance {
+        case .vela: return nil // Vela has no qualified Unity renderer or asset digest yet.
         case .hamptonLiminal: seedDigest = store.preferences.seedColor == .garnet ? CompanionVisualAsset.hamptonGarnetDigest : CompanionVisualAsset.hamptonSeedDigest
         case .archiLight: seedDigest = CompanionVisualAsset.lightSeedDigest
         case .kinParticles: seedDigest = CompanionVisualAsset.kinSeedDigest
@@ -334,6 +335,10 @@ struct UnityPresentationAcknowledgment: Codable {
     /// Also exercised directly with a disposable profile; this does not launch UI.
     func beginPublishing(store: CompanionStore, directory: URL? = nil,
                         destination: UnityPresentationDestination = .companion) throws {
+        guard store.preferences.seedAppearance != .vela,
+              ![CompanionForm.velaSeed, .velaLantern].contains(store.presentationForm) else {
+            throw PresentationError.nativeOnlySeed
+        }
         if let selectedPlayer, store.unityPresentationUnavailableReason(for: selectedPlayer) != nil { throw PresentationError.nativeOnlySeed }
         if store.activeQiMon != nil, store.preferences.seedAppearance == .archiLight,
            let selectedPlayer, !Self.supportsSeedAppearances(selectedPlayer) {

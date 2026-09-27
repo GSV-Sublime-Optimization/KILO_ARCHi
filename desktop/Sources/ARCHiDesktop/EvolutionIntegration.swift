@@ -176,7 +176,7 @@ struct CompanionPresenceArt: View {
             } else {
                 CompanionArt(form: form, size: size, reduceMotion: reduceMotion || systemReduceMotion,
                     naturalVariation: effectiveNaturalVariation,
-                    lightExpression: [.kinSeed, .kin, .corePearl, .particleSeed, .hamptonSeed].contains(form) ? lightExpression : .resting, treatment: treatment, seedColor: seedColor)
+                    lightExpression: [.kinSeed, .kin, .corePearl, .particleSeed, .hamptonSeed, .velaSeed, .velaLantern].contains(form) ? lightExpression : .resting, treatment: treatment, seedColor: seedColor)
             }
         }.frame(width: size, height: size)
     }

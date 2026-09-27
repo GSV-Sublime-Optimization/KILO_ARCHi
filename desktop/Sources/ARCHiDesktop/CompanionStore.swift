@@ -3988,7 +3988,10 @@ extension CompanionStore {
         compareResults = [:]
         documentReadingPreview = nil
         documentReadingMessage = reason
-        clearPreparedDocumentProcedure()
+        // Keep the exact method binding with any instruction still in the
+        // composer. Its source checks will now block stale use. Clearing only
+        // the binding would turn that instruction into unqualified plain text;
+        // the prepared-method UI provides an explicit Detach action instead.
     }
 
 }

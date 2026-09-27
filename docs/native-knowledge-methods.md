@@ -16,8 +16,10 @@ There is no second app, identity store or learning database.
    quotations. The preview stays separate from your editor. Review the model's
    caveat, choose **Use this draft** (or **Replace instruction with draft**), edit
    as needed, then **Save candidate**. A generated draft is never auto-saved.
-4. Share a working document in Chat, select a passage, and choose Revise with the
-   same requirements. Select the candidate in Document methods and Send locally.
+4. Share a working document, select a passage, and choose Revise with the same
+   requirements. In Work together, use **Find a saved method** to search by task,
+   then preview the instruction before replacing your draft. You can also browse
+   Saved procedures. Explicitly Send locally when ready. [Method finder](native-method-finder.md).
 5. Inspect the proposed change. Apply is a separate action, followed by your
    Helpful or correction review of the applied result.
 

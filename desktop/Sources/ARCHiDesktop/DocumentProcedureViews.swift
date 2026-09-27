@@ -69,6 +69,7 @@ struct DocumentProcedureLibraryView: View {
     @ObservedObject var store: CompanionStore
 
     var body: some View {
+        DocumentMethodFinderView(store: store)
         DisclosureGroup("Saved procedures (\(store.documentProcedures.latestProcedures.count))") {
             VStack(alignment: .leading, spacing: 10) {
                 Text("Keep a method after helpful applied work, or author an untested candidate from a reviewed concept. Matching methods use reviewed outcomes first. Ties use comparable local usage when fully measured. Choose a method for each new passage.")
@@ -109,9 +110,9 @@ private struct DocumentProcedureLibraryRow: View {
         VStack(alignment: .leading, spacing: 7) {
             DocumentProcedureVersionDetails(store: store, procedure: procedure)
             HStack {
-                Button("Use for this passage") { _ = store.prepareDocumentProcedure(procedure.binding) }
-                    .disabled(!store.canPrepareDocumentProcedure(procedure))
-                    .accessibilityIdentifier("document.use-procedure.\(identifier)")
+                DocumentMethodPreviewButton(store: store, procedure: procedure,
+                    title: "Use for this passage…",
+                    accessibilityID: "document.use-procedure.\(identifier)")
                 Button("Edit method") {
                     title = procedure.title
                     instruction = procedure.instruction

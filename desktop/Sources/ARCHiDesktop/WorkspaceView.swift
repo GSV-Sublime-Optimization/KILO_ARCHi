@@ -287,6 +287,7 @@ private struct AssistantWorkspace: View {
                     }
                     if store.selectedKnowledgePages.isEmpty { attachmentSummary }
                     KnowledgeChatContextView(store: store)
+                    PreparedDocumentProcedureView(store: store)
                     VoiceTranscriptPreview(voice: store.voiceInput)
                     AssistantReplyContent(store: store)
                 }

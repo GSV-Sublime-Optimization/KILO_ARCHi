@@ -42,14 +42,12 @@ extension CompanionStore {
         let decision = documentQ2EDecision
         guard decision.lane != .stop else { return }
         requestsRevision = true
-        if decision.lane == .retain,
-           let method = orderedDocumentProcedures.first(where: { canPrepareDocumentProcedure($0) }),
-           (outcomes(for: method)?.helpful ?? 0) > 0,
-           prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            _ = prepareDocumentProcedure(method.binding)
-            return
-        }
-        clearPreparedDocumentProcedure()
+        // A Helpful method under the same mechanical checks need not fit this
+        // task. Only a method-specific preview may replace the user's draft.
+        // Keep even a stale explicit binding visible: generic preparation must
+        // not silently detach its source restrictions from the saved instruction.
+        // The existing prepared-method UI offers an explicit Detach action.
+        if preparedDocumentProcedure != nil { return }
         // Never overwrite a user's authored draft. The frozen local controller
         // guidance still adds the chosen approach to the next request.
         if prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -75,6 +73,10 @@ struct HamptonDocumentControlView: View {
             Text(decision.lane == .stop
                  ? "Select a current passage and resolve any history recovery before preparing a revision."
                  : decision.reason).foregroundStyle(.secondary)
+            if decision.lane == .retain {
+                Text("Find a saved method for this task and review its instruction. Prepare next step keeps your current request; it does not choose a method for you.")
+                    .foregroundStyle(.secondary)
+            }
             Button("Prepare next step") { store.prepareAdaptiveDocumentWork() }
                 .disabled(decision.lane == .stop || store.isWorking)
                 .accessibilityIdentifier("work.q2e.prepare")

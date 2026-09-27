@@ -58,7 +58,7 @@ struct ARC3SessionSummary: Sendable {
 /// companion evolution, trusted skill memory, or provider authority.
 @MainActor
 final class ARC3SessionStore: ObservableObject {
-    @Published private(set) var status = "Discover local ARC3 games to begin."
+    @Published private(set) var status = "Find installed worlds to begin."
     @Published private(set) var games: [ARC3Game] = []
     @Published var selectedGameID: String?
     @Published private(set) var observation: ARC3Observation?
@@ -85,7 +85,22 @@ final class ARC3SessionStore: ObservableObject {
     private var bridgeReceiptPath: String?
     private var predictions: [String: String] = [:]
 
-    init(runtimeRoot: URL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("ARC-AGI-3-Agents"),
+    static func defaultRuntimeRoot(home: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL {
+        #if arch(arm64)
+        let architecture = "arm64"
+        #else
+        let architecture = "x86_64"
+        #endif
+        let managed = home.appendingPathComponent("Library/Application Support/ARCHi/ARC3Runtime-\(architecture)-v1")
+        if FileManager.default.isExecutableFile(atPath: managed.appendingPathComponent(".venv/bin/python").path),
+           FileManager.default.fileExists(atPath: managed.appendingPathComponent("environment_files").path),
+           FileManager.default.fileExists(atPath: managed.appendingPathComponent("runtime-ready.json").path) {
+            return managed
+        }
+        return home.appendingPathComponent("ARC-AGI-3-Agents")
+    }
+
+    init(runtimeRoot: URL = ARC3SessionStore.defaultRuntimeRoot(),
          outputDirectory: URL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/ARCHi/ARC3"),
          transportFactory: (@Sendable (URL) -> any ARC3Transport)? = nil) {
         self.runtimeRoot = runtimeRoot
@@ -97,7 +112,7 @@ final class ARC3SessionStore: ObservableObject {
         guard !isSessionActive, !isWorking else { return }
         runtimeRoot = root.standardizedFileURL
         games = []; selectedGameID = nil; error = nil
-        status = "Discover games in the selected local ARC3 workspace."
+        status = "Find worlds in the selected local runtime."
     }
 
     private func beginTransport() -> (UUID, any ARC3Transport) {
@@ -111,7 +126,7 @@ final class ARC3SessionStore: ObservableObject {
     func discover() {
         guard !isWorking, !isSessionActive else { return }
         let (id, client) = beginTransport()
-        isWorking = true; error = nil; status = "Discovering installed offline games…"
+        isWorking = true; error = nil; status = "Finding installed worlds…"
         operation = Task { [weak self] in
             do {
                 let request = ARC3Request(command: "discover")
@@ -127,7 +142,7 @@ final class ARC3SessionStore: ObservableObject {
                 if !entries.contains(where: { $0.id == self.selectedGameID }) { self.selectedGameID = entries.first?.id }
                 self.ownerID = nil; self.transport = nil; self.operation = nil; self.isWorking = false
                 client.stop()
-                self.status = entries.isEmpty ? "No local ARC3 games are installed." : "\(entries.count) local ARC3 game(s) available."
+                self.status = entries.isEmpty ? "No local worlds are installed." : "\(entries.count) local world(s) available."
             } catch {
                 guard let self, self.ownerID == id else { return }
                 self.fail(error)
@@ -141,7 +156,7 @@ final class ARC3SessionStore: ObservableObject {
             error = "Choose an installed game and a dispatch budget from 1 to 64."; return
         }
         let (id, client) = beginTransport()
-        isWorking = true; isSessionActive = true; error = nil; status = "Starting an offline ARC3 episode…"
+        isWorking = true; isSessionActive = true; error = nil; status = "Starting an offline World Trial…"
         observation = nil; initialObservation = nil; transitions = []; attempts = []; predictions = [:]; latestPlan = nil
         receiptURL = nil; bridgeReceiptPath = nil; startedAt = Date(); expectedBudget = budget; activeGameID = gameID
         operation = Task { [weak self] in
@@ -163,7 +178,7 @@ final class ARC3SessionStore: ObservableObject {
                 if observed.isTerminal || observed.remainingActions == 0 {
                     try await self.closeSession(id: id, client: client, outcome: observed.isTerminal ? "complete" : "budget-exhausted")
                 } else {
-                    self.isWorking = false; self.operation = nil; self.status = "Offline episode ready. Choose an action or explore."
+                    self.isWorking = false; self.operation = nil; self.status = "World Trial ready. Choose an action or explore."
                 }
             } catch {
                 guard let self, self.ownerID == id else { return }
@@ -176,7 +191,7 @@ final class ARC3SessionStore: ObservableObject {
         guard !isWorking, isSessionActive, let current = observation, let id = ownerID, let client = transport else { return }
         do { try validateAction(action, x: x, y: y, current: current) }
         catch { self.error = error.localizedDescription; return }
-        isWorking = true; error = nil; status = "Applying one ARC3 action…"
+        isWorking = true; error = nil; status = "Applying one world action…"
         operation = Task { [weak self] in
             guard let self else { return }
             do {
@@ -229,7 +244,7 @@ final class ARC3SessionStore: ObservableObject {
         if let outputDirectory { self.outputDirectory = outputDirectory }
         observation = nil; initialObservation = nil; transitions = []; attempts = []; predictions = [:]; latestPlan = nil
         receiptURL = nil; bridgeReceiptPath = nil; error = nil; games = []; selectedGameID = nil
-        status = "Discover local ARC3 games for this profile."
+        status = "Find installed worlds for this profile."
     }
 
     private func validateAction(_ action: Int, x: Int?, y: Int?, current: ARC3Observation) throws {
@@ -353,7 +368,7 @@ final class ARC3SessionStore: ObservableObject {
 
     private func fail(_ failure: Error) {
         error = failure.localizedDescription
-        retire(outcome: "failed", message: "ARC3 stopped: \(failure.localizedDescription)")
+        retire(outcome: "failed", message: "World Trial stopped: \(failure.localizedDescription)")
     }
 
     private func retire(outcome: String, message: String) {

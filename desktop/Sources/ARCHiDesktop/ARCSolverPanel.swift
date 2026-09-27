@@ -10,6 +10,8 @@ struct ARCSolverPanel: View {
     var onOpenUsage: ((String) -> Void)? = nil
     var onOpenGraph: ((String) -> Void)? = nil
     var onShowQwen: (() -> Void)? = nil
+    var startUnavailableReason: String? = nil
+    var isArenaTrial = false
     @State private var importError: String?
     @State private var showTraining = false
     @State private var showHowItWorks = false
@@ -17,7 +19,7 @@ struct ARCSolverPanel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 5) {
-                Label("ARC task canvas", systemImage: "square.grid.3x3.fill")
+                Label(isArenaTrial ? "Pattern Trial" : "ARC task canvas", systemImage: "square.grid.3x3.fill")
                     .font(.title3.weight(.semibold))
                 Text("Load examples. Find a rule. Review the result.")
                     .font(.callout).foregroundStyle(.secondary)
@@ -90,11 +92,12 @@ struct ARCSolverPanel: View {
     private var runControls: some View {
         HStack(spacing: 10) {
             Button("Solve locally", systemImage: "play.fill") {
+                guard startUnavailableReason == nil else { return }
                 importError = nil
                 store.startSolving(onEvaluation: onEvaluation)
             }
             .buttonStyle(WorkspaceActionStyle(prominent: true))
-            .disabled(store.solverDocument == nil || store.isSolving || store.isProposing)
+            .disabled(store.solverDocument == nil || store.isSolving || store.isProposing || startUnavailableReason != nil)
             .accessibilityIdentifier("capabilities.solver.solve")
             if let onShowQwen {
                 Button("Try Qwen", action: onShowQwen)

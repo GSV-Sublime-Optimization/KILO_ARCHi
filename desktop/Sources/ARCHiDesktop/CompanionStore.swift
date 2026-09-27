@@ -124,6 +124,7 @@ final class CompanionStore: ObservableObject {
     @Published private(set) var showsARC3Reply = false
     /// Transient navigation only. Everyday reasoning never starts a solver or world.
     @Published var showsReasoningTools = false
+    @Published private(set) var arenaActivity: ArenaActivity = .practice
     @Published private(set) var reasoningToolsShowWorlds = false
     @Published private(set) var lastARC3Summary: ARC3SessionSummary?
     @Published private(set) var stewardMessage: String?
@@ -759,6 +760,21 @@ final class CompanionStore: ObservableObject {
         open(.capabilities)
         reasoningToolsShowWorlds = worlds
         showsReasoningTools = true
+    }
+
+    /// Browsing Arena never discovers games, starts a solver, or launches Unity.
+    /// In-flight work stays with the same owners when the page changes.
+    func openArena(_ activity: ArenaActivity) {
+        arenaActivity = activity
+        open(.unity)
+    }
+
+    var arcGridStartUnavailableReason: String? {
+        if isShuttingDown { return "ARCHi is finishing this session." }
+        if arc3.isWorking || arc3.isSessionActive {
+            return "A World Trial is open. Choose Stop & keep record there before starting a Pattern Trial."
+        }
+        return nil
     }
 
     func dismissWorkspaceRoutingNotice() { workspaceRoutingNotice = nil }

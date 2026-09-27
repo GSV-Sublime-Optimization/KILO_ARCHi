@@ -64,6 +64,8 @@ See the [API contract](../marketplace/API.md), [native Marketplace](native-marke
 
 ## Arena: enter and join a local game
 
+Arena has two activities: **Companion practice** for Unity rounds, and **ARCHi Trials** for native Pattern Trials, interactive local ARC3 games and retained results. Both ARC entry points share the existing Reasoning owners. See [ARCHi Trials in Arena](native-arena-arc.md) for loading a task, selecting an environment, budget controls and evidence limits. Browsing the page starts nothing.
+
 1. Open **PLAY & CREATE → Arena → Play Arena**. **Window → Play Arena** uses the same action; **Window → Arena** opens the page without launching.
 2. If the companion is hidden, choose **Show & play**. A temporary **Practice roster** can be used without creating/replacing a saved companion. The separate Companion room requires a saved companion.
 3. Focus Unity's Arena window. Select **2 players · M** or press `M` for two people sharing this Mac. Player 2 is the session-only guest **ECHO**; no second account or invitation is required.

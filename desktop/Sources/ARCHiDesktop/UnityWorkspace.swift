@@ -27,22 +27,49 @@ struct UnityWorkspace: View {
 
     var body: some View {
         GeometryReader { geometry in
-            ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Arena").font(.system(size: 30, weight: .medium))
-                        Text("Take a break. Try a round. Find your rhythm together.")
-                            .font(.system(size: 13)).foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 0) {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Arena").font(.system(size: 30, weight: .medium))
+                    Text("Practice together. Solve a grid. Explore an unfamiliar world.")
+                        .font(.system(size: 13)).foregroundStyle(.secondary)
+                    HStack(spacing: 8) {
+                        ForEach(ArenaActivity.allCases) { activity in
+                            Button { store.openArena(activity) } label: {
+                                Label(activity.title, systemImage: activity == .practice ? "gamecontroller" : "square.grid.3x3")
+                            }
+                            .buttonStyle(WorkspaceActionStyle(prominent: store.arenaActivity == activity))
+                            .accessibilityAddTraits(store.arenaActivity == activity ? .isSelected : [])
+                            .accessibilityIdentifier("arena.activity.\(activity.rawValue)")
+                        }
+                        Spacer(minLength: 0)
                     }
-                    arenaCard
-                    if connection.isSharing { sessionStatus }
-                    if connection.isSharing { WorldOutcomeCard(connection: connection) }
-                    connectionDetails
-                    companionRoom
+                }.padding(.horizontal, geometry.size.width < 800 ? 20 : 28).padding(.vertical, 20)
+                if store.arenaActivity == .arc {
+                    ARCCapabilitiesWorkspace(store: store.arcCapabilities, onEvaluation: store.recordARCEvaluation,
+                        onOpenUsage: { _ = store.openARCUsage(taskID: $0) },
+                        onOpenGraph: { _ = store.openARCGraph(evidenceID: $0) }, qwenModel: store.qwenModel,
+                        interactive: AnyView(ARC3Workspace(owner: store, session: store.arc3)),
+                        prefersInteractive: store.arc3.isSessionActive || store.arc3.isWorking,
+                        presentation: .arena, gridStartUnavailableReason: store.arcGridStartUnavailableReason)
+                } else {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 20) {
+                            if store.arc3.isSessionActive || store.arc3.isWorking || store.arcCapabilities.isSolving || store.arcCapabilities.isProposing {
+                                WorkspaceRouteRow(title: "Your trial is still open",
+                                    detail: "Return to your task to review progress or stop it.",
+                                    icon: "square.grid.3x3", identifier: "arena.return-to-arc") { store.openArena(.arc) }
+                            }
+                            arenaCard
+                            if connection.isSharing { sessionStatus }
+                            if connection.isSharing { WorldOutcomeCard(connection: connection) }
+                            connectionDetails
+                            companionRoom
+                        }
+                        .frame(maxWidth: 980)
+                        .padding(.horizontal, geometry.size.width < 800 ? 20 : 28).padding(.bottom, 28)
+                        .frame(maxWidth: .infinity)
+                    }
                 }
-                .frame(maxWidth: 980)
-                .padding(geometry.size.width < 800 ? 20 : 28)
-                .frame(maxWidth: .infinity)
             }
         }
         .accessibilityElement(children: .contain)

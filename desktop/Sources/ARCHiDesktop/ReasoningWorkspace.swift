@@ -20,7 +20,8 @@ struct ReasoningWorkspace: View {
                     onOpenUsage: { _ = store.openARCUsage(taskID: $0) },
                     onOpenGraph: { _ = store.openARCGraph(evidenceID: $0) }, qwenModel: store.qwenModel,
                     interactive: AnyView(ARC3Workspace(owner: store, session: session)),
-                    prefersInteractive: store.reasoningToolsShowWorlds)
+                    prefersInteractive: store.reasoningToolsShowWorlds,
+                    gridStartUnavailableReason: store.arcGridStartUnavailableReason)
             }
         } else {
             ScrollView {
@@ -57,7 +58,9 @@ struct ReasoningWorkspace: View {
                             Button("Open grid tools and saved results", systemImage: "slider.horizontal.3") {
                                 store.openReasoningTools()
                             }.accessibilityIdentifier("reasoning.tools")
-                            Text("ARC3 currently acts in its connected local environments. Unity Arena uses its own controls; an ARC3-to-Arena action bridge is not connected.")
+                            Button("Open ARCHi Trials in Arena", systemImage: "gamecontroller") { store.openArena(.arc) }
+                                .accessibilityIdentifier("reasoning.arena-arc")
+                            Text("ARCHi Trials hosts the same grid and interactive world tools. Unity companion practice uses its own controls; world actions stay inside the selected environment.")
                                 .font(.caption).foregroundStyle(.secondary)
                         }.padding(.top, 10)
                     }.accessibilityIdentifier("reasoning.advanced")

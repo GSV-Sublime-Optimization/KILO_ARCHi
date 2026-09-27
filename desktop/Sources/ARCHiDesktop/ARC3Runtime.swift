@@ -153,7 +153,14 @@ final class ARC3Runtime: ARC3Transport, @unchecked Sendable {
         child.standardInput = stdinPipe
         child.standardOutput = stdoutPipe
         child.standardError = FileHandle.nullDevice
-        try child.run()
+        do { try child.run() }
+        catch {
+            let failure = error as NSError
+            if failure.domain == NSPOSIXErrorDomain && failure.code == Int(EBADARCH) {
+                throw ARC3RuntimeError.invalid("This ARC3 Python cannot run on this Mac. Choose a runtime built for this Mac’s processor, or use the native ARC3 setup instructions.")
+            }
+            throw error
+        }
         process = child
         input = stdinPipe.fileHandleForWriting
         output = stdoutPipe.fileHandleForReading

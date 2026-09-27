@@ -123,6 +123,8 @@ def _open_database_file(path: Path) -> int:
             raise OSError(errno.ELOOP, "Database path changed or became indirect while opening.", os.fspath(path))
         if hasattr(os, "getuid") and (opened.st_uid != os.getuid() or opened.st_mode & 0o077):
             raise ValueError("Use a regular database owned by this user with mode 0600.")
+        # Windows ACL ownership is not represented by POSIX uid/mode bits; that
+        # remains a separate release qualification rather than a fabricated check.
         return descriptor
     except BaseException:
         os.close(descriptor)

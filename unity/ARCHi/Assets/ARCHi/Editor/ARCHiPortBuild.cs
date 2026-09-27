@@ -213,7 +213,7 @@ public static class ARCHiPortBuild
             + "\t<key>ARCHiNativeArenaProtocol</key>\n\t<integer>1</integer>\n"
             + "\t<key>ARCHiSeedAppearanceVersion</key>\n\t<integer>1</integer>\n"
             + "\t<key>ARCHiPersonalSeedVersion</key>\n\t<integer>1</integer>\n"
-            + "\t<key>ARCHiLiminalPointAssetVersion</key>\n\t<integer>2</integer>\n");
+            + "\t<key>ARCHiLiminalPointAssetVersion</key>\n\t<integer>3</integer>\n");
         File.WriteAllText(plistPath, plist);
         Debug.Log("ARCHI_PORT_MAC_BUILD_SUCCEEDED " + artifact);
     }

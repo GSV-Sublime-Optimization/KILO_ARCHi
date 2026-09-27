@@ -4,6 +4,24 @@ import XCTest
 
 /// Small synthetic contract fixtures only. None is a qualified Houdini package.
 final class LiminalPointAssetTests: XCTestCase {
+    func testSeedRestorationKeepsBodyFramingAndBoundedReversibleTransition() {
+        let center = SIMD3<Float>(0.1, 1.24, 0), span: Float = 5.51
+        for frame in [1, 24, 66, 90] {
+            let view = LiminalSeedStyle.framing(center: center, span: span, frame: frame)
+            XCTAssertEqual(view.center, center)
+            XCTAssertEqual(view.span, span)
+            XCTAssertEqual(LiminalSeedStyle.weight(frame: frame), 0)
+        }
+        let forward = (90...108).map { LiminalSeedStyle.weight(frame: $0) }
+        XCTAssertEqual(forward, forward.sorted())
+        XCTAssertEqual(forward, (90...108).reversed().map { LiminalSeedStyle.weight(frame: $0) }.reversed())
+        let seed = LiminalSeedStyle.framing(center: center, span: span, frame: 108)
+        XCTAssertEqual(seed.center.y, 1.15, accuracy: 0.00001)
+        XCTAssertEqual(seed.span, 1.90, accuracy: 0.00001)
+        XCTAssertEqual(LiminalSeedStyle.weight(frame: 120), 1)
+        XCTAssertEqual(LiminalSeedStyle.color(.original), .garnet)
+        XCTAssertEqual(LiminalSeedStyle.color(.violet), .violet)
+    }
     func testSourceClockRoundsHalfUpAndRejectsLegacyLinearManifest() throws {
         for (frame, expected) in [(36.25, 35), (36.49, 35), (36.5, 36), (36.75, 36)] {
             XCTAssertEqual(try LiminalPointAsset.sourceFrameIndex(progress: (frame - 1) / 119), expected)

@@ -22,7 +22,9 @@ namespace ARCHi.Port
         private static readonly int FrameAID=Shader.PropertyToID("_FrameA"),FrameBID=Shader.PropertyToID("_FrameB"),KnowledgeID=Shader.PropertyToID("_Knowledge"),
             MatrixID=Shader.PropertyToID("_PointLocalToWorld"),BlendID=Shader.PropertyToID("_FrameBlend"),OpacityID=Shader.PropertyToID("_Opacity"),
             InspectionID=Shader.PropertyToID("_Inspection"),PaletteID=Shader.PropertyToID("_Palette"),ScaleID=Shader.PropertyToID("_PointScale"),
-            LightIntensityID=Shader.PropertyToID("_LightIntensity");
+            LightIntensityID=Shader.PropertyToID("_LightIntensity"),SeedTextureID=Shader.PropertyToID("_SeedTex"),
+            SeedWeightID=Shader.PropertyToID("_SeedWeight"),SeedCenterSizeID=Shader.PropertyToID("_SeedCenterSize");
+        public const string SeedStyleRevision="garnet-seed/v1";
         private CancellationTokenSource cancellation;
         private CancellationTokenSource sampleCancellation;
         private Task<LiminalPointAsset> loading;
@@ -42,6 +44,8 @@ namespace ARCHi.Port
         private float playhead,lightIntensity=1;
         private Texture2D[] endpointTextures;
         private string endpointColor;
+        private Texture2D seedTexture;
+        private string seedTextureColor;
         private LiminalPointKnowledge knowledge;
         private string knowledgeDigest;
         private uint[] knowledgeFlags;
@@ -59,7 +63,14 @@ namespace ARCHi.Port
         public int PointCount => Ready?bufferCount:0;
         public float RenderedProgress {get;private set;}
         public bool EndpointFallback => pair?.endpointFallback==true;
-        public Texture2D EndpointTexture => !Ready&&visible&&endpointTextures!=null ? endpointTextures[NearestEndpoint(playhead)] : null;
+        public Texture2D EndpointTexture {
+            get {
+                if(Ready||!visible||endpointTextures==null)return null;
+                int endpoint=NearestEndpoint(playhead);
+                if(endpoint==2){EnsureSeedTexture();if(seedTexture!=null)return seedTexture;}
+                return endpointTextures[endpoint];
+            }
+        }
         public event Action<string,uint> Selected;
 
         public void Initialize(Transform owner)
@@ -219,6 +230,16 @@ namespace ARCHi.Port
             if(shader==null||!shader.isSupported||SystemInfo.graphicsShaderLevel<45)throw new InvalidDataException("Point shader unavailable on this graphics device.");
             material=new Material(shader){name="Liminal v008 premultiplied points",enableInstancing=true};
         }
+        private void EnsureSeedTexture()
+        {
+            string color=descriptor?.color;
+            if(color==null||seedTextureColor==color)return;
+            seedTextureColor=color;seedTexture=null;
+            // Reuse the bundled, build-checked Hampton artwork and palette owner.
+            // A missing decoration leaves the authenticated source particles intact.
+            try{seedTexture=SeedAppearanceRendering.Texture("hamptonLiminal",color=="original"?"garnet":color);}
+            catch(Exception){seedTexture=null;}
+        }
         private void LoadEndpointTextures()
         {
             if(asset.EndpointPNGs==null)return;
@@ -256,18 +277,36 @@ namespace ARCHi.Port
         {
             var parent=contextRoot==null?Matrix4x4.identity:contextRoot.localToWorldMatrix;
             return parent*Matrix4x4.TRS(contextPosition,Quaternion.identity,Vector3.one*contextScale)
-                *Matrix4x4.Scale(Vector3.one*asset.FitScale)*Matrix4x4.Translate(-asset.Center);
+                *Matrix4x4.Scale(Vector3.one*StyledFitScale())*Matrix4x4.Translate(-StyledCenter());
         }
+        // Presentation framing follows the loaded source sample, never a requested
+        // playhead that may be ahead of disk reads. Art IDs and samples do not change.
+        private float SeedWeight(){float t=Mathf.Clamp01(((pair?.frame??1)-90)/18f);return t*t*(3-2*t);}
+        private Vector3 StyledCenter()=>Vector3.Lerp(asset.Center,new Vector3(0,1.15f,asset.Center.z),SeedWeight());
+        private float StyledFitScale()=>2/Mathf.Lerp(2/asset.FitScale,1.90f,SeedWeight());
         private void OnRenderObject()
         {
             if(!BuffersReady||!visible||Camera.current!=renderCamera||contextRoot==null)return;
+            EnsureSeedTexture();
+            float seedWeight=Inspection||seedTexture==null?0:SeedWeight();
+            if(seedWeight>0){
+                var center=PointMatrix().MultiplyPoint3x4(new Vector3(0,1.15f,asset.Center.z));
+                material.SetTexture(SeedTextureID,seedTexture);material.SetFloat(SeedWeightID,seedWeight);
+                material.SetVector(SeedCenterSizeID,new Vector4(center.x,center.y,center.z,.95f*StyledFitScale()*contextScale*Mathf.Abs(contextRoot.lossyScale.x)));
+                // Check the decoration pass before attenuating particles. It is
+                // optional presentation, never a reason to hide the source form.
+                if(material.passCount<2||!material.SetPass(1))seedWeight=0;
+            }
             material.SetBuffer(FrameAID,firstBuffer);material.SetBuffer(FrameBID,secondBuffer);material.SetBuffer(KnowledgeID,knowledgeBuffer);
-            material.SetMatrix(MatrixID,PointMatrix());material.SetFloat(BlendID,blend);material.SetFloat(OpacityID,1);
-            material.SetFloat(InspectionID,Inspection?1:0);material.SetFloat(ScaleID,asset.FitScale*contextScale*contextRoot.lossyScale.x);
+            material.SetMatrix(MatrixID,PointMatrix());material.SetFloat(BlendID,blend);material.SetFloat(OpacityID,1-.85f*seedWeight);
+            material.SetFloat(InspectionID,Inspection?1:0);material.SetFloat(ScaleID,StyledFitScale()*contextScale*contextRoot.lossyScale.x);
             material.SetFloat(PaletteID,Palette(descriptor.color));
             material.SetFloat(LightIntensityID,lightIntensity);
             if(!material.SetPass(0)){Status="Verified endpoint or authored Seed fallback · point shader pass unavailable.";return;}
             Graphics.DrawProceduralNow(MeshTopology.Triangles,6,bufferCount);rendered=true;
+            // Decorative orbit lines are never selectable knowledge. Inspection
+            // retains identical framing and draws the full source particles only.
+            if(seedWeight>0&&material.SetPass(1))Graphics.DrawProceduralNow(MeshTopology.Triangles,6,1);
         }
         private static float Palette(string color)=>color=="aqua"?1:color=="garnet"?2:color=="violet"?3:color=="gold"?4:color=="pearl"?5:0;
         // Matches native 1 + KinLightEmission.intensity(mode:, phase: 0).
@@ -283,6 +322,7 @@ namespace ARCHi.Port
             // but have no route back to the current presentation or its buffers.
             if(loading!=null)Observe(loading);if(sampling!=null)Observe(sampling);
             loading=null;sampling=null;asset=null;pair=null;requestedDigest=null;ClearKnowledge();ReleaseBuffers();
+            seedTexture=null;seedTextureColor=null; // Cached textures belong to SeedAppearanceRendering.
             if(endpointTextures!=null){foreach(var image in endpointTextures)if(image!=null)Destroy(image);endpointTextures=null;}
             Status="Authored Seed fallback · no qualified point package.";
         }

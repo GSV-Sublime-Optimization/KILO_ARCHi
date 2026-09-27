@@ -187,7 +187,7 @@ enum CompanionVisualAsset {
                              equipment: CompanionEquipment = .empty,
                              assetAvailable: Bool? = nil, seedColor: CompanionSeedColor = .original) -> String {
         if LiminalV008Runtime.applies(form: form, family: family, treatment: treatment), let asset = LiminalV008Runtime.asset {
-            return "liminal-v008-" + LiminalKnowledgeBindings.sha256(Data((asset.manifestSHA256 + seedColor.rawValue + equipment.canonicalIdentity).utf8))
+            return "liminal-v008-" + LiminalKnowledgeBindings.sha256(Data((asset.manifestSHA256 + LiminalSeedStyle.revision + seedColor.rawValue + equipment.canonicalIdentity).utf8))
         }
         let original = baseAppearanceID(form: form, family: family, treatment: treatment, recipe: recipe,
             naturalVariation: naturalVariation, assetAvailable: assetAvailable)

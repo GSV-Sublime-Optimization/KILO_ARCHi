@@ -119,3 +119,25 @@ Installed transition/selection/handoff, restart, palette, reduced-motion and
 The existing Unity MCP bridge is connected to the runtime project, separate from
 the older presentation pilot. No new remote Houdini MCP server is required for
 the existing local `hython` exporter.
+
+## Garnet Seed continuity — 27 September refinement
+
+The owner selected the earlier garnet Liminal Seed as the reference. The
+`garnet-seed/v1` presentation reuses the existing authenticated Hampton artwork:
+white core, garnet shell and fine gold lines. It fades in only across displayed
+source frames90–108. The same camera framing grows toward a1.90-unit Seed view;
+standing and curled retain their qualified source framing. Original uses garnet
+for this Seed layer; explicit personal palettes retain their existing owner.
+
+Native Metal and the shared Unity room/Arena renderer composite the artwork
+inside their production GPU paths, including explicit snapshots. Inspection
+hides the decorative layer and restores full source particles at the same
+framing, so only actual bound graph anchors can be selected. The export, source
+clock,800,000-point master and stable IDs are unchanged. This is a presentation
+refinement, not a change to the Houdini source or a new companion/evolution form.
+
+Renderer capability3 is required on both sides of the bridge; the asset remains
+v2. Old helpers cannot acknowledge the new style. Appearance caches include the
+style revision. Renderer failure at the Seed endpoint uses the existing authored
+Seed image with a fallback label. Full installed walkthrough and performance
+qualification remain separate from endpoint captures.

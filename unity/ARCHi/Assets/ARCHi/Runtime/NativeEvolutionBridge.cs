@@ -172,7 +172,7 @@ namespace ARCHi.Port
                     staffPalette = current.staffPalette, staffCrown = current.staffCrown,
                     sessionKind = current.SessionKind, destination = current.Destination,
                     destinationRevision = current.destinationRevision, currentArea = port.Arena == null ? "companion" : "arena",
-                    pointAssetVersion = port.PointRenderer?.Ready == true ? 2 : 0,
+                    pointAssetVersion = port.PointRenderer?.Ready == true ? 3 : 0,
                     pointManifestSHA256 = port.PointRenderer?.ManifestSHA256,
                     pointKnowledgeSHA256 = port.PointRenderer?.KnowledgeSHA256,
                     pointLODCount = port.PointRenderer?.PointCount ?? 0,

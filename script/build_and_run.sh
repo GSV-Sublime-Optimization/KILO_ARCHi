@@ -151,7 +151,7 @@ if [[ -n "$UNITY_PLAYER" ]]; then
     LIMINAL_PACKAGE="${ARCHI_LIMINAL_PACKAGE:-/Applications/ARCHi.app/Contents/Resources/LiminalV008}"
     LIMINAL_QUALIFICATION="${ARCHI_LIMINAL_QUALIFICATION:-/Applications/ARCHi.app/Contents/Resources/LiminalV008-qualification.json}"
     if [[ -d "$LIMINAL_PACKAGE" ]]; then
-        [[ "$(/usr/libexec/PlistBuddy -c 'Print :ARCHiLiminalPointAssetVersion' "$UNITY_PLAYER/Contents/Info.plist")" == "2" ]] || { echo "The selected helper cannot render the qualified Liminal v2 source-clock package." >&2; exit 2; }
+        [[ "$(/usr/libexec/PlistBuddy -c 'Print :ARCHiLiminalPointAssetVersion' "$UNITY_PLAYER/Contents/Info.plist")" == "3" ]] || { echo "The selected helper cannot render the qualified Liminal source clock and garnet Seed presentation." >&2; exit 2; }
         python3 "$REPO_ROOT/script/package_liminal_v008.py" "$LIMINAL_PACKAGE" "$LIMINAL_QUALIFICATION" \
             "$BUNDLE_DIR/Contents/Resources" "$BUNDLE_DIR/Contents/Resources/UnityCompanion.app/Contents/Resources/Data/StreamingAssets"
     elif [[ -n "${ARCHI_LIMINAL_PACKAGE:-}" ]]; then

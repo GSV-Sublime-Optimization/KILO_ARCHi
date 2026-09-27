@@ -21,6 +21,8 @@ final class UnityPresentationTests: XCTestCase {
         ack.pointKnowledgeSHA256 = snapshot.pointKnowledgeSHA256
         XCTAssertFalse(ack.matches(snapshot, now: now), "A v1 linear renderer cannot acknowledge the v2 source-clock package.")
         ack.pointAssetVersion = 2
+        XCTAssertFalse(ack.matches(snapshot, now: now), "The source-clock renderer alone does not include the restored garnet Seed presentation.")
+        ack.pointAssetVersion = 3
         XCTAssertTrue(ack.matches(snapshot, now: now))
         ack.pointManifestSHA256 = String(repeating: "c", count: 64)
         XCTAssertFalse(ack.matches(snapshot, now: now))

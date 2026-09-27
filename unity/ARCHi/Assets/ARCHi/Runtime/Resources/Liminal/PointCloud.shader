@@ -1,5 +1,5 @@
 Shader "ARCHi/Liminal Baked Point Cloud" {
- Properties { _Opacity("Visibility",Range(0,1))=1 _LightIntensity("Native light intensity",Float)=1 }
+ Properties { _Opacity("Visibility",Range(0,1))=1 _LightIntensity("Native light intensity",Float)=1 _SeedTex("Authored Hampton Seed",2D)="white" {} }
  SubShader {
   Tags { "Queue"="Transparent" "RenderType"="Transparent" }
   Blend One OneMinusSrcAlpha
@@ -60,6 +60,32 @@ Shader "ARCHi/Liminal Baked Point Cloud" {
     presentationColor=float3(encodeSRGB(presentationColor.r),encodeSRGB(presentationColor.g),encodeSRGB(presentationColor.b));
     #endif
     return float4(presentationColor*alpha,alpha);
+   }
+   ENDCG
+  }
+  Pass {
+   CGPROGRAM
+   #pragma target 4.5
+   #pragma vertex seedVert
+   #pragma fragment seedFrag
+   #include "UnityCG.cginc"
+   sampler2D _SeedTex;
+   float4 _SeedCenterSize;
+   float _SeedWeight,_LightIntensity;
+   struct SeedRaster { float4 pos:SV_POSITION; float2 uv:TEXCOORD0; };
+   SeedRaster seedVert(uint vertex:SV_VertexID) {
+    float2 corners[6]={float2(-1,-1),float2(1,-1),float2(1,1),float2(-1,-1),float2(1,1),float2(-1,1)};
+    float3 view=mul(UNITY_MATRIX_V,float4(_SeedCenterSize.xyz,1)).xyz;
+    view.xy+=corners[vertex]*_SeedCenterSize.w;
+    SeedRaster o;o.pos=mul(UNITY_MATRIX_P,float4(view,1));o.uv=corners[vertex]*.5+.5;return o;
+   }
+   float4 seedFrag(SeedRaster i):SV_Target {
+    // Authored sRGB PNG -> Unity texture color-space conversion -> premultiply
+    // -> the same target as the particles. Room unpremultiplies once for UI Toolkit;
+    // Arena composites this pass directly into its existing transparent stage.
+    float4 color=tex2D(_SeedTex,i.uv);
+    float alpha=color.a*_SeedWeight;
+    return float4(saturate(color.rgb*_LightIntensity)*alpha,alpha);
    }
    ENDCG
   }

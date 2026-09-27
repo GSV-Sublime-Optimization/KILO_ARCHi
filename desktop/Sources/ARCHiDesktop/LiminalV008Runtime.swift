@@ -44,7 +44,10 @@ enum LiminalV008Runtime {
         if let data = try? LiminalMetalView.snapshotPNGData(asset: asset, progress: progress, seedColor: seedColor) {
             return NSImage(data: data)
         }
-        // The authored fallback carries Original colors only. Do not present
+        if abs(progress - orbProgress) < 0.001 {
+            return SeedColorRendering.image(for: .hamptonSeed, color: LiminalSeedStyle.color(seedColor))
+        }
+        // The authored body fallback carries Original colors only. Do not present
         // that image as an exact personal-color capture after a GPU failure.
         guard seedColor == .original, let data = try? asset.endpointPNGData(progress: progress) else { return nil }
         return NSImage(data: data)
@@ -69,7 +72,7 @@ struct LiminalV008AppearanceCard: View {
                     Text("Liminal · living constellation").font(.headline)
                     Text(LiminalV008Runtime.asset == nil
                          ? "The v008 appearance is waiting for its source export and visual checks. Your current Liminal stays in place."
-                         : "Your existing Liminal, with the same authored particles in the room and Arena.")
+                         : "Your garnet Seed unfolds into Liminal’s authored particles, in the room and Arena.")
                         .font(.callout).foregroundStyle(.secondary)
                     Toggle("Use v008 particles", isOn: Binding(get: { store.preferences.visualTreatment == .liminalV008 }, set: {
                         guard !$0 || LiminalV008Runtime.asset != nil else { return }
@@ -87,7 +90,7 @@ struct LiminalV008AppearanceCard: View {
                             Text("Curled").tag(LiminalV008Runtime.curledProgress)
                             Text("Standing").tag(LiminalV008Runtime.standingProgress)
                         }.pickerStyle(.segmented)
-                        Text("Pose is a visual choice. Your Seed cursor and saved development stay with you.")
+                        Text("The original garnet light returns in Seed form. Inspection reveals the real knowledge anchors. Pose is a visual choice; your saved development stays with you.")
                             .font(.caption).foregroundStyle(.secondary)
                         Button("Keep this appearance") { store.rememberPreferences = true; store.savePreferences() }
                     }

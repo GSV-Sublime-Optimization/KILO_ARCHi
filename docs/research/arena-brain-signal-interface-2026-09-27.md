@@ -101,5 +101,7 @@ possible no-effect outcomes. No experiment or superiority claim is made here.
   manual panel is a native preview only, not a live battle effect.
 - Explicit controller roster and paired/hybrid receipts within existing Arena
   owners, then user-authorized comparisons.
-- Installed accessibility/visual review. The v008 source package and installed
-  walkthrough remain the immediate companion-delivery requirements.
+- Broader profile, motion and accessibility review. The installed manual preview
+  was opened, its quality reduced to 50%, and its neutral-return message observed,
+  then reset. No real sensor or Unity signal effect was exercised. The real v008
+  source package and its installed walkthrough remain delivery requirements.

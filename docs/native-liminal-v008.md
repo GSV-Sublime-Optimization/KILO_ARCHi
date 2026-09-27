@@ -78,3 +78,19 @@ exercise desktop → Arena → desktop, restart, profile switching, personal
 colors, reduced motion, missing assets and hidden suspension. Measure 30 fps
 with automatic detail reduction on the installed app. Preserve existing release
 blockers. No model calls, puzzle sessions or broad benchmark run is required.
+
+## Installed foundation — 27 September 2026
+
+The guarded updater installed the renderer-capable desktop build and preserved a
+rollback bundle. A native walkthrough opened the existing Liminal/KIN profile,
+launched the embedded Arena, received its current-appearance acknowledgment and
+ended the session back in native ownership. The optional manual signal preview
+restored the chosen colors when its sample quality fell below the threshold.
+
+This confirms the existing companion handoff and installed preview only. No real
+v008 package is present yet; it remains unavailable in the appearance selector.
+The exact-source Houdini 22.0.429 Apple Silicon installer has been downloaded and
+its disk image, SideFX signature and Apple notarization verified. Authoring
+installation/licensing, source export, point-renderer endpoint parity and 30 fps
+acceptance remain open. The existing Unity MCP bridge is connected to the runtime
+project, separate from the older presentation pilot.

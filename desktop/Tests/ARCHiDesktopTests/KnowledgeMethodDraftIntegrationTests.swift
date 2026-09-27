@@ -226,13 +226,26 @@ final class KnowledgeMethodDraftIntegrationTests: XCTestCase {
         static let passage = "A direct polite request can preserve an action while removing introductory padding."
         static let instruction = "Shorten the selected request by removing introductory padding while preserving its action."
         static let unrelatedText = "An unrelated private working copy with invoice 742 and a Friday deadline."
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("archi-method-draft-integration-\(UUID())")
-        let reasoner = MethodDraftRoleClient(name: "draft-reasoner-fixture")
-        let selector = MethodDraftRoleClient(name: "draft-selector-fixture")
-        let external = MethodDraftExternalClient()
+        let directory: URL
+        let reasoner: MethodDraftRoleClient
+        let selector: MethodDraftRoleClient
+        let external: MethodDraftExternalClient
+        let assistant: HamptonReasonsAssistant
+
+        init() {
+            let reasoner = MethodDraftRoleClient(name: "draft-reasoner-fixture")
+            let selector = MethodDraftRoleClient(name: "draft-selector-fixture")
+            self.directory = FileManager.default.temporaryDirectory.appendingPathComponent(
+                "archi-method-draft-integration-\(UUID())"
+            )
+            self.reasoner = reasoner
+            self.selector = selector
+            self.external = MethodDraftExternalClient()
+            self.assistant = HamptonReasonsAssistant(reasoner: reasoner, contextSelector: selector)
+        }
+
         var preference: URL { directory.appendingPathComponent("preferences.json") }
         var readingURL: URL { preference.deletingPathExtension().appendingPathExtension("reading-sources.json") }
-        lazy var assistant = HamptonReasonsAssistant(reasoner: reasoner, contextSelector: selector)
         lazy var store: CompanionStore = {
             let store = CompanionStore(preferenceURL: preference, assistant: assistant,
                 assistantFactory: { [assistant, external] provider, _ in

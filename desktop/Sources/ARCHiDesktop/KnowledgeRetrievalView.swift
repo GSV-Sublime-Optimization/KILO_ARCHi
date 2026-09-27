@@ -14,12 +14,12 @@ struct KnowledgeRetrievalView: View {
     var body: some View {
         DisclosureGroup("Find connections in your reading") {
             VStack(alignment: .leading, spacing: 10) {
-                Text("Search kept copies and reviewed pages. Matching words help locate passages; they do not establish whether a claim is true.")
+                Text(store.readingSources.sources.isEmpty ? "Keep a reading copy with Add text file above to find passages and draft a concept here." : "Search kept copies and reviewed pages. Matching words help locate passages; they do not establish whether a claim is true.")
                     .font(.caption).foregroundStyle(.secondary)
                 HStack {
                     TextField("Search sources and concepts", text: $query).textFieldStyle(.roundedBorder)
                         .onSubmit(search).accessibilityIdentifier("knowledge.retrieval.query")
-                    Button("Find", action: search).disabled(query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    Button("Find", action: search).disabled(store.readingSources.sources.isEmpty || query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                         .accessibilityIdentifier("knowledge.retrieval.search")
                 }
                 if let result {

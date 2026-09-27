@@ -55,9 +55,7 @@ struct KnowledgePagesCard: View {
                 Text(error).font(.system(size: 11)).foregroundStyle(.orange)
                     .accessibilityIdentifier("knowledge.library-error")
             }
-            if !store.readingSources.sources.isEmpty {
-                KnowledgeRetrievalView(store: store).padding(.vertical, 8)
-            }
+            KnowledgeRetrievalView(store: store).padding(.vertical, 8)
             if !store.readingSources.latestKnowledgePages.isEmpty {
                 TextField("Find a page", text: $query).textFieldStyle(.roundedBorder)
                     .padding(.vertical, 6).accessibilityIdentifier("knowledge.search")

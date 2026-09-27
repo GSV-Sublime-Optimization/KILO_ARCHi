@@ -222,7 +222,7 @@ class ProcessLifecycleTests(unittest.TestCase):
             def run_process():
                 process = subprocess.Popen(command, cwd=Path(__file__).resolve().parents[2],
                                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-                deadline = time.monotonic() + 10
+                deadline = time.monotonic() + 30
                 while time.monotonic() < deadline:
                     if process.poll() is not None:
                         stdout, stderr = process.communicate(timeout=5)

@@ -76,6 +76,7 @@ struct AssistantLaneReceipt: Equatable, Sendable {
     var readingDependencies: [ReadingSourceBinding]? = nil
     var knowledgeDependencies: [KnowledgePageBinding]? = nil
     var knowledgeContextDigest: String? = nil
+    var sourceContext: AssistantSourceContext? = nil
     var isKnowledgeAcquisition = false
 }
 

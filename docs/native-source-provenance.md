@@ -29,3 +29,5 @@ This installs source-qualified memory into the existing observation, memory, met
 This is provenance infrastructure, not a trained STAIR model, a model-collapse prevention proof, a biological inference engine, or new validation of the entire Hampton stack. Source type alone neither grants authority nor excludes useful generated material. Real usefulness still requires attributable outcomes and review.
 
 Implementation: `ReadingSourceProvenance.swift`, `ReadingSourceLibrary.swift`, `ReadingSourceLibraryViews.swift`, `ReadingSourceProvenanceEditor.swift`; consumers include document reading, knowledge retrieval, page contexts, table lookup and the existing procedure availability checks.
+
+See [Evidence beside an answer](native-answer-evidence.md) for the captured source view and the distinction between prepared, dispatched and cited text.

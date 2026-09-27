@@ -3,7 +3,8 @@ import SwiftUI
 /// Read projections of the existing owners. No second memory or outcome store.
 extension CompanionStore {
     var currentDocumentOutcomes: HamptonMethodOutcomes? {
-        guard profileRecoveryBlock == nil, documentWork.isCurrentOnDisk else { return nil }
+        guard profileRecoveryBlock == nil, documentWork.isCurrentOnDisk,
+              HamptonMethodOutcomes(records: documentWork.records).reconciliationIssue == nil else { return nil }
         return HamptonMethodOutcomes(records: documentWork.records.filter {
             $0.mustBeShorter == documentRequirements.mustBeShorter
                 && $0.preserveNumbersAndLinks == documentRequirements.preserveNumbersAndLinks
@@ -12,7 +13,8 @@ extension CompanionStore {
 
     func outcomes(for procedure: DocumentProcedure) -> HamptonMethodOutcomes? {
         guard profileRecoveryBlock == nil, documentWork.isCurrentOnDisk else { return nil }
-        return HamptonMethodOutcomes(procedure: procedure.binding, records: documentWork.records)
+        let result = HamptonMethodOutcomes(procedure: procedure.binding, records: documentWork.records)
+        return result.reconciliationIssue == nil ? result : nil
     }
 
     func resources(for procedure: DocumentProcedure) -> HamptonMethodResourceOutcomes? {
@@ -84,7 +86,7 @@ struct HamptonTaskWorkCard: View {
                             .foregroundStyle(.secondary)
                     }.padding(.top, 4)
                 } else {
-                    Text("History needs recovery before outcomes can be shown.").foregroundStyle(.secondary)
+                    Text("History needs review or recovery before outcomes can guide suggestions.").foregroundStyle(.secondary)
                 }
             }.accessibilityIdentifier("task-context.outcomes")
         }

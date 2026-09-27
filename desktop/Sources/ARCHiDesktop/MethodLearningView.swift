@@ -37,7 +37,7 @@ struct MethodLearningView: View {
                     .accessibilityIdentifier("document.method-history.\(identifier)")
                 }
             } else {
-                Text("Outcome history is unavailable. Reopen or resolve profile recovery before reviewing this version.")
+                Text("Outcome history is unavailable. Resolve conflicting records or profile recovery before reviewing this version.")
                     .foregroundStyle(.secondary)
                     .accessibilityIdentifier("document.method-history-unavailable.\(identifier)")
             }

@@ -2340,6 +2340,8 @@ final class CompanionStore: ObservableObject {
         compareResults[provider]?.receipt?.knowledgeDependencies = capturedKnowledgeDependencies
         compareResults[provider]?.receipt?.isKnowledgeAcquisition = request.isKnowledgeAcquisition
         compareResults[provider]?.receipt?.knowledgeContextDigest = request.localKnowledge?.digest
+        compareResults[provider]?.receipt?.sourceContext = provider == .qwen
+            ? AssistantSourceContext.capture(request, sourceTitles: Dictionary(uniqueKeysWithValues: readingSources.sources.map { ($0.id, $0.title) })) : nil
         compareResults[provider]?.receipt?.documentReading = request.localReading
         compareResults[provider]?.receipt?.readingControl = request.localReading == nil ? nil : request.localControl
         compareResults[provider]?.receipt?.localLessons = request.localLessons

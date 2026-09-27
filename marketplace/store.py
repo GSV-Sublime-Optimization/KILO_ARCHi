@@ -1,6 +1,7 @@
 """SQLite authority for accounts, immutable recipe listings and acquired copies."""
 from __future__ import annotations
 
+import errno
 import hashlib
 import hmac
 import json
@@ -82,19 +83,60 @@ def not_found() -> None:
     raise APIError(404, "not_found", "That resource is unavailable to this account.")
 
 
+def _is_link_or_reparse(info) -> bool:
+    """Treat POSIX symlinks and Windows reparse points as storage indirection."""
+    reparse_point = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+    return stat.S_ISLNK(info.st_mode) or bool(getattr(info, "st_file_attributes", 0) & reparse_point)
+
+
+def _validate_storage_parent(path: Path) -> None:
+    info = os.lstat(path)
+    if not stat.S_ISDIR(info.st_mode) or _is_link_or_reparse(info):
+        raise ValueError("Use a real local directory for marketplace storage.")
+    if hasattr(os, "getuid") and (info.st_uid != os.getuid() or info.st_mode & 0o022):
+        raise ValueError("Marketplace storage must be owned by this user and not group/world writable.")
+
+
+def _open_database_file(path: Path) -> int:
+    """Open one regular database file without accepting link/reparse indirection.
+
+    POSIX keeps O_NOFOLLOW plus owner/mode checks. Windows has no O_NOFOLLOW or
+    POSIX uid/mode contract in Python, so it uses lstat + opened-file identity
+    comparison and rejects reparse points. The later sqlite connection still
+    reopens the path; callers therefore keep this development store inside the
+    validated user-controlled parent rather than a shared writable directory.
+    """
+    try:
+        before = os.lstat(path)
+    except FileNotFoundError:
+        before = None
+    if before is not None and _is_link_or_reparse(before):
+        raise OSError(errno.ELOOP, "Refusing a symlink or reparse-point database path.", os.fspath(path))
+
+    flags = os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0)
+    descriptor = os.open(path, flags, 0o600)
+    try:
+        opened = os.fstat(descriptor)
+        current = os.lstat(path)
+        if (not stat.S_ISREG(opened.st_mode) or _is_link_or_reparse(current)
+                or not os.path.samestat(opened, current)):
+            raise OSError(errno.ELOOP, "Database path changed or became indirect while opening.", os.fspath(path))
+        if hasattr(os, "getuid") and (opened.st_uid != os.getuid() or opened.st_mode & 0o077):
+            raise ValueError("Use a regular database owned by this user with mode 0600.")
+        return descriptor
+    except BaseException:
+        os.close(descriptor)
+        raise
+
+
 class Store:
     def __init__(self, path: str | Path, *, clock=time.time):
         self.path = Path(path).absolute()
         self.clock = clock
         self.path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-        # Refuse permissive/symlink database paths instead of altering an existing file.
-        descriptor = os.open(self.path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
-        try:
-            info = os.fstat(descriptor)
-            if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077:
-                raise ValueError("Use a regular database owned by this user with mode 0600.")
-        finally:
-            os.close(descriptor)
+        _validate_storage_parent(self.path.parent)
+        descriptor = _open_database_file(self.path)
+        os.close(descriptor)
         with self.connection() as db:
             version = db.execute("PRAGMA user_version").fetchone()[0]
             if version == 0:

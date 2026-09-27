@@ -9,6 +9,7 @@ struct RelationshipMemoryCard: View {
     @State private var noteTitle = ""
     @State private var noteText = ""
     @State private var noteOpen = false
+    @State private var expandedHistoryIDs: Set<String> = []
 
     private var people: [KnowledgePage] {
         store.readingSources.latestKnowledgePages.filter { $0.relationship?.kind == .person }
@@ -36,6 +37,11 @@ struct RelationshipMemoryCard: View {
                 Text("Keep the context you choose: a person, what happened, and what you agreed to do. Every record links to a kept note and begins as a draft.")
                     .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 noteCapture
+                if let message = store.knowledgePageMessage {
+                    Text(message).font(.caption).foregroundStyle(WorkspaceTheme.accent)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("relationship.status")
+                }
                 if people.isEmpty {
                     Text("Start by keeping a note, then add a person and link the passage that supports it.")
                         .font(.caption).foregroundStyle(.secondary)
@@ -152,13 +158,50 @@ struct RelationshipMemoryCard: View {
     }
 
     private func recordActions(_ page: KnowledgePage) -> some View {
-        HStack {
-            Button("Revise…") { store.beginKnowledgePage(page) }
-            if page.state == .draft { Button("Mark reviewed") { store.reviewKnowledgePage(page) } }
-            Button("Show history") { store.selectedKnowledgePageID = page.id }
-            if page.state != .withdrawn {
-                Button("Withdraw", role: .destructive) { store.withdrawKnowledgePage(page) }
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Button("Revise…") { store.beginKnowledgePage(page) }
+                if page.state == .draft { Button("Mark reviewed") { store.reviewKnowledgePage(page) } }
+                Button(expandedHistoryIDs.contains(page.id) ? "Hide history" : "Show history") {
+                    if expandedHistoryIDs.contains(page.id) { expandedHistoryIDs.remove(page.id) }
+                    else { expandedHistoryIDs.insert(page.id) }
+                }
+                .accessibilityIdentifier("relationship.history-toggle.\(page.id)")
+                if page.state != .withdrawn {
+                    Button("Withdraw", role: .destructive) { store.withdrawKnowledgePage(page) }
+                }
+            }.buttonStyle(.borderless).font(.caption)
+            if expandedHistoryIDs.contains(page.id) {
+                RelationshipRecordHistory(store: store, pageID: page.id)
             }
-        }.buttonStyle(.borderless).font(.caption)
+        }
+    }
+}
+
+/// Read-only projection of the same library history; expanding it saves nothing.
+@MainActor
+private struct RelationshipRecordHistory: View {
+    @ObservedObject var store: CompanionStore
+    let pageID: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Record history").font(.caption.bold())
+            ForEach(store.readingSources.knowledgePages.filter { $0.id == pageID }
+                .sorted { $0.revision > $1.revision }, id: \.revision) { version in
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("v\(version.revision) · \(version.state.rawValue.capitalized) · \(version.updatedAt.formatted(date: .abbreviated, time: .shortened))")
+                        .font(.caption2).foregroundStyle(.secondary)
+                    Text(version.title).font(.caption.bold())
+                    Text(version.body).font(.caption).textSelection(.enabled)
+                    if let metadata = version.relationship {
+                        Text(metadata.markdownLines.joined(separator: "\n"))
+                            .font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+                    }
+                    KnowledgePageEvidence(store: store, anchors: version.anchors)
+                }
+            }
+        }.accessibilityElement(children: .contain)
+            .accessibilityIdentifier("relationship.history.\(pageID)")
     }
 }

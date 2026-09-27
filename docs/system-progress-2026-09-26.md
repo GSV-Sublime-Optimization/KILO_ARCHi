@@ -8,13 +8,15 @@ Use the [developer and participant protocol](developer-access-protocol.md) for M
 
 ## Delivery status
 
-The latest local increment installs [everyday method review, typed relationship memory and solo world outcomes](everyday-learning-and-world-outcomes.md) in the existing app. Executable SHA-256: `41253a1876b9f41268ac42f194c55f9b937cd4bd654854f67c604156305bfc00`; included Unity assembly: `2fcbd7147283deea4ae67a05623151fbf005fd248d3ad97ca57c87b24077d9fa`.
+The latest local increment installs [everyday method review, typed relationship memory and solo world outcomes](everyday-learning-and-world-outcomes.md) in the existing app. Executable SHA-256: `83b0b29bff2d739b4bb3461294d78bd36381bc3f4a3b5f5516feda0a6d52ca28`; included Unity assembly: `2fcbd7147283deea4ae67a05623151fbf005fd248d3ad97ca57c87b24077d9fa`.
 
 - Native/player builds and deep/strict signatures passed. All 23 current profile files were preserved; the prior app bundle remains available locally.
 - 28 focused native cases and 89 focused Unity outcome assertions passed. Existing mandatory Unity build checks also ran. No model generations, paid calls or ARC puzzle campaign ran.
 - Home and Memories were inspected after restart. One actual solo action reached the native outcome panel and was cleared on session end. Populated method and relationship work used disposable production-owner fixtures; live helpfulness and broad transfer remain unproven.
 - The authored checkout remains dirty; GitHub receives a separate curated source checkpoint on [draft PR #1](https://github.com/cr8ph8/ARCHi/pull/1). No merge, release or beta approval is implied.
 - Current field-training source is now in the included player. Its native outcome feed reports deterministic solo rule resolution, not physics contacts or saved development. Some companion/field-training art remains withheld from public source pending redistribution qualification; fresh-clone visual reproduction remains incomplete.
+
+The subsequent relationship UI fix makes **Show history** expand versions in place and shows operation feedback in the People card. It compiled and was installed with the same Unity assembly and all 23 profiles unchanged; native note input was checked without saving. Populated history remains to be observed with owner-authored records. The historical R18 receipt mismatch remains an explicit ledger gap, independent of app operation.
 
 ## Hampton integration map
 

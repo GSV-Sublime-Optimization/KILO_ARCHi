@@ -107,6 +107,10 @@ final class CompanionStore: ObservableObject {
     @Published var selectedKnowledgePageID: String?
     @Published var selectedKnowledgePages: [KnowledgePageBinding] = []
     @Published var knowledgePageMessage: String?
+    @Published private(set) var knowledgeMethodDraftPage: KnowledgePageBinding?
+    @Published private(set) var knowledgeMethodDraftMessage: String?
+    @Published private(set) var knowledgeMethodDraft: KnowledgeMethodDraft?
+    private var knowledgeMethodDraftRequestID: String?
     @Published private(set) var preparedDocumentProcedure: DocumentProcedureUse?
     private var preparedProcedureSelection: DocumentSelection?
     private var preparedProcedureSourceDigest: String?
@@ -565,7 +569,8 @@ final class CompanionStore: ObservableObject {
         status = "This exact copy may be sent with your selected route. Nothing sent yet."
     }
     var resultProviders: [AssistantProvider] {
-        route == .native && compareResults[.codex] != nil ? [.qwen, .codex] : route.providers
+        if knowledgeMethodDraftPage != nil { return [.qwen] }
+        return route == .native && compareResults[.codex] != nil ? [.qwen, .codex] : route.providers
     }
 
     var nextReplyConversation: [AssistantConversationExchange] {
@@ -1732,6 +1737,12 @@ final class CompanionStore: ObservableObject {
         for provider in Array(compareResults.keys) {
             setLane(provider, text: "", status: reason, state: .cancelled)
         }
+        if knowledgeMethodDraftPage != nil {
+            knowledgeMethodDraft = nil
+            if reason != "Stopped." && reason != "Method drafting stopped." { knowledgeMethodDraftPage = nil }
+            knowledgeMethodDraftRequestID = nil
+            knowledgeMethodDraftMessage = reason
+        }
         if wasWorking || hadDerivedReply {
             hamptonSnapshot.proposal = nil
             replySourceSelection = nil
@@ -1748,6 +1759,77 @@ final class CompanionStore: ObservableObject {
     }
 
     func submit() { _ = submit(question: prompt, pointing: nil) }
+
+    var isDraftingKnowledgeMethod: Bool {
+        knowledgeMethodDraftRequestID != nil && replyOwners[.qwen] != nil
+            && compareResults[.qwen]?.receipt?.requestID == knowledgeMethodDraftRequestID
+    }
+
+    func canDraftKnowledgeMethod(page: KnowledgePage) -> Bool {
+        !isShuttingDown && !isWorking && !isARCWorking && !voiceInput.isActive
+            && knowledgePageDraft == nil && page.kind == .concept && page.state == .reviewed
+            && knowledgeDependenciesAreCurrent([page.binding])
+    }
+
+    func currentKnowledgeMethodDraft(for page: KnowledgePage) -> KnowledgeMethodDraft? {
+        guard let draft = knowledgeMethodDraft, draft.binding == page.binding,
+              draft.requestID == knowledgeMethodDraftRequestID,
+              let receipt = compareResults[.qwen]?.receipt, receipt.state == .complete,
+              receipt.requestID == draft.requestID, isCurrentReplyContext(receipt),
+              knowledgeDependenciesAreCurrent([draft.binding]) else { return nil }
+        return draft
+    }
+
+    func discardKnowledgeMethodDraft() {
+        if isDraftingKnowledgeMethod { cancelWork(reason: "Method drafting stopped.") }
+        knowledgeMethodDraft = nil
+        knowledgeMethodDraftPage = nil
+        knowledgeMethodDraftRequestID = nil
+        knowledgeMethodDraftMessage = nil
+    }
+
+    /// Acquisition uses the ordinary local request owner and accounting. It
+    /// neither edits the user's chat draft/copy nor saves or rates a method.
+    @discardableResult
+    func draftKnowledgeMethod(page: KnowledgePage, requirements: DocumentWorkRequirements) -> Bool {
+        guard canDraftKnowledgeMethod(page: page),
+              let context = KnowledgePageContext.make(page: page,
+                quotes: page.anchors.compactMap { readingSources.quote(for: $0) }),
+              client(for: .qwen) is HamptonReasonsAssistant else {
+            if !isWorking { knowledgeMethodDraftPage = page.binding }
+            knowledgeMethodDraftMessage = "Finish current work and use a reviewed concept with current passages that fit the local context limit. Local Hampton reasoning is required."
+            return false
+        }
+        do {
+            let target = try KnowledgeMethodDraftRequest(context: context, requirements: requirements,
+                requestID: UUID().uuidString)
+            cancelWork(reason: "Preparing a local method candidate.")
+            let request = AssistantRequest(prompt: target.prompt, sourceName: nil, sourceText: "",
+                sourceRevision: sourceRevision, placementRevision: placementRevision,
+                tone: "Direct", replyLength: 0.3, localKnowledge: context, localMethodDraft: target)
+            let digest = SHA256.hash(data: Data(request.localContextInput.utf8)).map { String(format: "%02x", $0) }.joined()
+            try retryStewardReceipts()
+            try tokenSteward.preflight(requestID: target.requestID, route: .automatic)
+            knowledgeMethodDraftPage = page.binding
+            knowledgeMethodDraftRequestID = target.requestID
+            knowledgeMethodDraftMessage = "Drafting a method with local Qwen…"
+            knowledgeMethodDraft = nil
+            assistantProvider = .qwen
+            hamptonSnapshot.proposal = nil
+            compareResults = [:]
+            documentProcedureRequests = [:]
+            replySourceSelection = nil
+            isWorking = true
+            launchLane(.qwen, request: request, ticket: contextTicket(), route: .automatic,
+                requestID: target.requestID, inputDigest: digest,
+                routingReason: "Method candidate acquisition from one reviewed concept and its exact passages. Local Qwen only; no external fallback, prior dialogue, saved lessons or personal context. Drafting is not evidence of usefulness.")
+            return true
+        } catch {
+            knowledgeMethodDraftPage = page.binding
+            knowledgeMethodDraftMessage = "Method drafting did not start: \(error.localizedDescription)"
+            return false
+        }
+    }
 
     @discardableResult
     func prepareARC3Action() -> Bool {
@@ -2172,8 +2254,14 @@ final class CompanionStore: ObservableObject {
             local.onSnapshot = { [weak self, weak local] snapshot in
                 guard let self, let local,
                       self.isCurrentLane(provider, owner: owner, epoch: epoch, client: local, ticket: ticket),
-                      self.compareResults[provider]?.receipt?.requestStarted == true,
-                      self.knowledgeDependenciesAreCurrent(capturedKnowledgeDependencies),
+                      self.compareResults[provider]?.receipt?.requestStarted == true else { return }
+                // Source invalidation rejects the semantic result, not work
+                // already spent by this exact request. Retain terminal metrics
+                // before a stale-source failure clears the local context owner.
+                self.compareResults[provider]?.receipt?.localInvocations = snapshot.attemptedInvocations
+                self.compareResults[provider]?.receipt?.localInvocationReceipts = snapshot.invocations
+                self.compareResults[provider]?.receipt?.admissionOutcome = snapshot.admissionOutcome
+                guard self.knowledgeDependenciesAreCurrent(capturedKnowledgeDependencies),
                       self.readingDependenciesAreCurrent(capturedReadingDependencies) else { return }
                 self.hamptonSnapshot = snapshot
                 if let decision = snapshot.expertDecision {
@@ -2263,7 +2351,7 @@ final class CompanionStore: ObservableObject {
                             self.failLane(provider, message: "The revision response was not a validated proposal."); return
                         }
                         self.setLane(provider, text: text, status: "\(provider.name) is replying…", state: .pending)
-                        if provider == self.assistantProvider { self.reply = text }
+                        if provider == self.assistantProvider, request.localMethodDraft == nil { self.reply = text }
                         self.status = self.route == .compare ? "Receiving independent answers…" : "ARCHi is replying…"
                     case .revision(let proposal):
                         guard proposal.target == request.revisionTarget,
@@ -2305,11 +2393,16 @@ final class CompanionStore: ObservableObject {
                     try self.tokenSteward.recordDocumentReadingResult(requestID: requestID, result: result)
                     self.compareResults[provider]?.receipt?.readingResult = result
                 }
+                if let target = request.localMethodDraft {
+                    guard provider == .qwen, self.knowledgeMethodDraftRequestID == requestID,
+                          let proposal = self.hamptonSnapshot.proposal else { throw QwenFailure.invalidResponse }
+                    self.knowledgeMethodDraft = try target.admit(proposal: proposal)
+                }
                 self.finishOwnership(provider)
-                self.setLane(provider, status: request.revisionTarget == nil ? "Reply ready" : "Revision ready for review", state: .complete)
+                self.setLane(provider, status: request.localMethodDraft != nil ? "Method draft ready for your review" : request.revisionTarget == nil ? "Reply ready" : "Revision ready for review", state: .complete)
                 // Only terminal, current local answers become temporary dialogue.
                 // Revision proposals, partial output and external answers never enter it.
-                if provider == .qwen, request.revisionTarget == nil, self.localConversationEnabled,
+                if provider == .qwen, request.revisionTarget == nil, request.localMethodDraft == nil, self.localConversationEnabled,
                    let answer = self.compareResults[provider]?.text, !answer.isEmpty {
                     if let expiry = conversationExpiry, expiry <= self.wallClock() {
                         self.clearLocalConversation()
@@ -2654,6 +2747,13 @@ final class CompanionStore: ObservableObject {
         replyTasks[provider] = nil
         laneTimeoutTasks.removeValue(forKey: provider)?.cancel()
         isWorking = !replyOwners.isEmpty
+        if provider == .qwen, let receipt = compareResults[provider]?.receipt,
+           receipt.requestID == knowledgeMethodDraftRequestID {
+            // Acquisition uses Qwen temporarily without changing the user's
+            // selected chat route or its readiness after the draft ends.
+            assistantProvider = route.primaryProvider
+            refreshRouteConnection()
+        }
         if !isWorking, let receipt = compareResults[provider]?.receipt,
            receipt.pointing != nil, spatialPreview?.ticket == receipt.context {
             invalidatePlacementPreview(reason: "Point and explain finished.")
@@ -2784,6 +2884,10 @@ final class CompanionStore: ObservableObject {
         }
         result.status = status; result.state = state; result.receipt?.state = state
         compareResults[provider] = result
+        if provider == .qwen, result.receipt?.requestID == knowledgeMethodDraftRequestID {
+            knowledgeMethodDraftMessage = status
+            if state == .failed || state == .cancelled { knowledgeMethodDraft = nil }
+        }
         if recordsTerminalOutcome, let receipt = result.receipt {
             let key = receipt.requestID + ":" + receipt.provider.rawValue
             pendingStewardReceipts[key] = receipt
@@ -2848,7 +2952,9 @@ final class CompanionStore: ObservableObject {
 
     private func refreshWorkStatus() {
         isWorking = !replyOwners.isEmpty
-        if route == .compare {
+        if knowledgeMethodDraftPage != nil {
+            status = knowledgeMethodDraftMessage ?? "Method candidate"
+        } else if route == .compare {
             if isWorking { status = "Waiting for " + route.providers.filter { replyOwners[$0] != nil }.map(\.name).joined(separator: " and ") + "…" }
             else {
                 let completed = compareResults.values.filter { $0.state == .complete }.count

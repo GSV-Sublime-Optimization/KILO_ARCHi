@@ -149,8 +149,11 @@ final class HamptonReasonsAssistant: AssistantClient {
     }
 
     func reply(to request: AssistantRequest, onEvent: @escaping @MainActor (AssistantEvent) -> Void) async throws {
+        // Method acquisition reads exactly the selected concept. Keep the user's
+        // setting and existing bank intact, but neither read nor extend that bank.
+        let usesSessionContext = contextEnabled && request.localMethodDraft == nil
         let representationRequired = reasoner.representationConfiguration.mode != .off
-            || (contextEnabled && selector.representationConfiguration.mode != .off)
+            || (usesSessionContext && selector.representationConfiguration.mode != .off)
         guard !disposed else { throw QwenFailure.stopped }
         guard connected else {
             if representationRequired { throw LocalRepresentationContractError.unavailable }
@@ -171,11 +174,11 @@ final class HamptonReasonsAssistant: AssistantClient {
         var expertDecision = LocalExpertPolicy.decide(request: request, preference: workPreference,
             measurements: representationRequired)
         snapshot.expertDecision = expertDecision
-        snapshot.evidence = AssistantEvidenceReceipt(contextEnabled: contextEnabled,
+        snapshot.evidence = AssistantEvidenceReceipt(contextEnabled: usesSessionContext,
             sourceIDsAvailable: request.localSourceIDs, lessonIDsAvailable: request.localLessons.map(\.modelID),
             conversationOfferedCount: request.localConversation.count,
             conversationOfferedDigest: request.localConversationDigest,
-            omissions: contextEnabled ? [] : [.init(kind: .context, reason: .disabled)])
+            omissions: usesSessionContext ? [] : [.init(kind: .context, reason: .disabled)])
         admissionStage = .inputBudget; admissionRole = nil; admissionRequestID = nil
         let timeout = Task { [weak self] in
             do { try await Task.sleep(until: deadline, clock: .continuous) } catch { return }
@@ -193,7 +196,7 @@ final class HamptonReasonsAssistant: AssistantClient {
         var receipts: [HamptonRoleReceipt] = []
         do {
             guard request.hasValidSelection, request.hasValidRevisionTarget, request.hasValidLocalLessons,
-                  request.hasValidLocalConversation, request.hasValidLocalProfile, request.hasValidLocalControl, request.hasValidLocalKnowledge, request.hasValidLocalProcedureKnowledge else {
+                  request.hasValidLocalConversation, request.hasValidLocalProfile, request.hasValidLocalControl, request.hasValidLocalKnowledge, request.hasValidLocalProcedureKnowledge, request.hasValidLocalMethodDraft else {
                 throw QwenFailure.invalidResponse
             }
             guard !request.prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
@@ -214,7 +217,7 @@ final class HamptonReasonsAssistant: AssistantClient {
                 checkpoint(.connection, request: prepared.roleRequest)
                 try await connectReasoner(owner, operation: id)
             }
-            if contextEnabled {
+            if usesSessionContext {
                 let allCandidates = tentative.beginTurn(request: request)
                 // Roll back only this turn's optional selections, while keeping
                 // source reconciliation and expiry performed by beginTurn.
@@ -363,6 +366,9 @@ final class HamptonReasonsAssistant: AssistantClient {
                     allowedSourceIDs: Set(sourceIDs), allowedMemoryIDs: Set(memoryIDs))
                 revision = nil
             }
+            if let target = request.localMethodDraft, let proposal {
+                _ = try target.admit(proposal: proposal)
+            }
             snapshot.evidence?.sourceIDsCited = proposal?.sourceIDs ?? revision?.sourceIDs ?? []
             snapshot.evidence?.memoryIDsCited = proposal?.memoryIDs ?? revision?.memoryIDs ?? []
             receipts.append(try Self.receipt(result, request: reasonRequest,
@@ -376,7 +382,7 @@ final class HamptonReasonsAssistant: AssistantClient {
             }
             try require(owner, operation: id)
             // No suspension between the final ownership check and state publication.
-            if contextEnabled { bank = tentative }
+            if usesSessionContext { bank = tentative }
             updateElapsed()
             snapshot = HamptonAssistantSnapshot(records: bank.records, proposal: proposal,
                 receipts: receipts, attemptedInvocations: snapshot.attemptedInvocations,

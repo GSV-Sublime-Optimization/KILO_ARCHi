@@ -2,8 +2,9 @@ import Foundation
 
 @MainActor
 extension CompanionStore {
-    /// The explicit instruction is authored by the user. The reviewed page is
-    /// retained as provenance, never silently promoted into executable guidance.
+    /// The user explicitly saves the editable instruction, whether written by
+    /// hand or drafted locally. The reviewed page remains source provenance;
+    /// neither saving nor generating a candidate establishes its usefulness.
     @discardableResult
     func keepKnowledgeProcedure(page: KnowledgePage, title: String, instruction: String,
                                 requirements: DocumentWorkRequirements) -> Bool {

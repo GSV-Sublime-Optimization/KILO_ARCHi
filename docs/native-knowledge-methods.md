@@ -1,8 +1,8 @@
 # Reviewed concepts to document methods
 
-26 September 2026 · R26-NATIVE-KNOWLEDGE-METHODS
+26 September 2026 · R26-NATIVE-KNOWLEDGE-METHODS / R26-NATIVE-METHOD-DRAFTING
 
-ARCHi can keep an explicitly authored document-method candidate from a current,
+ARCHi can draft locally or keep an explicitly authored document-method candidate from a current,
 reviewed **Concept** in Memories. It uses the existing source library, method
 library, document journal, local Qwen owner, Q2E controller and Usage records.
 There is no second app, identity store or learning database.
@@ -11,15 +11,25 @@ There is no second app, identity store or learning database.
 
 1. Keep a source passage in Memories and author a Concept linked to that passage.
 2. Review the concept. Expand **Create a document method candidate**.
-3. Write the instruction you want to try, choose the length and exact-token
-   requirements, and **Save candidate**. The instruction starts blank; ARCHi does
-   not convert source prose into instructions automatically.
+3. Choose the length and exact-token requirements. Write an instruction, or use
+   **Draft locally** for one local Qwen proposal from this concept and its exact
+   quotations. The preview stays separate from your editor. Review the model's
+   caveat, choose **Use this draft** (or **Replace instruction with draft**), edit
+   as needed, then **Save candidate**. A generated draft is never auto-saved.
 4. Share a working document in Chat, select a passage, and choose Revise with the
    same requirements. Select the candidate in Document methods and Send locally.
 5. Inspect the proposed change. Apply is a separate action, followed by your
    Helpful or correction review of the applied result.
 
-The page body and its quotations are not copied into this request. The explicit
+The drafting request uses only one selected concept, its exact linked quotations,
+and the chosen requirements. It excludes the shared working document, personal
+context, prior dialogue, retained lessons and optional session-memory selection.
+It uses the existing local request owner, timeout and Token Steward accounting.
+Stop, a changed source, profile change or superseding work retires the preview.
+Clarification, abstention, unsupported citations and oversized output cannot
+populate the editor. Source-reference membership does not prove entailment.
+
+For the later document-revision request, the page body and quotations are not copied into model input. The explicit
 method instruction and selected working document supply the model input. Exact
 page and source versions remain native dependencies on the request and result.
 The method details provide **Show source** and its original page version.
@@ -48,13 +58,14 @@ The method details provide **Show source** and its original page version.
 ## Hampton integration
 
 This completes a bounded bridge from Stack R2's qualified memory into its task
-and learning loops: attributed concept → authored candidate → local proposal →
+and learning loops: attributed concept → locally drafted or authored candidate → local proposal →
 checked applied result → reviewed outcome → current evidence projection.
 `HamptonDocumentNumericalControl` replays accepted outcome observations through
 the existing typed `HamptonNumericalDynamics` update. Redrawing the UI does not
 advance a second state store, and a saved candidate is not a measured quotient.
 
-The new work extends [local knowledge use](native-knowledge-chat.md).
+The new work extends [local knowledge use](native-knowledge-chat.md) and the
+[research integration map](research/2026-09-26-discovery-harness-hardware/native-integration-map.md).
 It does not install the papers' theorem generators, physics calculations or
 analog hardware. It also does not establish efficacy of the complete Hampton
 theory, patent scope, cross-task transfer or automatic skill certification.
@@ -71,3 +82,17 @@ Q2E's frozen evidence gains an optional native source-availability flag. Existin
 records and their digests remain unchanged; new decisions bind the current
 assessment. Historical user feedback and measured resource observations are not
 erased when its source changes.
+
+The manual-method increment's bounded execution evidence is in
+`output/hampton-knowledge-methods-2026-09-26/DELIVERY.md`. The local-drafting
+increment is recorded separately in
+`output/hampton-method-drafting-2026-09-26/DELIVERY.md`.
+
+The drafting bridge operationalizes Stack R2 L06/L07 (retained master-stack
+lines 215–228), the separate claims/experiences/methods and derivation edges
+(lines 460–469), and the source-correctable native loop (lines 634–653). Its
+request format is implementation work, not a new recovered Hampton equation.
+The existing numerical update, coupling, outcome ranking and cost definitions
+remain in their existing owners; no synthetic quotient increase is awarded for
+generating an instruction. Concept synthesis, automatic retrieval, demonstrated
+cross-task transfer and qualified live RepE remain separate unfinished work.

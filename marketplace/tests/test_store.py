@@ -70,7 +70,10 @@ class StoreTests(unittest.TestCase):
         self.assertEqual(len(token_hash), 64)
         self.assertNotIn(self.token.encode(), self.path.read_bytes())
         self.assertNotIn(PASSWORD.encode(), self.path.read_bytes())
-        self.assertEqual(os.stat(self.path).st_mode & 0o777, 0o600)
+        if os.name == "nt":
+            self.assertFalse(self.path.is_symlink())
+        else:
+            self.assertEqual(os.stat(self.path).st_mode & 0o777, 0o600)
 
     def test_session_failure_expiry_and_logout(self):
         self.assert_error("unauthorized", "POST", "/v1/sessions", body={"handle": "synthetic_owner", "password": "wrong but long enough"})
@@ -241,14 +244,20 @@ class StoreTests(unittest.TestCase):
 
     def test_refuses_symlink_permissive_or_unrelated_database(self):
         link = self.path.with_name("linked.sqlite3")
-        link.symlink_to(self.path)
-        with self.assertRaises(OSError):
-            Store(link)
-        mode_path = self.path.with_name("permissive.sqlite3")
-        mode_path.touch(mode=0o644)
-        mode_path.chmod(0o644)
-        with self.assertRaises(ValueError):
-            Store(mode_path)
+        try:
+            link.symlink_to(self.path)
+        except OSError:
+            if os.name != "nt":
+                raise
+        else:
+            with self.assertRaises(OSError):
+                Store(link)
+        if os.name != "nt":
+            mode_path = self.path.with_name("permissive.sqlite3")
+            mode_path.touch(mode=0o644)
+            mode_path.chmod(0o644)
+            with self.assertRaises(ValueError):
+                Store(mode_path)
         unrelated = self.path.with_name("unrelated.sqlite3")
         unrelated.touch(mode=0o600)
         with sqlite3.connect(unrelated) as db:

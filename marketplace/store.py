@@ -10,6 +10,7 @@ import secrets
 import sqlite3
 import stat
 import time
+import tempfile
 import uuid
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -100,7 +101,7 @@ def _prepare_private_database(path: Path) -> None:
         home = Path.home().resolve()
         local = Path(os.environ.get("LOCALAPPDATA", home)).resolve()
         parent = path.parent.resolve()
-        roots = {home, local}
+        roots = {home, local, Path(tempfile.gettempdir()).resolve()}
         if not any(parent == root or root in parent.parents for root in roots):
             raise ValueError("On Windows, use a database path inside this user's profile.")
         if _windows_reparse_point(path):

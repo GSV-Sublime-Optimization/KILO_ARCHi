@@ -2,6 +2,12 @@
 
 ## Current increment
 
+A new final-layer grouped-ridge reader has now been built from the existing Qwen3.5 model: **24/24 calibration and 24/24 held-out synthetic examples passed**, with minimum signed margins 0.3492 and 0.2282 against a fixed 0.1 requirement. Ninety-six examples fitted the direction. Acquisition used 20,004 local input tokens, zero generated tokens and no paid API. The fitted bundle stays local; [source, mathematics and scope](../research/representation/gguf/task-reader.md) and the [machine-readable result](research/task-reader-result-2026-09-26.json) are retained. This is not a controlled improvement comparison with the older, different corpus below.
+
+Native ordinary-reply routing now refuses synthetic readers at both enablement and construction. A read-only report view supports the new result without importing its weights or widening its scope. The specific task consumer and compatible native measurement runtime still need integration before live task use. No ordinary-chat or steering qualification is claimed.
+
+## Preserved earlier attempts
+
 The existing Qwen3.5:9b GGUF now loads through a separate, exactly identified text adapter. A bounded local probe acquired one finite 4,096-value residual at `l_out-15`, using 124 input tokens and zero generated tokens in 15.55 seconds. The adapter is grounded in pinned Ollama compatibility source and preserves the original model bytes. It remains separate from the bundled native backend: successful extraction alone does not qualify a reader. [Adapter and provenance](../research/representation/gguf/compatibility-and-qualification.md).
 
 Native v2 reader import now requires the complete supplied qualification record: a frozen plan matching the model, layer, template and backend; eligible corpus provenance; numeric weights bound to the report; all 16 calibration/holdout results and their recomputed margins; positive calibration separation; and fixed acceptance rules. A headline pass is insufficient. Legacy readers remain available for inspection but cannot enable measurements. These are consistency checks on supplied evidence, not authentication or independent scientific reproduction.
@@ -14,25 +20,19 @@ The new frozen Qwen3.5 attempt completed all 24 prefills in 58.88 seconds, using
 
 ARCHi has an installed native adapter targeting its existing Qwen GGUF models, using a locally built Apple Silicon CPU runtime. The delivered increment includes bounded synthetic activation acquisition, a separate fitting workflow, scoped v2 reader imports and session-only report-review source. The Qwen3:8b acquisition completed, but the fitted reader failed its predeclared qualification gate. No reader was produced or enabled. Qwen3.5:9b has a separate loader incompatibility. Delivery, report-viewer interaction and reader qualification are separate results.
 
-## Everyday use
+## Everyday use and scope restriction
 
-Settings → Connections → Qwen → **Read-only model measurements** exposes the bundled runtime, an explicit reader import, and a toggle for this visit. Standard Qwen remains the default. A reader must match the selected reasoning model, GGUF bytes, fixed prompt template, runtime revision, hidden width and layer. Current source distinguishes legacy unqualified v1 imports from v2 readers carrying a supported limited shadow report. Import validates format, identities and report consistency; it does not independently authenticate the report or establish general calibration quality.
+Settings → Connections → Qwen → **Read-only model measurements** retains explicit reader import and report inspection. The ordinary-reply measurement toggle is disabled for all currently admitted v1/v2 readers. Their synthetic record-lookup scope does not qualify general chat. This is enforced by the store and assistant construction as well as the UI; changing a setting or supplying a report cannot widen the scope.
 
-Connect validates the local manifest/config, blob location and worker protocol without loading model weights. Send starts the CPU model and hashes its actual GGUF bytes before inference. No extra model download is needed. This initial CPU path may be substantially slower than Ollama; the existing 180-second reply limit remains in force. No successful real-model measured reply or performance improvement has yet been established for this increment.
+Standard Qwen remains connected through its existing local route. A reader must still match the selected model, blob, fixed prompt template, runtime and layer. Importing it does not independently authenticate its report or enable measurement. Imported readers are temporary and disappear when ARCHi closes. Seeds, profiles, memories and Unity retain their existing owners.
 
-Measurement selection is temporary. Switching it stops local work, clears temporary local context and rebuilds the existing local assistant. Closing ARCHi resets the selection. Saved Seeds, appearance, personal profiles and retained memories keep their existing owners.
-
-While measurements are enabled, the native store blocks external providers and Compare before connection, budget reservation or dispatch, and disables automatic external fallback, including timeout fallback. Turning measurements off retains ordinary Qwen and chat routing.
-
-**Review calibration report…** opens a bounded report preview for this visit, including failed qualifications. It displays the supplied result, split counts, measurement scope, margins, limitations and selected-file digest. Reviewing a report does not import a reader, enable measurements, call a model or change companion state. The report-review source is installed; completing the picker and viewing the result in the UI remains unverified. A digest identifies the selected bytes and does not authenticate the report's claims.
+**Review calibration report…** displays the older bounded report format without invoking a model. The new ridge candidate uses a distinct research format and is deliberately not native-importable. See the [new task-reader protocol and mathematics](../research/representation/gguf/task-reader.md).
 
 ## Where it connects
 
-`CompanionStore → HamptonReasonsAssistant → GGUFRepresentationClient → bundled archi-gguf-shadow → existing answer validation → native invocation receipt`.
+The retained adapter path is `HamptonReasonsAssistant → GGUFRepresentationClient → bundled archi-gguf-shadow → native invocation receipt`. It is currently unavailable to ordinary replies because no admitted reader qualifies that task. The new research worker runs only on explicitly generated synthetic lookup inputs, outside native conversation and companion state.
 
-Only the reasoning role uses this opt-in adapter. Optional context selection continues through the existing Ollama role. ARC's deterministic tools are unchanged. Local work is still charged to the existing Token Steward local-work receipts, using actual reported token counts. There is no paid API transport or second identity/memory database.
-
-One selected `l_out-N` residual tensor is projected onto one supplied reader direction. The normal reply worker returns scalar samples, not raw activations. Native receipts bind the answer, request, model, prompt components, measurement scope, token rule, reader/calibration labels and SHA-256 of the actual imported reader file. For v2 `prompt-last` readers the client requires exactly one sample at the final input-token position; later generated-token states are outside that calibrated position. These values never count as Helpful feedback, learned capability, truth, or permission.
+A future task consumer must bind the actual source-addressed lookup records and exact prompt, use the matching qualified runtime/reader, and produce a scoped observation. One synthetic final-prompt coordinate must not be applied to arbitrary chat or generated-token states. No native activation steering, automatic learning award, truth decision or external-action permission is enabled.
 
 ## Bounded calibration source
 

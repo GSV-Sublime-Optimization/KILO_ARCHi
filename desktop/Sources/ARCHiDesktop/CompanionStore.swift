@@ -233,7 +233,7 @@ final class CompanionStore: ObservableObject {
     // Reader selection belongs to this visit, never to a Seed or retained memory.
     @Published private(set) var representationReader: GGUFReaderArtifact?
     @Published private(set) var representationMeasurementsEnabled = false
-    @Published private(set) var representationNotice = "Import a model-specific reader to enable read-only measurements."
+    @Published private(set) var representationNotice = "Import a model-specific reader for inspection."
     @Published private(set) var sessionContextEnabled = false
     @Published private(set) var localConversation = AssistantConversation()
     @Published private(set) var localConversationEnabled = true
@@ -2654,7 +2654,7 @@ final class CompanionStore: ObservableObject {
         if representationReader?.modelName != model {
             representationMeasurementsEnabled = false
             representationReader = nil
-            representationNotice = "Model changed. Import a reader fitted for \(model) to enable measurements."
+            representationNotice = "Model changed. Import a reader fitted for \(model) to inspect its report."
         }
         replaceLocalAssistant()
     }
@@ -2670,7 +2670,7 @@ final class CompanionStore: ObservableObject {
             representationMeasurementsEnabled = false
             representationReader = reader
             replaceLocalAssistant()
-            representationNotice = "Reader imported for this visit. Its supplied calibration history is not independently qualified by importing it."
+            representationNotice = "Reader imported for inspection this visit. Its supplied calibration history does not qualify ordinary reply measurements."
         } catch {
             representationNotice = "Reader was not imported: \(error.localizedDescription)"
         }
@@ -2679,6 +2679,10 @@ final class CompanionStore: ObservableObject {
     func setRepresentationMeasurementsEnabled(_ enabled: Bool) {
         guard !isShuttingDown, enabled != representationMeasurementsEnabled else { return }
         if enabled {
+            guard representationReader?.canMeasureGeneralReplies == true else {
+                representationNotice = "Ordinary reply measurements require a reader qualified for general replies. Imported synthetic readers remain available for inspection."
+                return
+            }
             guard representationReader?.modelName == qwenModel,
                   representationReader?.hasLimitedShadowReport == true,
                   GGUFRepresentationClient.bundledWorkerAvailable else {
@@ -2797,7 +2801,9 @@ final class CompanionStore: ObservableObject {
     }
 
     private func makeAssistant(_ provider: AssistantProvider) -> any AssistantClient {
-        if provider == .qwen, representationMeasurementsEnabled, let reader = representationReader {
+        if provider == .qwen, representationMeasurementsEnabled, let reader = representationReader,
+           reader.canMeasureGeneralReplies, reader.hasLimitedShadowReport,
+           reader.modelName == qwenModel, GGUFRepresentationClient.bundledWorkerAvailable {
             return HamptonReasonsAssistant(model: qwenModel,
                 reasoner: GGUFRepresentationClient(model: qwenModel, reader: reader), nativeRuntime: .shared)
         }

@@ -31,7 +31,7 @@ struct RepresentationSettingsView: View {
                         Text("Unqualified import · no supported calibration report")
                             .foregroundStyle(.orange)
                             .accessibilityIdentifier("assistant.representation.unqualified")
-                        Text("This legacy reader is available for inspection. A complete passing calibration report is required before measurements can be enabled.")
+                        Text("This legacy reader is available for inspection. It does not qualify ordinary reply measurements.")
                             .foregroundStyle(.secondary)
                     }
                     DisclosureGroup("Reader provenance") {
@@ -49,13 +49,15 @@ struct RepresentationSettingsView: View {
                             .accessibilityIdentifier("assistant.representation.remove")
                     }
                 }
-                Toggle("Measure local replies for this visit", isOn: Binding(
+                Toggle("Measure ordinary replies (unavailable for synthetic readers)", isOn: Binding(
                     get: { store.representationMeasurementsEnabled },
                     set: { store.setRepresentationMeasurementsEnabled($0) }))
-                    .disabled(store.representationReader?.hasLimitedShadowReport != true || !GGUFRepresentationClient.bundledWorkerAvailable)
+                    .disabled(store.representationReader?.canMeasureGeneralReplies != true
+                              || store.representationReader?.hasLimitedShadowReport != true
+                              || !GGUFRepresentationClient.bundledWorkerAvailable)
                     .accessibilityIdentifier("assistant.representation.enabled")
                 Text(store.representationNotice).textSelection(.enabled)
-                Text("Changing this setting stops local work and clears temporary local context. CPU performance remains unqualified and may be slower. While measurements are enabled, external providers, Compare, and automatic external fallback are unavailable. Turning measurements off restores ordinary Qwen and chat routing. Steering is disabled. Reader selection resets when ARCHi closes.")
+                Text("Imported readers remain available for inspection. Synthetic calibration does not qualify ordinary reply measurements. Reader selection resets when ARCHi closes.")
                     .foregroundStyle(.secondary)
                 Divider()
                 Button("Review calibration report…", action: reviewCalibrationReport)

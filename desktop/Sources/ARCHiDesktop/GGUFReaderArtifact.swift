@@ -30,6 +30,9 @@ struct GGUFReaderArtifact: Sendable {
     var layer: String { basis.layer }
     var tokenRule: String { basis.tokenRule }
     var hasLimitedShadowReport: Bool { calibrationSummary != nil }
+    /// Neither legacy imports nor the v2 synthetic prompt-final report qualify
+    /// ordinary reply measurements. A passing narrow report cannot widen scope.
+    var canMeasureGeneralReplies: Bool { false }
     var displayName: String { "\(readerName) · \(modelName) · \(layer)" }
 
     /// This deliberately pins one explicit no-thinking ChatML rendering. It is

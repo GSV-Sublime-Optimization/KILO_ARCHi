@@ -10,6 +10,39 @@ final class GGUFReaderQualificationTests: XCTestCase {
         let artifact = try GGUFReaderArtifact.decode(try artifactBytes(report()))
         XCTAssertTrue(artifact.hasLimitedShadowReport)
         XCTAssertEqual(artifact.calibrationSummary?.holdoutCorrect, 8)
+        XCTAssertFalse(artifact.canMeasureGeneralReplies)
+    }
+
+    @MainActor
+    func testPassingSyntheticReaderCannotEnableOrRerouteOrdinaryReplies() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let readerURL = directory.appendingPathComponent("reader.json")
+        try artifactBytes(report()).write(to: readerURL)
+        var clients: [InspectionOnlyReaderClient] = []
+        let store = CompanionStore(preferenceURL: directory.appendingPathComponent("preferences.json"),
+            assistantFactory: { _, _ in
+                let client = InspectionOnlyReaderClient()
+                clients.append(client)
+                return client
+            }, allowsPlay: false)
+        store.selectQwenModel("qwen3:8b")
+        store.importRepresentationReader(from: readerURL)
+        XCTAssertTrue(store.representationReader?.hasLimitedShadowReport == true)
+        let clientCount = clients.count, route = store.route
+        let ticket = store.contextTicket()
+
+        store.setRepresentationMeasurementsEnabled(true)
+
+        XCTAssertFalse(store.representationMeasurementsEnabled)
+        XCTAssertNotNil(store.representationReader, "Inspection remains available after the refused enable request")
+        XCTAssertTrue(store.representationNotice.contains("synthetic"), "Reject on task scope even when no worker is bundled")
+        XCTAssertEqual(clients.count, clientCount, "Refused enablement must not replace the ordinary client")
+        XCTAssertEqual(store.route, route)
+        XCTAssertTrue(store.isCurrent(ticket, requireVisible: false))
+        XCTAssertTrue(clients.allSatisfy { $0.connectCount == 0 && $0.replyCount == 0 })
+        await store.shutdownAssistant()
     }
 
     func testHeadlinePassWithoutEvidenceIsRejected() throws {
@@ -88,6 +121,7 @@ final class GGUFReaderQualificationTests: XCTestCase {
         for key in ["tokenRule", "measurementScope", "calibrationReport"] { value.removeValue(forKey: key) }
         let artifact = try GGUFReaderArtifact.decode(json(value))
         XCTAssertFalse(artifact.hasLimitedShadowReport)
+        XCTAssertFalse(artifact.canMeasureGeneralReplies)
     }
 
     func testNumericalBindingMatchesIndependentPythonFloat64Vector() {
@@ -180,4 +214,15 @@ final class GGUFReaderQualificationTests: XCTestCase {
     }
 
     private func artifactBytes(_ report: [String: Any]) throws -> Data { try json(artifactObject(report)) }
+}
+
+@MainActor
+private final class InspectionOnlyReaderClient: AssistantClient {
+    var connectCount = 0
+    var replyCount = 0
+    func connect() async throws { connectCount += 1 }
+    func reply(to request: AssistantRequest, onEvent: @escaping @MainActor (AssistantEvent) -> Void) async throws {
+        replyCount += 1
+    }
+    func disconnect() {}
 }

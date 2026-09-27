@@ -675,6 +675,7 @@ private struct MemoryWorkspace: View {
             .buttonStyle(.bordered)
             .accessibilityIdentifier("memory.open-graph")
             RelationshipMemoryCard(store: store)
+            RecordLookupCard(store: store)
             KnowledgePagesCard(store: store)
             KeptLessonsCard(store: store)
             WorkspaceCard {

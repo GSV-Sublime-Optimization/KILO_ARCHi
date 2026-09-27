@@ -108,6 +108,7 @@ struct Request {
     std::vector<double> direction, center;
     double offset = 0, scale = 1;
     int max_input = 0, max_output = 0, deadline_ms = 0, layer_index = 0;
+    bool measure_record = false;
 };
 static Request validate(const json & object) {
     require(object.is_object(), "Request must be an object");
@@ -191,6 +192,7 @@ static Request validate(const json & object) {
     request.identity["numeric_payload_digest"] = sha(numeric.dump());
     return request;
 }
+#include "task_assay.h"
 struct Observation {
     const Request & request;
     Clock::time_point deadline;
@@ -226,7 +228,7 @@ static bool eval_callback(ggml_tensor * tensor, bool ask, void * user) noexcept 
         const double z = (raw - state.request.offset) / state.request.scale;
         const double coordinate = z >= 0 ? 1.0/(1.0 + std::exp(-z)) : std::exp(z)/(1.0 + std::exp(z));
         require(std::isfinite(coordinate), "Non-finite coordinate");
-        require(state.samples.size() < static_cast<size_t>(state.request.max_output), "Sample budget exceeded");
+        require(state.samples.size() < static_cast<size_t>(state.request.measure_record ? 1 : state.request.max_output), "Sample budget exceeded");
         state.samples.push_back({{"decode_index", state.decode_index}, {"token_position", state.token_position},
                                  {"layer", state.request.layer}, {"raw_scores", {raw}}, {"coordinates", {coordinate}}});
         std::fill(row.begin(), row.end(), 0.0f);
@@ -311,7 +313,7 @@ static json run(const Request & request) {
     require(input_count > 0 && input_count <= request.max_input, "Prompt token count exceeds budget; no truncation performed");
     input.resize(input_count);
     auto context_parameters = llama_context_default_params();
-    context_parameters.n_ctx = request.max_input + request.max_output;
+    context_parameters.n_ctx = request.max_input + (request.measure_record ? 1 : request.max_output);
     context_parameters.n_batch = 256; context_parameters.n_ubatch = 256;
     context_parameters.n_seq_max = 1; context_parameters.n_threads = 4; context_parameters.n_threads_batch = 4;
     context_parameters.offload_kqv = false; context_parameters.op_offload = false;
@@ -332,6 +334,16 @@ static json run(const Request & request) {
     for (int start = 0; start < input_count; start += 256) {
         const int n = std::min(256, input_count - start);
         decode(input.data() + start, n, start + n == input_count, start + n - 1);
+    }
+    if (request.measure_record) {
+        require(state.samples.size() == 1, "Record measurement requires exactly one prompt-final sample");
+        const double raw = state.samples[0]["raw_scores"][0].get<double>();
+        const double standardized = (raw - request.offset) / request.scale;
+        require(std::isfinite(raw) && std::isfinite(standardized), "Non-finite record measurement");
+        auto result = record_base_response(request);
+        result.update({{"status", "ok"}, {"raw_score", raw}, {"standardized_score", standardized},
+                       {"input_tokens", input_count}, {"output_tokens", 0}, {"token_position", input_count - 1}});
+        return result;
     }
     std::unique_ptr<llama_sampler, decltype(&llama_sampler_free)> sampler(llama_sampler_init_greedy(), llama_sampler_free);
     require(sampler != nullptr, "Cannot create deterministic sampler");
@@ -565,18 +577,23 @@ int main(int argc, char ** argv) {
     // Parent termination remains the outer guard while stdin is still arriving.
     std::signal(SIGALRM, [](int) { _exit(124); }); alarm(185);
     const bool calibration = argc == 2 && (std::string(argv[1]) == "--acquire-calibration" || std::string(argv[1]) == "--validate-calibration");
+    const bool record = argc == 2 && (std::string(argv[1]) == "--measure-record" || std::string(argv[1]) == "--validate-record");
     if (calibration) alarm(545);
     try {
-        require(argc == 1 || (argc == 2 && std::string(argv[1]) == "--validate-only") || calibration, "Unknown worker argument");
+        require(argc == 1 || (argc == 2 && std::string(argv[1]) == "--validate-only") || calibration || record, "Unknown worker argument");
         std::string data; data.reserve(65536); char buffer[16384];
         while (std::cin) {
             std::cin.read(buffer, sizeof(buffer)); const auto n = std::cin.gcount();
-            require(data.size() + n <= MAX_REQUEST_BYTES, "Request exceeds byte budget"); data.append(buffer, n);
+            require(data.size() + n <= (record ? 512 * 1024 : MAX_REQUEST_BYTES), "Request exceeds byte budget"); data.append(buffer, n);
         }
         // Reject duplicate keys instead of silently accepting last-value wins.
         auto parsed = parse_bounded(data);
         json response;
-        if (calibration) {
+        if (record) {
+            const auto request = validate_record(parsed);
+            if (std::string(argv[1]) == "--validate-record") { response = record_base_response(request); response["status"] = "validated"; }
+            else response = run(request);
+        } else if (calibration) {
             const auto request = validate_calibration(parsed);
             if (std::string(argv[1]) == "--validate-calibration") { response = calibration_base_response(request); response["status"] = "validated"; }
             else response = acquire_calibration(request);
@@ -587,7 +604,7 @@ int main(int argc, char ** argv) {
         }
         std::cout << response.dump() << '\n'; return 0;
     } catch (const std::exception & failure) {
-        std::cout << json({{"schema", calibration ? "archi-gguf-calibration-result/v1" : "archi-gguf-shadow-result/v1"}, {"status", "error"},
+        std::cout << json({{"schema", record ? "archi-record-measurement-result/v1" : (calibration ? "archi-gguf-calibration-result/v1" : "archi-gguf-shadow-result/v1")}, {"status", "error"},
                            {"error", failure.what()}}).dump() << '\n';
         return 1;
     }

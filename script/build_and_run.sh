@@ -114,6 +114,9 @@ cp "$REPO_ROOT/desktop/Sources/ARCHiDesktop/Resources/ReactorBridge/worker.py" "
 mkdir -p "$BUNDLE_DIR/Contents/Resources/ARC3Bridge"
 cp "$REPO_ROOT/desktop/Sources/ARCHiDesktop/Resources/ARC3Bridge/archi_arc3_bridge.py" "$BUNDLE_DIR/Contents/Resources/ARC3Bridge/archi_arc3_bridge.py"
 test -s "$BUNDLE_DIR/Contents/Resources/ARC3Bridge/archi_arc3_bridge.py"
+# The task-scoped reader is bundled as frozen evidence, never enabled for chat.
+# Verify the original bytes before copying; this is not a model download.
+python3 "$REPO_ROOT/script/package_record_reader.py" "$REPO_ROOT/desktop/Sources/ARCHiDesktop/Resources/RecordReader" "$BUNDLE_DIR/Contents/Resources/RecordReader"
 # Use a previously built runtime only. Installation never fetches code, weights
 # or readers. Preserve the optional helper on subsequent native-only upgrades.
 if [[ -n "${ARCHI_REPRESENTATION_RUNTIME:-}" ]]; then

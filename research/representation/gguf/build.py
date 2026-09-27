@@ -146,6 +146,7 @@ def main():
         "shadow_token_rules": ["last", "prompt-last"],
         "model_loaded": False, "inference_executed": False,
         "worker_source_sha256": digest(HERE / "worker.cpp"), "recipe_sha256": digest(Path(__file__)),
+        "task_assay_header_sha256": digest(HERE / "task_assay.h"),
         "compatibility_patch": compatibility_patch,
         "upstream_file_sha256": {
             path: (compatibility_patch["upstream_sha256"]

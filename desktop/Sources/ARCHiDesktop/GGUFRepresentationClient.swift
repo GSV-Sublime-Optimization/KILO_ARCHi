@@ -267,17 +267,21 @@ private extension JSONValue {
 
 /// A single exchange with one owned child. Pipes are nonblocking, every buffer
 /// is bounded, and Stop terminates only this Process, including partial output.
-private final class GGUFShadowTransport: @unchecked Sendable {
+final class GGUFShadowTransport: @unchecked Sendable {
     private let queue = DispatchQueue(label: "ARCHi.Representation.transport", qos: .userInitiated)
     private let lock = NSLock()
     private let executable: URL
-    private let validateOnly: Bool
+    private let arguments: [String]
     private let timeout: TimeInterval
     private var retired = false
     private var process: Process?
 
-    init(executable: URL, validateOnly: Bool, timeout: TimeInterval) {
-        self.executable = executable; self.validateOnly = validateOnly; self.timeout = timeout
+    convenience init(executable: URL, validateOnly: Bool, timeout: TimeInterval) {
+        self.init(executable: executable, arguments: validateOnly ? ["--validate-only"] : [], timeout: timeout)
+    }
+
+    init(executable: URL, arguments: [String], timeout: TimeInterval) {
+        self.executable = executable; self.arguments = arguments; self.timeout = timeout
     }
 
     func request(_ data: Data) async throws -> Data {
@@ -311,7 +315,7 @@ private final class GGUFShadowTransport: @unchecked Sendable {
         let deadline = ProcessInfo.processInfo.systemUptime + timeout
         let child = Process(), input = Pipe(), output = Pipe(), errors = Pipe()
         child.executableURL = executable
-        child.arguments = validateOnly ? ["--validate-only"] : []
+        child.arguments = arguments
         child.currentDirectoryURL = executable.deletingLastPathComponent()
         child.environment = ["PATH": "/usr/bin:/bin", "LANG": "en_US.UTF-8", "LC_ALL": "en_US.UTF-8"]
         child.standardInput = input; child.standardOutput = output; child.standardError = errors

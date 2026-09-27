@@ -51,3 +51,10 @@ The existing native v1/v2 imports qualify no ordinary-chat task. `canMeasureGene
 The first run of this protocol passed all 24 calibration and all 24 held-out examples. Minimum signed margins were 0.349168 and 0.228235, respectively; the threshold remained 0.1. Training-only CV selected strength 0.1 (1/96 errors, tied with 0.01; stronger wins). These CV rows were used for model selection and are not an independent accuracy estimate. The six acquisition batches processed 20,004 input tokens with zero generation in 395.80 seconds. No cloud calls or model reinstall occurred.
 
 [`task_reader_export.py`](task_reader_export.py) revalidates the exact run, regenerates margins from its sealed activations and writes a read-only native review plus a qualified research bundle only when the gate passes. The new native report view accepts that review file; it cannot enable inference. See the [public result receipt](../../../docs/research/task-reader-result-2026-09-26.json). Locally retained run: `output/task-reader-2026-09-26/run-01/`.
+
+The subsequent [Record lookup integration](../../../docs/native-record-lookup.md)
+adds a separate native task consumer with a scalar-only, zero-generation worker
+endpoint. Its single historical-prefill compatibility check reproduced the
+original projection exactly. The existing report view and ordinary reader
+import retain their boundaries; everyday record transfer is not newly qualified
+by connecting this consumer.

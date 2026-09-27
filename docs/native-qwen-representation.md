@@ -2,9 +2,9 @@
 
 ## Current increment
 
-A new final-layer grouped-ridge reader has now been built from the existing Qwen3.5 model: **24/24 calibration and 24/24 held-out synthetic examples passed**, with minimum signed margins 0.3492 and 0.2282 against a fixed 0.1 requirement. Ninety-six examples fitted the direction. Acquisition used 20,004 local input tokens, zero generated tokens and no paid API. The fitted bundle stays local; [source, mathematics and scope](../research/representation/gguf/task-reader.md) and the [machine-readable result](research/task-reader-result-2026-09-26.json) are retained. This is not a controlled improvement comparison with the older, different corpus below.
+A new final-layer grouped-ridge reader has now been built from the existing Qwen3.5 model: **24/24 calibration and 24/24 held-out synthetic examples passed**, with minimum signed margins 0.3492 and 0.2282 against a fixed 0.1 requirement. Ninety-six examples fitted the direction. Acquisition used 20,004 local input tokens, zero generated tokens and no paid API. The frozen synthetic-only fitted bundle is now packaged for the task consumer; [source, mathematics and scope](../research/representation/gguf/task-reader.md) and the [machine-readable result](research/task-reader-result-2026-09-26.json) are retained. This is not a controlled improvement comparison with the older, different corpus below.
 
-Native ordinary-reply routing now refuses synthetic readers at both enablement and construction. A read-only report view supports the new result without importing its weights or widening its scope. The specific task consumer and compatible native measurement runtime still need integration before live task use. No ordinary-chat or steering qualification is claimed.
+Native ordinary-reply routing refuses synthetic readers at both enablement and construction. A read-only report view supports the new result. The [Record lookup consumer](native-record-lookup.md) now has a separate matching runtime route: exact source lookup plus an optional zero-generation prefill returning only a scalar. The frozen bundle is admitted only to this pinned task consumer; the ordinary reader import contract is unchanged. Everyday data remains an unqualified transfer distribution. No ordinary-chat or steering qualification is claimed.
 
 ## Preserved earlier attempts
 

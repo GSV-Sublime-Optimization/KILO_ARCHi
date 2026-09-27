@@ -1,5 +1,12 @@
 # Local GGUF shadow worker
 
+**September 26 task integration:** the [Record lookup consumer](../../../docs/native-record-lookup.md)
+adds a distinct `--measure-record` endpoint for one bounded, zero-generation
+prefill. It uses a frozen task reader and returns only scalar measurements.
+The ordinary reply protocol described below remains outside that qualification.
+The original build/probe descriptions below retain their historical scope;
+see the [task-reader qualification](task-reader.md) for the later fitted result.
+
 This worker connects an explicitly imported reader to intermediate Qwen GGUF
 activations. It runs in a private child process, loads one verified model blob,
 generates a bounded answer, and returns scalar reader measurements. It does not

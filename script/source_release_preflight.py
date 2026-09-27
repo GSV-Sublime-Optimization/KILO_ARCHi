@@ -29,6 +29,9 @@ RELEASE_FILES.add("docs/native-qwen.md")
 EXACT = RELEASE_FILES | ARC_REPLAY_FILES | {
     ".gitignore", ".postcssrc.json", "index.html", "tsconfig.json", "package.json", "package-lock.json",
     "desktop/Package.swift", "desktop/README.md", "arc/README.md", "arc/tsconfig.json",
+    "desktop/Sources/ARCHiDesktop/Resources/RecordReader/reader.qualified.json",
+    "script/package_record_reader.py", "script/package_representation_runtime.py",
+    "docs/native-record-lookup.md",
     "arc/fixtures/manifest.json", "arc/fixtures/golden/smoke-evidence-v1.json",
     "arc/fixtures/smoke/synthetic-increment-001.json", "arc/fixtures/portable/smoke-evaluation-v1.json",
     "arc/fixtures/portable/third-rate-evaluation-v1.json", "arc/fixtures/golden/third-rate-evidence-v1.json",

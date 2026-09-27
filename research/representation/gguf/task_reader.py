@@ -36,7 +36,7 @@ LAYOUTS = ["assignment", "table", "entry"]
 
 def sources():
     return {name: base.sha((HERE / name).read_bytes()) for name in
-            ("task_reader.py", "task_reader_math.py", "calibrate.py", "corpus.py", "worker.cpp", "build.py")}
+            ("task_reader.py", "task_reader_math.py", "calibrate.py", "corpus.py", "worker.cpp", "task_assay.h", "build.py")}
 
 
 def make_dataset(seed):
@@ -102,7 +102,8 @@ def runtime(worker):
     manifest = base.read(worker.parent / "build-manifest.json", 128 * 1024)
     if (manifest["backend_revision"] != BACKEND
             or manifest["worker_source_sha256"] != base.sha((HERE / "worker.cpp").read_bytes())
-            or manifest["recipe_sha256"] != base.sha((HERE / "build.py").read_bytes())):
+            or manifest["recipe_sha256"] != base.sha((HERE / "build.py").read_bytes())
+            or manifest.get("task_assay_header_sha256") != base.sha((HERE / "task_assay.h").read_bytes())):
         raise ValueError("Runtime and selected source revision differ")
     for name, digest in manifest["runtime_sha256"].items():
         path = worker.parent / name

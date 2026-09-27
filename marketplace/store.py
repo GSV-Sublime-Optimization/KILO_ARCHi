@@ -82,19 +82,57 @@ def not_found() -> None:
     raise APIError(404, "not_found", "That resource is unavailable to this account.")
 
 
+def _windows_reparse_point(path: Path) -> bool:
+    try:
+        info = os.lstat(path)
+    except FileNotFoundError:
+        return False
+    flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+    return bool(getattr(info, "st_file_attributes", 0) & flag)
+
+
+def _prepare_private_database(path: Path) -> None:
+    """Create/validate one local database file without following link-like paths."""
+    if os.name == "nt":
+        # Python exposes no POSIX O_NOFOLLOW or owner/mode semantics on Windows.
+        # Keep the development database beneath the current user's profile and
+        # reject reparse-point files instead of silently weakening the boundary.
+        home = Path.home().resolve()
+        local = Path(os.environ.get("LOCALAPPDATA", home)).resolve()
+        parent = path.parent.resolve()
+        roots = {home, local}
+        if not any(parent == root or root in parent.parents for root in roots):
+            raise ValueError("On Windows, use a database path inside this user's profile.")
+        if _windows_reparse_point(path):
+            raise OSError("Refusing a reparse-point marketplace database.")
+        descriptor = os.open(path, os.O_RDWR | os.O_CREAT, 0o600)
+        try:
+            opened = os.fstat(descriptor)
+            current = os.lstat(path)
+            if not stat.S_ISREG(opened.st_mode) or _windows_reparse_point(path):
+                raise ValueError("Use a regular private marketplace database.")
+            if (opened.st_dev, opened.st_ino) != (current.st_dev, current.st_ino):
+                raise OSError("Marketplace database identity changed during validation.")
+        finally:
+            os.close(descriptor)
+        return
+
+    # POSIX can reject a final symlink atomically and verify ownership/mode.
+    descriptor = os.open(path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+    try:
+        info = os.fstat(descriptor)
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077:
+            raise ValueError("Use a regular database owned by this user with mode 0600.")
+    finally:
+        os.close(descriptor)
+
+
 class Store:
     def __init__(self, path: str | Path, *, clock=time.time):
         self.path = Path(path).absolute()
         self.clock = clock
         self.path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-        # Refuse permissive/symlink database paths instead of altering an existing file.
-        descriptor = os.open(self.path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
-        try:
-            info = os.fstat(descriptor)
-            if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077:
-                raise ValueError("Use a regular database owned by this user with mode 0600.")
-        finally:
-            os.close(descriptor)
+        _prepare_private_database(self.path)
         with self.connection() as db:
             version = db.execute("PRAGMA user_version").fetchone()[0]
             if version == 0:

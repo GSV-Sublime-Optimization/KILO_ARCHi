@@ -63,6 +63,7 @@ EXACT = RELEASE_FILES | ARC_REPLAY_FILES | {
     "scripts/tests/test_liminal_v008_format.py",
     "docs/liminal-point-asset-v1.md", "docs/native-liminal-v008.md",
     "docs/research/liminal-rendering-techniques-2026-09-27.md",
+    "docs/research/arena-brain-signal-interface-2026-09-27.md",
     "docs/native-knowledge-chat.md",
     "docs/native-knowledge-methods.md",
 }

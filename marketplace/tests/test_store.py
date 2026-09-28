@@ -1,3 +1,4 @@
+import contextlib
 import copy
 import os
 import sqlite3
@@ -63,7 +64,7 @@ class StoreTests(unittest.TestCase):
         self.assertEqual(self.call("GET", "/v1/inventory").value["items"], [acquired])
 
     def test_password_and_session_secrets_are_hashed_not_stored_raw(self):
-        with sqlite3.connect(self.path) as db:
+        with contextlib.closing(sqlite3.connect(self.path)) as db, db:
             row = db.execute("SELECT password_salt,password_hash FROM accounts").fetchone()
             token_hash = db.execute("SELECT token_hash FROM sessions").fetchone()[0]
         self.assertEqual(len(row[0]), 32)
@@ -238,7 +239,7 @@ class StoreTests(unittest.TestCase):
 
     def test_corrupt_stored_recipe_is_not_downloaded_or_added(self):
         published = self.publish(self.listing())
-        with sqlite3.connect(self.path) as db:
+        with contextlib.closing(sqlite3.connect(self.path)) as db, db:
             db.execute("UPDATE versions SET recipe_id=? WHERE listing_id=? AND version=2", ("0" * 64, published["id"]))
         self.assert_error("storage_unavailable", "GET", f'/v1/listings/{published["id"]}/versions/2/package')
         self.assertEqual(self.call("GET", "/v1/inventory").value["total"], 0)
@@ -270,7 +271,7 @@ class StoreTests(unittest.TestCase):
                 Store(mode_path)
         unrelated = self.path.with_name("unrelated.sqlite3")
         unrelated.touch(mode=0o600)
-        with sqlite3.connect(unrelated) as db:
+        with contextlib.closing(sqlite3.connect(unrelated)) as db, db:
             db.execute("CREATE TABLE personal_data(value TEXT)")
         before = unrelated.read_bytes()
         with self.assertRaises(ValueError):

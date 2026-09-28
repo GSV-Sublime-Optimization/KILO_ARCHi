@@ -2,6 +2,7 @@ import contextlib
 import http.client
 import io
 import json
+import signal
 import socket
 import sqlite3
 import subprocess
@@ -10,6 +11,7 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest.mock import patch
 import uuid
 from pathlib import Path
 
@@ -85,6 +87,16 @@ class HTTPTests(unittest.TestCase):
         self.assertNotIn("Access-Control-Allow-Origin", headers)
         uuid.UUID(headers["X-Request-ID"])
 
+    def test_loopback_bind_does_not_use_reverse_dns(self):
+        probe = Store(self.path.with_name("dns-free.sqlite3"), clock=lambda: self.now)
+        with patch("socket.getfqdn", side_effect=AssertionError("loopback bind must not resolve DNS")):
+            server = LocalServer(probe, 0)
+        try:
+            self.assertEqual(server.server_name, "127.0.0.1")
+            self.assertGreater(server.server_port, 0)
+        finally:
+            server.server_close()
+
     def test_active_port_cannot_be_shared_by_another_service(self):
         with self.assertRaises(OSError):
             LocalServer(self.store, self.port)
@@ -115,7 +127,7 @@ class HTTPTests(unittest.TestCase):
         self.assertEqual((status, data["error"]["code"]), (413, "body_too_large"))
         status, _ = self.raw_request(f"POST /v1/accounts HTTP/1.0\r\nHost: 127.0.0.1:{self.port}\r\nContent-Length: 100\r\nContent-Type: application/json\r\n\r\n{{".encode())
         self.assertEqual(status, 400)
-        with sqlite3.connect(self.path) as db:
+        with contextlib.closing(sqlite3.connect(self.path)) as db, db:
             self.assertEqual(db.execute("SELECT count(*) FROM accounts").fetchone()[0], 0)
 
     def test_content_type_duplicate_json_and_unsupported_method(self):
@@ -196,13 +208,13 @@ class HTTPTests(unittest.TestCase):
             for route in ("/v1/payments", "/v1/balance", "/v1/checkout"):
                 self.assertEqual(self.request("POST", route, {}, token=token)[0], 404)
         self.assertEqual(output.getvalue(), "")
-        with sqlite3.connect(self.path) as db:
+        with contextlib.closing(sqlite3.connect(self.path)) as db, db:
             tables = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         self.assertFalse({"payments", "balances", "orders"} & tables)
 
     def test_storage_failure_returns_service_error_without_database_details(self):
         token = self.account()
-        with sqlite3.connect(self.path) as db:
+        with contextlib.closing(sqlite3.connect(self.path)) as db, db:
             db.execute("ALTER TABLE inventory RENAME TO missing_inventory")
         status, _, data = self.request("GET", "/v1/inventory", token=token)
         self.assertEqual((status, data["error"]["code"]), (503, "storage_unavailable"))
@@ -220,26 +232,47 @@ class ProcessLifecycleTests(unittest.TestCase):
             command = [sys.executable, "-m", "marketplace", "--database", str(database), "--port", str(port)]
 
             def run_process():
-                process = subprocess.Popen(command, cwd=Path(__file__).resolve().parents[2],
-                                           stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-                deadline = time.monotonic() + 10
+                process = subprocess.Popen(
+                    command,
+                    cwd=Path(__file__).resolve().parents[2],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    creationflags=(subprocess.CREATE_NEW_PROCESS_GROUP if sys.platform == "win32" else 0),
+                )
+                deadline = time.monotonic() + 30
+                last_probe = "no response"
                 while time.monotonic() < deadline:
                     if process.poll() is not None:
                         stdout, stderr = process.communicate(timeout=5)
-                        self.fail("Synthetic CLI server exited during startup: " + stderr)
+                        self.fail(
+                            f"Synthetic CLI server exited during startup (rc={process.returncode}); "
+                            f"stdout={stdout!r}; stderr={stderr!r}"
+                        )
                     try:
                         conn = http.client.HTTPConnection("127.0.0.1", port, timeout=0.3)
                         conn.request("GET", "/v1/health")
                         response = conn.getresponse()
-                        response.read()
+                        body = response.read()
                         conn.close()
+                        last_probe = f"HTTP {response.status} body={body[:240]!r}"
                         if response.status == 200:
                             return process
-                    except OSError:
+                    except OSError as exc:
+                        last_probe = f"{type(exc).__name__}: {exc}"
                         time.sleep(0.05)
-                process.terminate()
-                process.communicate(timeout=5)
-                self.fail("Synthetic CLI server did not become healthy")
+                stdout, stderr = stop_process(process)
+                self.fail(
+                    "Synthetic CLI server did not become healthy; "
+                    f"last_probe={last_probe}; stdout={stdout!r}; stderr={stderr!r}"
+                )
+
+            def stop_process(process):
+                if sys.platform == "win32":
+                    process.send_signal(signal.CTRL_BREAK_EVENT)
+                else:
+                    process.terminate()
+                return process.communicate(timeout=5)
 
             def request(method, path, body=None, token=None):
                 conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
@@ -260,8 +293,7 @@ class ProcessLifecycleTests(unittest.TestCase):
                 token = session["token"]
                 listing = request("POST", "/v1/listings", draft(), token)[1]["listing"]
             finally:
-                process.terminate()
-                stdout, stderr = process.communicate(timeout=5)
+                stdout, stderr = stop_process(process)
             self.assertEqual(process.returncode, 0)
             self.assertNotIn(PASSWORD, stdout + stderr)
             self.assertNotIn(token, stdout + stderr)
@@ -271,8 +303,7 @@ class ProcessLifecycleTests(unittest.TestCase):
                 self.assertEqual(request("GET", "/v1/me", token=token)[1]["account"], session["account"])
                 self.assertEqual(request("GET", "/v1/me/listings", token=token)[1]["items"], [listing])
             finally:
-                process.terminate()
-                stdout, stderr = process.communicate(timeout=5)
+                stdout, stderr = stop_process(process)
             self.assertEqual(process.returncode, 0)
             self.assertEqual(stderr, "")
 

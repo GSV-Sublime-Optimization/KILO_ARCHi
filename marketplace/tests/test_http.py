@@ -11,6 +11,7 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest.mock import patch
 import uuid
 from pathlib import Path
 
@@ -85,6 +86,16 @@ class HTTPTests(unittest.TestCase):
         self.assertEqual(headers["Connection"], "close")
         self.assertNotIn("Access-Control-Allow-Origin", headers)
         uuid.UUID(headers["X-Request-ID"])
+
+    def test_loopback_bind_does_not_use_reverse_dns(self):
+        probe = Store(self.path.with_name("dns-free.sqlite3"), clock=lambda: self.now)
+        with patch("socket.getfqdn", side_effect=AssertionError("loopback bind must not resolve DNS")):
+            server = LocalServer(probe, 0)
+        try:
+            self.assertEqual(server.server_name, "127.0.0.1")
+            self.assertGreater(server.server_port, 0)
+        finally:
+            server.server_close()
 
     def test_active_port_cannot_be_shared_by_another_service(self):
         with self.assertRaises(OSError):

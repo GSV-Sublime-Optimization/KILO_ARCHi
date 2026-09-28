@@ -17,9 +17,10 @@ from .store import Store
 
 
 class LocalServer(HTTPServer):
-    # Allow an intentional restart while old connections are in TIME_WAIT.
-    # This does not enable SO_REUSEPORT or permit two active listeners.
-    allow_reuse_address = True
+    # POSIX needs SO_REUSEADDR for a prompt restart through TIME_WAIT.
+    # Windows gives SO_REUSEADDR materially different sharing semantics, so keep
+    # the default exclusive bind there to prevent a second active listener.
+    allow_reuse_address = sys.platform != "win32"
     request_queue_size = 16
 
     def __init__(self, store: Store, port: int = 47831):
@@ -175,6 +176,8 @@ def main(argv=None):
             def terminate(_signum, _frame):
                 raise KeyboardInterrupt
             signal.signal(signal.SIGTERM, terminate)
+            if hasattr(signal, "SIGBREAK"):
+                signal.signal(signal.SIGBREAK, terminate)
             print(f"ARCHi creator marketplace · DEVELOPMENT · http://127.0.0.1:{server.server_port}", flush=True)
             print("Persistent local database selected. Catalog starts empty. Ctrl-C stops the service.", flush=True)
             try:

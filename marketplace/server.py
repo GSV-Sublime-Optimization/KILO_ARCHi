@@ -9,6 +9,7 @@ import sys
 import time
 import uuid
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from socketserver import TCPServer
 from pathlib import Path
 from urllib.parse import parse_qsl, urlsplit
 
@@ -17,9 +18,10 @@ from .store import Store
 
 
 class LocalServer(HTTPServer):
-    # Allow an intentional restart while old connections are in TIME_WAIT.
-    # This does not enable SO_REUSEPORT or permit two active listeners.
-    allow_reuse_address = True
+    # POSIX needs SO_REUSEADDR for a prompt restart through TIME_WAIT.
+    # Windows gives SO_REUSEADDR materially different sharing semantics, so keep
+    # the default exclusive bind there to prevent a second active listener.
+    allow_reuse_address = sys.platform != "win32"
     request_queue_size = 16
 
     def __init__(self, store: Store, port: int = 47831):
@@ -27,6 +29,15 @@ class LocalServer(HTTPServer):
         self.store = store
         self.auth_attempts = collections.deque(maxlen=20)
         super().__init__(("127.0.0.1", port), Handler)
+
+    def server_bind(self):
+        # HTTPServer.server_bind() performs socket.getfqdn(host), which is
+        # unnecessary for this hardcoded loopback-only service and can block
+        # for tens of seconds on hosts with slow reverse DNS. Bind directly
+        # through TCPServer and publish the literal loopback identity.
+        TCPServer.server_bind(self)
+        self.server_name = self.server_address[0]
+        self.server_port = self.server_address[1]
 
     def get_request(self):
         sock, address = super().get_request()
@@ -175,6 +186,8 @@ def main(argv=None):
             def terminate(_signum, _frame):
                 raise KeyboardInterrupt
             signal.signal(signal.SIGTERM, terminate)
+            if hasattr(signal, "SIGBREAK"):
+                signal.signal(signal.SIGBREAK, terminate)
             print(f"ARCHi creator marketplace · DEVELOPMENT · http://127.0.0.1:{server.server_port}", flush=True)
             print("Persistent local database selected. Catalog starts empty. Ctrl-C stops the service.", flush=True)
             try:

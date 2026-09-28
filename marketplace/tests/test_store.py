@@ -50,6 +50,12 @@ class StoreTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, code)
         return caught.exception
 
+    def test_store_startup_does_not_run_password_kdf(self):
+        fresh_path = self.path.with_name("startup.sqlite3")
+        with patch("marketplace.store.hash_password", side_effect=AssertionError("startup must not run password KDF")):
+            fresh = Store(fresh_path, clock=lambda: self.now[0])
+        self.assertEqual(fresh.dispatch("GET", "/v1/catalog").value["total"], 0)
+
     def test_empty_catalog_no_profile_or_fixture_seed(self):
         self.assertEqual(self.store.dispatch("GET", "/v1/catalog").value, {"items": [], "total": 0, "limit": 40, "offset": 0})
         self.assertEqual(self.call("GET", "/v1/inventory").value["total"], 0)

@@ -88,7 +88,10 @@ namespace ARCHi.Port
                 }
                 if (!NativePresentationSnapshot.TryRead(json, session, current, UnixNow, out var next, out var reason))
                 { Suspend(reason); return; }
-                bool changed = current == null || next.revision != current.revision || !Fresh;
+                // The native heartbeat advances revision even when content is
+                // unchanged. Rebuilding UI controls here can discard a pointer
+                // down before its matching release and replace keyboard focus.
+                bool changed = current == null || !NativePresentationSnapshot.SameContent(current,next) || !Fresh;
                 current = next;
                 Fresh = next.active;
                 State = next.active ? "Following the native companion" : "Native presentation stopped";
@@ -172,7 +175,7 @@ namespace ARCHi.Port
                     staffPalette = current.staffPalette, staffCrown = current.staffCrown,
                     sessionKind = current.SessionKind, destination = current.Destination,
                     destinationRevision = current.destinationRevision, currentArea = port.Arena == null ? "companion" : "arena",
-                    pointAssetVersion = port.PointRenderer?.Ready == true ? 3 : 0,
+                    pointAssetVersion = port.PointRenderer?.Ready == true ? 4 : 0,
                     pointManifestSHA256 = port.PointRenderer?.ManifestSHA256,
                     pointKnowledgeSHA256 = port.PointRenderer?.KnowledgeSHA256,
                     pointLODCount = port.PointRenderer?.PointCount ?? 0,

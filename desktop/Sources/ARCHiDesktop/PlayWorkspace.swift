@@ -71,9 +71,10 @@ struct PlayWorkspace: View {
         host.updateAppearance(form: store.presentationForm, family: store.presentationFamily,
             reduceMotion: store.preferences.reduceMotion || store.preferences.quiet || systemReduceMotion,
             treatment: store.preferences.visualTreatment,
-            expressionPNG: store.reactorReferenceMatchesCurrentAppearance ? store.reactor.framePNG : nil,
+            expressionPNG: !store.hasPersonalQiMon && store.reactorReferenceMatchesCurrentAppearance ? store.reactor.framePNG : nil,
             expressionRevision: store.reactor.frameRevision,
             recipe: store.presentationRecipe, naturalVariation: store.presentationNaturalVariation,
-            equipment: store.preferences.equipment, seedColor: store.preferences.seedColor)
+            equipment: store.preferences.equipment, seedColor: store.preferences.seedColor,
+            pointProgress: store.preferences.liminalPointProgress)
     }
 }

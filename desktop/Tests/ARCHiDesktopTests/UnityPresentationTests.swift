@@ -23,6 +23,8 @@ final class UnityPresentationTests: XCTestCase {
         ack.pointAssetVersion = 2
         XCTAssertFalse(ack.matches(snapshot, now: now), "The source-clock renderer alone does not include the restored garnet Seed presentation.")
         ack.pointAssetVersion = 3
+        XCTAssertFalse(ack.matches(snapshot, now: now), "The static Seed renderer cannot acknowledge shared activity expression.")
+        ack.pointAssetVersion = 4
         XCTAssertTrue(ack.matches(snapshot, now: now))
         ack.pointManifestSHA256 = String(repeating: "c", count: 64)
         XCTAssertFalse(ack.matches(snapshot, now: now))

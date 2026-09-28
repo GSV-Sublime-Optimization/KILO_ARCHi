@@ -231,6 +231,21 @@ namespace ARCHi.Port
             artFrame.style.minHeight = 80;
             artFrame.style.marginTop = 6;
             artFrame.style.marginBottom = 6;
+            artFrame.style.alignItems = Align.Center;
+            artFrame.style.justifyContent = Justify.Center;
+            // Keep the texture, source-point picking surface and equipment in
+            // one square, instead of stretching them across a large window.
+            var presentationFrame = new VisualElement { name = "companion-art-frame", pickingMode = PickingMode.Ignore };
+            presentationFrame.style.flexShrink = 0;
+            presentationFrame.style.width = 0;
+            presentationFrame.style.height = 0;
+            artFrame.Add(presentationFrame);
+            artFrame.RegisterCallback<GeometryChangedEvent>(evt => {
+                float available = Mathf.Min(evt.newRect.width, evt.newRect.height);
+                float side = float.IsNaN(available) || float.IsInfinity(available) ? 0 : Mathf.Clamp(available - 32, 0, 640);
+                presentationFrame.style.width = side;
+                presentationFrame.style.height = side;
+            });
             cueHalo = new VisualElement { name = "bounded-cue-halo", pickingMode = PickingMode.Ignore };
             cueHalo.style.position = Position.Absolute;
             cueHalo.style.left = Length.Percent(20);
@@ -240,14 +255,14 @@ namespace ARCHi.Port
             Border(cueHalo, Accent, 2);
             Round(cueHalo, 300);
             cueHalo.style.opacity = 0;
-            artFrame.Add(cueHalo);
+            presentationFrame.Add(cueHalo);
             bodyImage = new Image { name = "kin-body-image", scaleMode = ScaleMode.ScaleToFit, pickingMode = PickingMode.Ignore };
             bodyImage.style.position = Position.Absolute;
             bodyImage.style.left = 0;
             bodyImage.style.right = 0;
             bodyImage.style.top = 0;
             bodyImage.style.bottom = 0;
-            artFrame.Add(bodyImage);
+            presentationFrame.Add(bodyImage);
             staff = StaffArt();
             staff.name = "equipped-focus-staff";
             staff.style.position = Position.Absolute;
@@ -255,7 +270,7 @@ namespace ARCHi.Port
             staff.style.top = Length.Percent(27);
             staff.style.bottom = Length.Percent(12);
             staff.style.width = 28;
-            artFrame.Add(staff);
+            presentationFrame.Add(staff);
             stage.Add(artFrame);
 
             var bodyRow = Row();
@@ -390,6 +405,7 @@ namespace ARCHi.Port
             arena.Initialize(root, quiet || reduceMotion, () => {
                 arena = null;
                 nativePoints?.UseRoom();
+                nativePoints?.Freeze(NativeStaticMotion);
                 if (nativeStage != null) nativeStage.gameObject.SetActive(true);
             });
             if (NativeBound) {
@@ -638,6 +654,14 @@ namespace ARCHi.Port
 
         private void OnKeyDown(KeyDownEvent evt)
         {
+            if (evt.commandKey || evt.ctrlKey || evt.altKey) return;
+            if (NativeBound && arena == null && (evt.keyCode == KeyCode.I
+                || evt.keyCode == KeyCode.Escape && nativePoints?.Inspection == true))
+            {
+                ToggleNativePointInspection();
+                evt.StopPropagation();
+                return;
+            }
             if (evt.keyCode != KeyCode.Escape) return;
             StopCue();
             evt.StopPropagation();

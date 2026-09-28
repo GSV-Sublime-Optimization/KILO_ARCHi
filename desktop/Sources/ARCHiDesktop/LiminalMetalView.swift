@@ -6,7 +6,7 @@ import simd
 /// Art direction only. The preserved v008 samples and graph IDs remain exact.
 /// Frame-based framing follows the displayed sample, including slow disk reads.
 enum LiminalSeedStyle {
-    static let revision = "garnet-seed/v1"
+    static let revision = "garnet-seed/v2"
     static func weight(frame: Int) -> Float {
         let t = min(1, max(0, Float(frame - 90) / 18))
         return t * t * (3 - 2 * t)
@@ -29,6 +29,8 @@ struct LiminalMetalView: NSViewRepresentable {
     let isVisible: Bool
     var seedColor: CompanionSeedColor = .original
     var lightIntensity: Float = 1
+    var lightExpression: KinLightExpression = .resting
+    var inspection = false
     var selectableIDs: [UInt32] = []
     var onSelectArtID: ((UInt32) -> Void)? = nil
 
@@ -44,7 +46,8 @@ struct LiminalMetalView: NSViewRepresentable {
     /// Call only for a qualified asset. Failure does not substitute another asset.
     static func snapshotPNGData(asset: LiminalPointAsset, progress: Double,
                                 seedColor: CompanionSeedColor = .original,
-                                lightIntensity: Float = 1) throws -> Data {
+                                lightIntensity: Float = 1, lightMode: KinLightMode = .rest,
+                                unixTime: Double = 0, reduceMotion: Bool = true, inspection: Bool = false) throws -> Data {
         guard let device = MTLCreateSystemDefaultDevice() else { throw LiminalMetalFailure.unavailable }
         let renderer = try LiminalMetalPipeline(device: device)
         let seedTexture = renderer.seedTexture(color: seedColor)
@@ -65,7 +68,8 @@ struct LiminalMetalView: NSViewRepresentable {
         try renderer.encode(command: command, pass: pass, buffers: buffers, count: pair.lower.pointCount,
             uniforms: .init(asset: asset, size: CGSize(width: 512, height: 512), fraction: pair.fraction,
                             seedColor: seedColor, lightIntensity: lightIntensity, frame: pair.lower.frame,
-                            seedAvailable: seedTexture != nil), seedTexture: seedTexture)
+                            seedAvailable: seedTexture != nil, inspection: inspection,
+                            light: .sample(mode: lightMode, unixTime: unixTime, reduced: reduceMotion || inspection)), seedTexture: seedTexture)
         let completed = DispatchSemaphore(value: 0)
         command.addCompletedHandler { _ in completed.signal() }
         command.commit()
@@ -101,9 +105,11 @@ private struct LiminalMetalPipeline {
         var viewportAndFraction: SIMD4<Float>
         var tintAndAmount: SIMD4<Float>
         var intensityAndPadding: SIMD4<Float>
+        var lightCue: SIMD4<Float>
         init(asset: LiminalPointAsset, size: CGSize, fraction: Float,
              seedColor: CompanionSeedColor, lightIntensity: Float, frame: Int,
-             seedAvailable: Bool, inspection: Bool = false) {
+             seedAvailable: Bool, inspection: Bool = false,
+             light: LiminalLightFrame = .sample(mode: .rest, unixTime: 0)) {
             let framing = LiminalSeedStyle.framing(center: asset.center, span: asset.span, frame: frame)
             centerAndScale = SIMD4(framing.center, 2 / framing.span)
             viewportAndFraction = SIMD4(Float(max(1, size.width)), Float(max(1, size.height)), fraction, 0)
@@ -119,7 +125,8 @@ private struct LiminalMetalPipeline {
             // Matches the Unity palette function, preserving neutral/gold points.
             tintAndAmount = SIMD4(palette, 0, 0, 0)
             let seed = seedAvailable && !inspection ? LiminalSeedStyle.weight(frame: frame) : 0
-            intensityAndPadding = SIMD4(lightIntensity.isFinite ? min(2, max(0, lightIntensity)) : 1,
+            lightCue = SIMD4(light.accent, light.glow)
+            intensityAndPadding = SIMD4((lightIntensity.isFinite ? min(2, max(0, lightIntensity)) : 1) * light.intensity,
                                         inspection ? 1 : 0, 1 - 0.85 * seed, seed)
         }
     }
@@ -200,7 +207,7 @@ private struct LiminalMetalPipeline {
     #include <metal_stdlib>
     using namespace metal;
     struct Point { packed_float3 p; packed_float3 cd; float radius; float emission; };
-    struct Uniforms { float4 centerScale; float4 viewportFraction; float4 tintAmount; float4 intensity; };
+    struct Uniforms { float4 centerScale; float4 viewportFraction; float4 tintAmount; float4 intensity; float4 lightCue; };
     struct Raster { float4 position [[position]]; float2 local; float3 color; float opacity; };
     float3 palette(float3 c, float choice) {
         if (choice < 0.5f) return c;
@@ -227,6 +234,7 @@ private struct LiminalMetalPipeline {
         float radiusPixels = max(0.5f,radius*u.centerScale.w*side*0.5f);
         radiusPixels = mix(radiusPixels,max(radiusPixels*2.5f,3.0f),anchor);
         cd = palette(cd,u.tintAmount.x);
+        cd = mix(cd,u.lightCue.rgb*max(cd.r,max(cd.g,cd.b)),u.lightCue.w*0.25f);
         cd = mix(cd,float3(0.9f,0.65f,0.16f),anchor*0.55f);
         float3 radiance = min(cd*emission*u.intensity.x,float3(8));
         Raster out;
@@ -260,6 +268,9 @@ private struct LiminalMetalPipeline {
                                         constant Uniforms &u [[buffer(2)]]) {
         constexpr sampler linearSampler(coord::normalized, address::clamp_to_edge, filter::linear);
         float4 color = art.sample(linearSampler,in.uv); // Already premultiplied sRGB.
+        float radius = length(in.uv-float2(0.5f));
+        float halo = exp(-radius*radius/0.025f)*u.lightCue.w;
+        color.rgb = min(color.rgb+u.lightCue.rgb*halo*color.a,float3(color.a));
         color.rgb = min(color.rgb*u.intensity.x,float3(color.a));
         return color*u.intensity.w;
     }
@@ -349,11 +360,13 @@ final class LiminalMetalSurface: MTKView, @preconcurrency MTKViewDelegate {
         observers = []; delegate = nil; configuration = nil; seedTexture = nil
     }
     private var canPresentPoints: Bool {
-        configuration?.isVisible == true && NSApp.isActive && !isHiddenOrHasHiddenAncestor
+        configuration?.isVisible == true && !isHiddenOrHasHiddenAncestor
             && window?.isVisible == true && window?.occlusionState.contains(.visible) == true
     }
     private func updateVisibility() {
-        isPaused = !canPresentPoints || configuration?.reduceMotion == true || usesFallback
+        isPaused = !canPresentPoints || configuration?.reduceMotion == true || configuration?.inspection == true
+            || configuration?.lightExpression.mode == .rest || usesFallback
+        if isPaused { lastFrameAt = nil; slowFrames = 0; fastGPUFrames = 0 }
         fallbackImage.isHidden = !canPresentPoints || !usesFallback || fallbackImage.image == nil
         if !canPresentPoints {
             lastFrameAt = nil; loading?.cancel(); loading = nil; loadingKey = nil
@@ -437,7 +450,7 @@ final class LiminalMetalSurface: MTKView, @preconcurrency MTKViewDelegate {
                 self.loading = nil; self.loadingKey = nil
                 if self.isPaused { self.draw() }
             } catch {
-                guard let self, self.loadingKey == key else { return }
+                guard !Task.isCancelled, let self, self.loadingKey == key else { return }
                 self.loading = nil; self.loadingKey = nil; self.loadedKey = nil
                 self.frameNumbers = nil; self.anchors = []; self.buffers = nil; self.failedKey = key
                 self.clearSurface()
@@ -465,7 +478,8 @@ final class LiminalMetalSurface: MTKView, @preconcurrency MTKViewDelegate {
                 uniforms: .init(asset: c.asset, size: drawableSize, fraction: fraction,
                                 seedColor: c.seedColor, lightIntensity: c.lightIntensity,
                                 frame: frameNumbers!.lower, seedAvailable: seedTexture != nil,
-                                inspection: !c.selectableIDs.isEmpty), seedTexture: seedTexture)
+                                inspection: c.inspection, light: .sample(mode: c.lightExpression.mode,
+                                    unixTime: Date().timeIntervalSince1970, reduced: c.reduceMotion || c.inspection)), seedTexture: seedTexture)
         } catch {
             failedKey = key; anchors = []; self.buffers = nil
             clearSurface(); updateVisibility(); return
@@ -477,18 +491,18 @@ final class LiminalMetalSurface: MTKView, @preconcurrency MTKViewDelegate {
         }
         command.commit()
         let now = ProcessInfo.processInfo.systemUptime
-        if let lastFrameAt, !c.reduceMotion {
+        if let lastFrameAt, !isPaused {
             slowFrames = now - lastFrameAt > 1.0 / 27 ? slowFrames + 1 : max(0, slowFrames - 1)
             if slowFrames >= 8, detail != .low {
                 detail = detail == .high ? .medium : .low
                 loadedKey = nil; slowFrames = 0
             }
         }
-        lastFrameAt = now
+        lastFrameAt = isPaused ? nil : now
     }
 
     private func observeGPUTime(_ duration: Double) {
-        guard duration.isFinite, duration > 0, canPresentPoints, configuration?.reduceMotion == false else { return }
+        guard duration.isFinite, duration > 0, canPresentPoints, !isPaused else { return }
         fastGPUFrames = duration < 0.012 ? fastGPUFrames + 1 : 0
         if duration > 1.0 / 30, detail != .low {
             detail = detail == .high ? .medium : .low
@@ -505,11 +519,11 @@ final class LiminalMetalSurface: MTKView, @preconcurrency MTKViewDelegate {
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
-        guard !usesFallback, let c = configuration, c.onSelectArtID != nil, !anchors.isEmpty, !c.selectableIDs.isEmpty else { return nil }
+        guard !usesFallback, let c = configuration, c.inspection, c.onSelectArtID != nil, !anchors.isEmpty, !c.selectableIDs.isEmpty else { return nil }
         return super.hitTest(point)
     }
     override func mouseDown(with event: NSEvent) {
-        guard canPresentPoints, !usesFallback, let c = configuration, let callback = c.onSelectArtID, !c.selectableIDs.isEmpty else { return }
+        guard canPresentPoints, !usesFallback, let c = configuration, c.inspection, let callback = c.onSelectArtID, !c.selectableIDs.isEmpty else { return }
         let location = convert(event.locationInWindow, from: nil)
         let framing = LiminalSeedStyle.framing(center: c.asset.center, span: c.asset.span, frame: frameNumbers?.lower ?? 1)
         let side = min(bounds.width, bounds.height), span = CGFloat(framing.span)

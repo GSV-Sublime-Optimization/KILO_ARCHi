@@ -9,6 +9,8 @@ struct LiminalAnimatedPresence: View {
     let reduceMotion: Bool
     var seedColor: CompanionSeedColor = .original
     var lightIntensity: Float = 1
+    var lightExpression: KinLightExpression = .resting
+    var inspection = false
     var selectableIDs: [UInt32] = []
     var onSelectArtID: ((UInt32) -> Void)? = nil
     @State private var from = 107.0 / 119.0
@@ -18,14 +20,15 @@ struct LiminalAnimatedPresence: View {
     @State private var visible = false
     private var duration: Double { abs(to - from) * 119 / 24 }
     private func sample(_ date: Date) -> Double {
-        guard !reduceMotion, duration > 0 else { return to }
+        guard !reduceMotion, !inspection, duration > 0 else { return to }
         let t = min(1, max(0, date.timeIntervalSince(started) / duration))
         return from + (to - from) * t
     }
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1 / 30, paused: !visible || reduceMotion || from == to)) { context in
+        TimelineView(.animation(minimumInterval: 1 / 30, paused: !visible || reduceMotion || inspection || from == to)) { context in
             LiminalMetalView(asset: asset, progress: sample(context.date), reduceMotion: reduceMotion,
                 isVisible: visible, seedColor: seedColor, lightIntensity: lightIntensity,
+                lightExpression: lightExpression, inspection: inspection,
                 selectableIDs: selectableIDs, onSelectArtID: onSelectArtID)
         }
         .onAppear { visible = true }

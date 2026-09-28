@@ -22,9 +22,9 @@ namespace ARCHi.Port
         private static readonly int FrameAID=Shader.PropertyToID("_FrameA"),FrameBID=Shader.PropertyToID("_FrameB"),KnowledgeID=Shader.PropertyToID("_Knowledge"),
             MatrixID=Shader.PropertyToID("_PointLocalToWorld"),BlendID=Shader.PropertyToID("_FrameBlend"),OpacityID=Shader.PropertyToID("_Opacity"),
             InspectionID=Shader.PropertyToID("_Inspection"),PaletteID=Shader.PropertyToID("_Palette"),ScaleID=Shader.PropertyToID("_PointScale"),
-            LightIntensityID=Shader.PropertyToID("_LightIntensity"),SeedTextureID=Shader.PropertyToID("_SeedTex"),
+            LightIntensityID=Shader.PropertyToID("_LightIntensity"),LightCueID=Shader.PropertyToID("_LightCue"),SeedTextureID=Shader.PropertyToID("_SeedTex"),
             SeedWeightID=Shader.PropertyToID("_SeedWeight"),SeedCenterSizeID=Shader.PropertyToID("_SeedCenterSize");
-        public const string SeedStyleRevision="garnet-seed/v1";
+        public const string SeedStyleRevision="garnet-seed/v2";
         private CancellationTokenSource cancellation;
         private CancellationTokenSource sampleCancellation;
         private Task<LiminalPointAsset> loading;
@@ -42,6 +42,8 @@ namespace ARCHi.Port
         private int desiredCount=100000,bufferCount;
         private bool externalContext,visible,still=true,reduced,disposed,renderDirty,sampleFailure,rendered;
         private float playhead,lightIntensity=1;
+        private string lightMode="rest";
+        private Vector4 lightCue=new Vector4(1,.72f,.22f,0);
         private Texture2D[] endpointTextures;
         private string endpointColor;
         private Texture2D seedTexture;
@@ -55,7 +57,8 @@ namespace ARCHi.Port
         public bool Ready => BuffersReady&&rendered;
         public bool Visible => Ready&&visible;
         public bool Inspection {get;private set;}
-        public bool CanInspect => Visible&&knowledge!=null&&anchors.Count>0;
+        public bool CanInspect => Visible;
+        public int KnowledgeRecordCount => knowledge==null?0:anchors.Count;
         public string ManifestSHA256 => Ready?asset.ManifestSHA256:null;
         public string KnowledgeSHA256 => Ready&&knowledge!=null?knowledgeDigest:null;
         public string GraphDigest => knowledge?.graphDigest;
@@ -102,10 +105,11 @@ namespace ARCHi.Port
             bool eligible=next!=null && next.IsValid(snapshot);
             if(descriptor?.progress!=next?.progress)sampleFailure=false;
             descriptor=eligible?next:null;
-            lightIntensity=LightIntensity(snapshot?.lightMode);
+            lightMode=snapshot?.quiet==true?"rest":snapshot?.lightMode??"rest";
             visible=eligible&&snapshot.active&&snapshot.visible&&next.visible;
             reduced=eligible&&(snapshot.reduceMotion||snapshot.quiet||next.motion=="reduced");
             still=freeze||!eligible||reduced;
+            RefreshLight();
             if(!visible)Inspection=false;
             if(!eligible||!visible){RetireAsset();return;}
             if(requestedDigest!=next.manifestSHA256){
@@ -122,10 +126,10 @@ namespace ARCHi.Port
             renderDirty=true;
         }
         public void Suspend(){visible=false;still=true;Inspection=false;RetireAsset();renderDirty=true;}
-        public void Freeze(bool value){still=value||reduced;if(still){CancelSampling();if(Ready)playhead=RenderedProgress;}renderDirty=true;}
+        public void Freeze(bool value){bool next=value||reduced;if(still==next)return;still=next;if(still){CancelSampling();if(Ready)playhead=RenderedProgress;}RefreshLight();renderDirty=true;}
         public bool SetInspection(bool value)
         {
-            Inspection=value&&CanInspect;if(Inspection){CancelSampling();if(Ready)playhead=RenderedProgress;}renderDirty=true;return Inspection;
+            Inspection=value&&CanInspect;if(Inspection){CancelSampling();if(Ready)playhead=RenderedProgress;}RefreshLight();renderDirty=true;return Inspection;
         }
         public bool ApplyKnowledge(LiminalPointKnowledge projection,string digest,NativePresentationSnapshot snapshot)
         {
@@ -152,7 +156,7 @@ namespace ARCHi.Port
         }
         public void ClearKnowledge()
         {
-            knowledge=null;knowledgeDigest=null;anchors.Clear();Inspection=false;
+            knowledge=null;knowledgeDigest=null;anchors.Clear();Inspection=Inspection&&Visible;
             if(knowledgeFlags!=null){Array.Clear(knowledgeFlags,0,knowledgeFlags.Length);knowledgeBuffer?.SetData(knowledgeFlags);}
             renderDirty=true;
         }
@@ -200,6 +204,7 @@ namespace ARCHi.Port
                 }
             }
             if(asset==null||descriptor==null||material==null||!visible)return;
+            RefreshLight();
             // A capped 30 fps player lowers LOD after sustained missed frames and
             // raises it only after a stable interval. It never fabricates points.
             frameAverage=Mathf.Lerp(frameAverage,Mathf.Min(Time.unscaledDeltaTime,.2f),.035f);qualityAge+=Time.unscaledDeltaTime;
@@ -302,6 +307,7 @@ namespace ARCHi.Port
             material.SetFloat(InspectionID,Inspection?1:0);material.SetFloat(ScaleID,StyledFitScale()*contextScale*contextRoot.lossyScale.x);
             material.SetFloat(PaletteID,Palette(descriptor.color));
             material.SetFloat(LightIntensityID,lightIntensity);
+            material.SetVector(LightCueID,lightCue);
             if(!material.SetPass(0)){Status="Verified endpoint or authored Seed fallback · point shader pass unavailable.";return;}
             Graphics.DrawProceduralNow(MeshTopology.Triangles,6,bufferCount);rendered=true;
             // Decorative orbit lines are never selectable knowledge. Inspection
@@ -309,9 +315,28 @@ namespace ARCHi.Port
             if(seedWeight>0&&material.SetPass(1))Graphics.DrawProceduralNow(MeshTopology.Triangles,6,1);
         }
         private static float Palette(string color)=>color=="aqua"?1:color=="garnet"?2:color=="violet"?3:color=="gold"?4:color=="pearl"?5:0;
-        // Matches native 1 + KinLightEmission.intensity(mode:, phase: 0).
-        private static float LightIntensity(string mode)=>mode=="core"?1.1892f:mode=="orbit"?1.258f:mode=="focus"?1.172f:
-            mode=="pulse"?1.3268f:mode=="delight"?1.2924f:mode=="hold"?1.18f:1;
+        private void RefreshLight()
+        {
+            float intensity;
+            var cue=SampleLight(lightMode,(DateTime.UtcNow-new DateTime(1970,1,1,0,0,0,DateTimeKind.Utc)).TotalSeconds,
+                reduced||still||Inspection,out intensity);
+            if(cue!=lightCue||intensity!=lightIntensity){lightCue=cue;lightIntensity=intensity;renderDirty=true;}
+        }
+        // Same bounded presentation signal as native LiminalLightFrame. UTC phase
+        // aligns surfaces; no cue changes source samples, knowledge or capability.
+        internal static Vector4 SampleLight(string mode,double unixSeconds,bool steady,out float intensity)
+        {
+            float strength=mode=="core"?.22f:mode=="orbit"?.30f:mode=="focus"?.20f:
+                mode=="pulse"?.38f:mode=="delight"?.34f:mode=="hold"?.18f:0;
+            double phase=steady||double.IsNaN(unixSeconds)||double.IsInfinity(unixSeconds)?0:
+                ((unixSeconds%4+4)%4)*Math.PI*.5;
+            float emission=mode=="hold"?strength:strength*(.72f+(float)((1+Math.Sin(phase))*.5)*.28f);
+            intensity=1+emission;
+            var accent=mode=="orbit"?new Vector3(.65f,.40f,1):mode=="focus"?new Vector3(.20f,.90f,.85f):
+                mode=="pulse"?new Vector3(1,.40f,.58f):mode=="delight"?new Vector3(.45f,1,.72f):
+                mode=="hold"?new Vector3(1,.65f,.20f):new Vector3(1,.72f,.22f);
+            return new Vector4(accent.x,accent.y,accent.z,emission*.6f);
+        }
         private static string Short(string message)=>string.IsNullOrEmpty(message)?"unavailable":message.Substring(0,Math.Min(120,message.Length));
         private void ReleaseBuffers(){firstBuffer?.Release();secondBuffer?.Release();knowledgeBuffer?.Release();firstBuffer=secondBuffer=knowledgeBuffer=null;bufferCount=0;knowledgeFlags=null;rendered=false;}
         private void RetireAsset()

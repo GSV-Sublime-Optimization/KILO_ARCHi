@@ -18,6 +18,7 @@ Shader "ARCHi/Liminal Baked Point Cloud" {
    StructuredBuffer<uint> _Knowledge;
    float4x4 _PointLocalToWorld;
    float _FrameBlend, _Opacity, _Inspection, _Palette, _PointScale, _LightIntensity;
+   float4 _LightCue;
    struct v2f { float4 pos:SV_POSITION; float2 corner:TEXCOORD0; float3 color:TEXCOORD1; float emission:TEXCOORD2; };
    float3 palette(float3 c) {
     if (_Palette < .5) return c;
@@ -46,6 +47,7 @@ Shader "ARCHi/Liminal Baked Point Cloud" {
     v2f o;o.pos=mul(UNITY_MATRIX_P,float4(view,1));o.corner=corners[vertex];
     o.color=palette(max(0,lerp(a.color,b.color,_FrameBlend)));
     o.color=lerp(o.color,float3(.9,.65,.16),anchor*.55);
+    o.color=lerp(o.color,_LightCue.rgb*max(o.color.r,max(o.color.g,o.color.b)),_LightCue.a*.25);
     o.emission=clamp(lerp(a.emission,b.emission,_FrameBlend),0,8);return o;
    }
    float4 frag(v2f i):SV_Target {
@@ -70,7 +72,7 @@ Shader "ARCHi/Liminal Baked Point Cloud" {
    #pragma fragment seedFrag
    #include "UnityCG.cginc"
    sampler2D _SeedTex;
-   float4 _SeedCenterSize;
+   float4 _SeedCenterSize,_LightCue;
    float _SeedWeight,_LightIntensity;
    struct SeedRaster { float4 pos:SV_POSITION; float2 uv:TEXCOORD0; };
    SeedRaster seedVert(uint vertex:SV_VertexID) {
@@ -84,6 +86,9 @@ Shader "ARCHi/Liminal Baked Point Cloud" {
     // -> the same target as the particles. Room unpremultiplies once for UI Toolkit;
     // Arena composites this pass directly into its existing transparent stage.
     float4 color=tex2D(_SeedTex,i.uv);
+    float2 centered=i.uv-.5;
+    float halo=exp(-dot(centered,centered)/.025)*_LightCue.a;
+    color.rgb=saturate(color.rgb+_LightCue.rgb*halo);
     float alpha=color.a*_SeedWeight;
     return float4(saturate(color.rgb*_LightIntensity)*alpha,alpha);
    }

@@ -8,10 +8,12 @@ extension CompanionStore {
         let recipe = presentationRecipe
         let id = CompanionVisualAsset.appearanceID(form: presentationForm, family: selectedFamily,
             treatment: preferences.visualTreatment, recipe: recipe, naturalVariation: presentationNaturalVariation,
-            equipment: preferences.equipment, seedColor: preferences.seedColor)
+            equipment: preferences.equipment, seedColor: preferences.seedColor,
+            pointProgress: preferences.liminalPointProgress)
         let bytes = reactor.appearanceID == id ? reactor.referencePNG : CompanionPresenceArt.png(
             form: presentationForm, family: selectedFamily, treatment: preferences.visualTreatment,
-            recipe: recipe, naturalVariation: presentationNaturalVariation, equipment: preferences.equipment, seedColor: preferences.seedColor)
+            recipe: recipe, naturalVariation: presentationNaturalVariation, equipment: preferences.equipment, seedColor: preferences.seedColor,
+            pointProgress: preferences.liminalPointProgress)
         reactor.updateReference(id: id,
             label: CompanionVisualAsset.label(form: presentationForm, family: selectedFamily,
                 treatment: preferences.visualTreatment, recipe: recipe, naturalVariation: presentationNaturalVariation,
@@ -26,7 +28,8 @@ extension CompanionStore {
     var reactorReferenceMatchesCurrentAppearance: Bool {
         reactor.appearanceID == CompanionVisualAsset.appearanceID(form: presentationForm, family: presentationFamily,
             treatment: preferences.visualTreatment, recipe: presentationRecipe,
-            naturalVariation: presentationNaturalVariation, equipment: preferences.equipment, seedColor: preferences.seedColor)
+            naturalVariation: presentationNaturalVariation, equipment: preferences.equipment, seedColor: preferences.seedColor,
+            pointProgress: preferences.liminalPointProgress)
     }
 }
 

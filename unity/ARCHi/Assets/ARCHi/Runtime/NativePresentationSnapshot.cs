@@ -176,7 +176,7 @@ namespace ARCHi.Port
             return count;
         }
 
-        private static bool SameContent(NativePresentationSnapshot a, NativePresentationSnapshot b) =>
+        internal static bool SameContent(NativePresentationSnapshot a, NativePresentationSnapshot b) =>
             a.Appearance == b.Appearance && a.SeedAppearance == b.SeedAppearance && a.SeedColor == b.SeedColor && a.displayName == b.displayName && a.body == b.body && a.cursor == b.cursor && a.activity == b.activity && a.lightMode == b.lightMode
             && a.quiet == b.quiet && a.reduceMotion == b.reduceMotion && a.visible == b.visible && a.active == b.active
             && a.equippedFocusStaff == b.equippedFocusStaff && (a.staffPalette ?? "") == (b.staffPalette ?? "")

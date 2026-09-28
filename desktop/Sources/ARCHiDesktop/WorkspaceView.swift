@@ -83,6 +83,10 @@ struct WorkspaceView: View {
             }
             .background(WorkspaceTheme.background)
         }
+        // Body consumers share the selected authored pose. Cursor surfaces keep
+        // their explicit Seed-orb override outside this workspace.
+        .environment(\.liminalPointProgress, store.preferences.liminalPointProgress)
+        .environment(\.liminalLightExpression, store.kinLightExpression)
         .preferredColorScheme(store.preferences.workspaceAppearance.colorScheme)
         .tint(WorkspaceTheme.accent)
         // The native window owns the 880 × 640 content minimum.

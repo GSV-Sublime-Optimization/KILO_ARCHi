@@ -54,8 +54,13 @@ enum LiminalV008Runtime {
     }
 }
 
+private struct LiminalLightKey: EnvironmentKey { static let defaultValue = KinLightExpression.resting }
 private struct LiminalProgressKey: EnvironmentKey { static let defaultValue = 107.0 / 119.0 }
 extension EnvironmentValues {
+    var liminalLightExpression: KinLightExpression {
+        get { self[LiminalLightKey.self] }
+        set { self[LiminalLightKey.self] = newValue }
+    }
     var liminalPointProgress: Double {
         get { self[LiminalProgressKey.self] }
         set { self[LiminalProgressKey.self] = newValue }
@@ -71,10 +76,10 @@ struct LiminalV008AppearanceCard: View {
                 VStack(alignment: .leading, spacing: 12) {
                     Text("Liminal · living constellation").font(.headline)
                     Text(LiminalV008Runtime.asset == nil
-                         ? "The v008 appearance is waiting for its source export and visual checks. Your current Liminal stays in place."
-                         : "Your garnet Seed unfolds into Liminal’s authored particles, in the room and Arena.")
+                         ? "The living constellation is not available in this copy yet. Your current Liminal stays with you."
+                         : "One companion, from your desktop to the room and Arena. Choose a shape; your color and light follow along.")
                         .font(.callout).foregroundStyle(.secondary)
-                    Toggle("Use v008 particles", isOn: Binding(get: { store.preferences.visualTreatment == .liminalV008 }, set: {
+                    Toggle("Living constellation", isOn: Binding(get: { store.preferences.visualTreatment == .liminalV008 }, set: {
                         guard !$0 || LiminalV008Runtime.asset != nil else { return }
                         store.preferences.visualTreatment = $0 ? .liminalV008 : .original
                     }))
@@ -83,16 +88,25 @@ struct LiminalV008AppearanceCard: View {
                     if store.preferences.visualTreatment == .liminalV008, LiminalV008Runtime.asset != nil {
                         if let asset = LiminalV008Runtime.asset {
                             LiminalKnowledgePreview(store: store, asset: asset)
-                                .frame(height: 300)
+                                .frame(height: 360)
                         }
-                        Picker("Presentation pose", selection: $store.preferences.liminalPointProgress) {
+                        Picker("Shape", selection: $store.preferences.liminalPointProgress) {
                             Text("Seed orb").tag(LiminalV008Runtime.orbProgress)
                             Text("Curled").tag(LiminalV008Runtime.curledProgress)
                             Text("Standing").tag(LiminalV008Runtime.standingProgress)
                         }.pickerStyle(.segmented)
-                        Text("The original garnet light returns in Seed form. Inspection reveals the real knowledge anchors. Pose is a visual choice; your saved development stays with you.")
+                        Text("Light responds to ARCHi’s activity. Inspect pauses the presentation so you can explore its knowledge.")
                             .font(.caption).foregroundStyle(.secondary)
-                        Button("Keep this appearance") { store.rememberPreferences = true; store.savePreferences() }
+                        HStack {
+                            Button("Keep this appearance") { store.rememberPreferences = true; store.savePreferences() }
+                                .buttonStyle(.borderedProminent)
+                            Button("Room & Arena", systemImage: "gamecontroller") { store.open(.unity) }
+                                .accessibilityIdentifier("liminal-v008.open-worlds")
+                        }
+                        DisclosureGroup("About this appearance") {
+                            Text("The authored v008 particles share one presentation across native and Unity views. Shape and glow are visual choices; they do not change saved development. Each selectable anchor resolves to an existing knowledge record.")
+                                .font(.caption).foregroundStyle(.secondary).padding(.top, 4)
+                        }.font(.caption)
                     }
                 }
             }.accessibilityIdentifier("liminal-v008.appearance")
@@ -114,19 +128,33 @@ private struct LiminalKnowledgePreview: View {
         TimelineView(.periodic(from: .now, by: 2)) { context in
             let graph = store.companionGraphSnapshot(at: context.date)
             VStack {
-                Toggle("Inspect knowledge", isOn: $inspection).toggleStyle(.switch)
-                    .accessibilityIdentifier("liminal-v008.inspect")
+                HStack {
+                    Label(store.kinLightExpression.label, systemImage: "sparkle")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Spacer()
+                    Toggle("Inspect knowledge", isOn: $inspection).toggleStyle(.switch)
+                        .fixedSize().accessibilityIdentifier("liminal-v008.inspect")
+                }
                 LiminalAnimatedPresence(asset: asset, progress: store.preferences.liminalPointProgress,
                     reduceMotion: store.preferences.reduceMotion || store.preferences.quiet || systemReduceMotion,
                     seedColor: store.preferences.seedColor,
+                    lightExpression: store.kinLightExpression, inspection: inspection,
                     selectableIDs: inspection ? sidecar?.bindings.map(\.anchorID) ?? [] : [],
                     onSelectArtID: { id in
                         guard inspection, let sidecar,
                               let binding = sidecar.bindings.first(where: { $0.particleIDs.contains(id) }) else { return }
                         _ = store.inspectKnowledgeParticle(nodeID: binding.nodeID, graphDigest: sidecar.graphDigest)
                     })
-                Text(inspection ? "Select an anchor to inspect its current source, version and connections."
-                     : "Particle density is visual. Each anchor represents one existing record.")
+                    .overlay {
+                        GeometryReader { geometry in
+                            CompanionEquipmentArt(equipment: store.preferences.equipment,
+                                size: min(geometry.size.width, geometry.size.height), activated: false,
+                                reduceMotion: store.preferences.reduceMotion || systemReduceMotion)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        }.allowsHitTesting(false).accessibilityHidden(true)
+                    }
+                Text(inspection ? (sidecar?.bindings.isEmpty != false ? "No knowledge records are available to inspect yet." : "Select an anchor to inspect its current source, version and connections.")
+                     : "Your color. Your constellation.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             .onChange(of: graph, initial: true) { _, graph in refresh(graph) }

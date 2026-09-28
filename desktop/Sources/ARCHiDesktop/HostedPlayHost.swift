@@ -14,6 +14,7 @@ struct HostedPlayDownloadReceipt: Equatable {
 
 typealias HostedPlayAppearanceRenderer = @MainActor (CompanionForm, EvolutionFamily?, CompanionVisualTreatment,
     CompanionAppearanceRecipe?, CompanionNaturalVariation?, CompanionEquipment, CompanionSeedColor) -> Data?
+typealias HostedPlayPointSnapshotRenderer = @MainActor (CompanionEquipment, CompanionSeedColor, Double) -> Data?
 
 @MainActor
 final class HostedPlayHost: NSObject, ObservableObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler, WKDownloadDelegate {
@@ -60,6 +61,7 @@ final class HostedPlayHost: NSObject, ObservableObject, WKNavigationDelegate, WK
     private var appearance: (id: String, label: String, png: String, reduceMotion: Bool)?
     private(set) var appearanceDeliveryDiagnostics: [String] = []
     private let appearanceRenderer: HostedPlayAppearanceRenderer
+    private let pointSnapshotRenderer: HostedPlayPointSnapshotRenderer
     private var retryAppearanceAfterReady: (@MainActor () -> Void)?
     var onVisibilityChanged: ((Bool) -> Void)?
     var onJourneyOriginChanged: ((String) -> Void)?
@@ -88,8 +90,12 @@ final class HostedPlayHost: NSObject, ObservableObject, WKNavigationDelegate, WK
          appearanceRenderer: @escaping HostedPlayAppearanceRenderer = { form, family, treatment, recipe, natural, equipment, seedColor in
              CompanionPresenceArt.png(form: form, family: family, treatment: treatment, recipe: recipe,
                 naturalVariation: natural, equipment: equipment, seedColor: seedColor)
+         }, pointSnapshotRenderer: @escaping HostedPlayPointSnapshotRenderer = { equipment, seedColor, progress in
+             CompanionPresenceArt.png(form: .hamptonSeed, family: nil, treatment: .liminalV008,
+                equipment: equipment, seedColor: seedColor, pointProgress: progress)
          }) {
         self.profile = profile; self.assetDirectory = assetDirectory; self.appearanceRenderer = appearanceRenderer
+        self.pointSnapshotRenderer = pointSnapshotRenderer
         super.init()
     }
 
@@ -227,16 +233,29 @@ final class HostedPlayHost: NSObject, ObservableObject, WKNavigationDelegate, WK
                           treatment: CompanionVisualTreatment = .original,
                           expressionPNG: Data? = nil, expressionRevision: UInt64 = 0,
                           recipe: CompanionAppearanceRecipe? = nil, naturalVariation: CompanionNaturalVariation? = nil,
-                          equipment: CompanionEquipment = .empty, seedColor: CompanionSeedColor = .original) {
+                          equipment: CompanionEquipment = .empty, seedColor: CompanionSeedColor = .original,
+                          pointProgress: Double = 107.0 / 119.0) {
         let usingExpression = expressionPNG != nil && !reduceMotion
         let id = CompanionVisualAsset.appearanceID(form: form, family: family, treatment: treatment,
-            recipe: recipe, naturalVariation: naturalVariation, equipment: equipment, seedColor: seedColor)
+            recipe: recipe, naturalVariation: naturalVariation, equipment: equipment, seedColor: seedColor,
+            pointProgress: pointProgress)
             + (usingExpression ? "-expression-\(expressionRevision)" : "")
         // A newer request, including a return to the last successfully drawn
         // appearance, retires a previous failed request's one readiness retry.
         retryAppearanceAfterReady = nil
         guard appearance?.id != id || appearance?.reduceMotion != reduceMotion else { return }
-        guard let bytes = usingExpression ? expressionPNG : appearanceRenderer(form, family, treatment, recipe, naturalVariation, equipment, seedColor), bytes.count < 1_400_000 else {
+        let bytes: Data?
+        if usingExpression {
+            bytes = expressionPNG
+        } else if form == .hamptonSeed, family == nil, treatment == .liminalV008 {
+            // Keep the legacy renderer injection unchanged. The point path owns
+            // qualification/fallback and receives the same body pose as native.
+            let progress = pointProgress.isFinite ? pointProgress : LiminalV008Runtime.orbProgress
+            bytes = pointSnapshotRenderer(equipment, seedColor, min(1, max(0, progress)))
+        } else {
+            bytes = appearanceRenderer(form, family, treatment, recipe, naturalVariation, equipment, seedColor)
+        }
+        guard let bytes, bytes.count < 1_400_000 else {
             recordAppearanceDelivery("render-unavailable id=\(id)")
             // ImageRenderer may be unavailable before AppKit finishes starting.
             // Retain the latest requested inputs for one later ready transition;
@@ -244,7 +263,8 @@ final class HostedPlayHost: NSObject, ObservableObject, WKNavigationDelegate, WK
             retryAppearanceAfterReady = { [weak self] in
                 self?.updateAppearance(form: form, family: family, reduceMotion: reduceMotion,
                     treatment: treatment, expressionPNG: expressionPNG, expressionRevision: expressionRevision,
-                    recipe: recipe, naturalVariation: naturalVariation, equipment: equipment, seedColor: seedColor)
+                    recipe: recipe, naturalVariation: naturalVariation, equipment: equipment, seedColor: seedColor,
+                    pointProgress: pointProgress)
             }
             return
         }

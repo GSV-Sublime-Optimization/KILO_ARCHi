@@ -152,7 +152,11 @@ class Store:
             if actual != expected:
                 raise ValueError("Marketplace database tables do not match schema version 1.")
         self._dummy_salt = secrets.token_bytes(32)
-        self._dummy_hash = hash_password(secrets.token_bytes(32), self._dummy_salt)
+        # A missing-handle sign-in still performs exactly one real scrypt using
+        # _dummy_salt. The comparison target only needs to be an unrelated
+        # same-length digest; precomputing another scrypt here made every server
+        # startup pay password-KDF cost without improving timing resistance.
+        self._dummy_hash = secrets.token_bytes(32)
 
     @contextmanager
     def connection(self, *, write=False):

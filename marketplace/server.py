@@ -9,6 +9,7 @@ import sys
 import time
 import uuid
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from socketserver import TCPServer
 from pathlib import Path
 from urllib.parse import parse_qsl, urlsplit
 
@@ -28,6 +29,15 @@ class LocalServer(HTTPServer):
         self.store = store
         self.auth_attempts = collections.deque(maxlen=20)
         super().__init__(("127.0.0.1", port), Handler)
+
+    def server_bind(self):
+        # HTTPServer.server_bind() performs socket.getfqdn(host), which is
+        # unnecessary for this hardcoded loopback-only service and can block
+        # for tens of seconds on hosts with slow reverse DNS. Bind directly
+        # through TCPServer and publish the literal loopback identity.
+        TCPServer.server_bind(self)
+        self.server_name = self.server_address[0]
+        self.server_port = self.server_address[1]
 
     def get_request(self):
         sock, address = super().get_request()

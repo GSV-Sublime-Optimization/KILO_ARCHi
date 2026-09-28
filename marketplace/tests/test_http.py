@@ -230,23 +230,31 @@ class ProcessLifecycleTests(unittest.TestCase):
                     creationflags=(subprocess.CREATE_NEW_PROCESS_GROUP if sys.platform == "win32" else 0),
                 )
                 deadline = time.monotonic() + 30
+                last_probe = "no response"
                 while time.monotonic() < deadline:
                     if process.poll() is not None:
                         stdout, stderr = process.communicate(timeout=5)
-                        self.fail("Synthetic CLI server exited during startup: " + stderr)
+                        self.fail(
+                            f"Synthetic CLI server exited during startup (rc={process.returncode}); "
+                            f"stdout={stdout!r}; stderr={stderr!r}"
+                        )
                     try:
                         conn = http.client.HTTPConnection("127.0.0.1", port, timeout=0.3)
                         conn.request("GET", "/v1/health")
                         response = conn.getresponse()
-                        response.read()
+                        body = response.read()
                         conn.close()
+                        last_probe = f"HTTP {response.status} body={body[:240]!r}"
                         if response.status == 200:
                             return process
-                    except OSError:
+                    except OSError as exc:
+                        last_probe = f"{type(exc).__name__}: {exc}"
                         time.sleep(0.05)
-                process.terminate()
-                process.communicate(timeout=5)
-                self.fail("Synthetic CLI server did not become healthy")
+                stdout, stderr = stop_process(process)
+                self.fail(
+                    "Synthetic CLI server did not become healthy; "
+                    f"last_probe={last_probe}; stdout={stdout!r}; stderr={stderr!r}"
+                )
 
             def stop_process(process):
                 if sys.platform == "win32":

@@ -10,7 +10,7 @@ The v2 native backup now captures **five files from the currently selected profi
 | `preferences.evolution.json` | Saved development and retained appearance/growth choices. |
 | `preferences.document-work.json` | Document task receipts, mechanical checks and explicit outcome reviews. |
 | `preferences.document-procedures.json` | Retained method versions and their evidence references. |
-| `preferences.reading-sources.json` | Explicitly kept reading copies, including their source text, and all retained claim/concept page versions with their anchors and review events. |
+| `preferences.reading-sources.json` | Explicitly kept reading copies, including their source text, and all retained claim/concept page versions with their anchors and review events, and reviewed-connection history. |
 
 **This is a private-content backup.** Kept source text joins personal context and lessons in the archive; save it somewhere trusted. A file recorded absent is removed from the destination on restore. An older v1 two-file archive is accepted only when the destination has no document-work, procedure or reading-source sidecar files, including empty sidecar libraries. ARCHi refuses to combine older profile state with a newer document library.
 
@@ -25,6 +25,8 @@ The scope is the **current selected profile**, not every companion profile or th
 **Earlier delivery evidence, 25 September:** the native build succeeded and 19 focused checks across `DesktopWorkRecoveryTests`, `DesktopProfileBackupTests` and `DesktopRecoveryIntegrationTests` passed with zero model calls. These checks cover bounded disposable-profile recovery, not a personal restore or distributable Beta acceptance. That update was installed in `/Applications/ARCHi.app`; signature verification passed and native observation confirmed Liminal plus the updated recovery controls. Seven tracked profile files, 218 Unity resources and saved model settings were unchanged. No personal-profile restoration was performed. See [work recovery delivery](../output/work-recovery-2026-09-25/DELIVERY.md). The new `KnowledgePageBackupTests` separately cover page/source byte restoration, absence and legacy compatibility, interrupted recovery, and the expanded bound. Test definitions do not by themselves establish an installed-app walkthrough.
 
 The dated procedures below are preserved as historical records. Their two-file scope and older app names must not be used as the current five-file recovery instructions.
+
+After the first connection save, the reading library uses v5. An older app bundle cannot read it. Preserve current work before an intentional downgrade and use a compatible pre-link whole-profile backup through the existing recovery flow. See [reviewed connections](native-reviewed-connections.md).
 
 ## Earlier native recovery — 14 September 2026
 

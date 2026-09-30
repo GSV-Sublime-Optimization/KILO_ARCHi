@@ -96,6 +96,9 @@ struct KnowledgePagesCard: View {
         .sheet(item: $store.knowledgePageDraft) { draft in
             KnowledgePageEditor(store: store, draft: draft).interactiveDismissDisabled()
         }
+        .sheet(item: $store.knowledgeLinkDraft) { draft in
+            KnowledgePageLinkEditor(store: store, page: draft.page, prior: draft.prior).interactiveDismissDisabled()
+        }
     }
 
     private func pageRow(_ page: KnowledgePage) -> some View {
@@ -114,6 +117,7 @@ struct KnowledgePagesCard: View {
                         .accessibilityIdentifier("knowledge.availability.\(page.id)")
                 }
                 KnowledgePageEvidence(store: store, anchors: page.anchors)
+                KnowledgePageLinksView(store: store, page: page)
                 HStack {
                     Button("Use in local chat") { store.useKnowledgePageInChat(page) }
                         .disabled(store.readingSources.availability(of: page) != nil)

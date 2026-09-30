@@ -101,8 +101,8 @@ extension CompanionStore {
             throw DesktopRecoveryError.blocked("Review replacing your temporary appearance and Evolution choices before recovery.")
         }
         if !discardVisitChoices, let reason = recoveryRestoreBlockReason { throw DesktopRecoveryError.blocked(reason) }
-        guard lessonDraft == nil, knowledgePageDraft == nil, focusGestureDraft == nil, voiceInput.phase != .review else {
-            throw DesktopRecoveryError.blocked("Keep or discard your lesson, knowledge page, gesture or voice draft before loading recovered choices.")
+        guard lessonDraft == nil, !hasOpenKnowledgeDraft, focusGestureDraft == nil, voiceInput.phase != .review else {
+            throw DesktopRecoveryError.blocked("Keep or discard your lesson, knowledge page or connection, gesture or voice draft before loading recovered choices.")
         }
         if let reason = DesktopRecoveryStartup.recoverIfNeeded(at: recoveryPreferenceURL) {
             blockProfileForRecovery(reason)

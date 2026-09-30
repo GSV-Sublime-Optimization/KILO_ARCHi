@@ -26,10 +26,12 @@ final class ReadingSourceLibrary: ObservableObject {
     static let maximumSources = 8
     static let maximumTextBytes = 400_000
     static let maximumKnowledgePageVersions = 64
+    static let maximumKnowledgeLinkVersions = KnowledgePageLink.maximumVersions
     static let privacyNotice = "Kept sources are local text copies you choose to retain. This library stores no original file locations, does not refresh originals, and does not send or select copies. Forget removes the retained copy from this library."
 
     @Published private(set) var sources: [ReadingSourceSnapshot] = []
     @Published private(set) var knowledgePages: [KnowledgePage] = []
+    @Published private(set) var knowledgeLinks: [KnowledgePageLink] = []
     @Published private(set) var loadError: String?
 
     private let url: URL
@@ -38,6 +40,7 @@ final class ReadingSourceLibrary: ObservableObject {
     private static let schema = "archi-reading-sources/v2"
     private static let relationshipSchema = "archi-reading-sources/v3"
     private static let provenanceSchema = "archi-reading-sources/v4"
+    private static let linkSchema = "archi-reading-sources/v5"
     // Covers worst-case JSON escaping of retained sources and bounded note history.
     private static let maximumArchiveBytes = 8 * 1_024 * 1_024
 
@@ -45,6 +48,30 @@ final class ReadingSourceLibrary: ObservableObject {
         let schema: String
         let sources: [ReadingSourceSnapshot]
         let knowledgePages: [KnowledgePage]
+        let knowledgeLinks: [KnowledgePageLink]
+
+        init(schema: String, sources: [ReadingSourceSnapshot], knowledgePages: [KnowledgePage],
+             knowledgeLinks: [KnowledgePageLink] = []) {
+            self.schema = schema; self.sources = sources; self.knowledgePages = knowledgePages
+            self.knowledgeLinks = knowledgeLinks
+        }
+
+        private enum CodingKeys: String, CodingKey { case schema, sources, knowledgePages, knowledgeLinks }
+        init(from decoder: Decoder) throws {
+            let values = try decoder.container(keyedBy: CodingKeys.self)
+            schema = try values.decode(String.self, forKey: .schema)
+            sources = try values.decode([ReadingSourceSnapshot].self, forKey: .sources)
+            knowledgePages = try values.decode([KnowledgePage].self, forKey: .knowledgePages)
+            knowledgeLinks = values.contains(.knowledgeLinks)
+                ? try values.decode([KnowledgePageLink].self, forKey: .knowledgeLinks) : []
+        }
+        func encode(to encoder: Encoder) throws {
+            var values = encoder.container(keyedBy: CodingKeys.self)
+            try values.encode(schema, forKey: .schema)
+            try values.encode(sources, forKey: .sources)
+            try values.encode(knowledgePages, forKey: .knowledgePages)
+            if !knowledgeLinks.isEmpty { try values.encode(knowledgeLinks, forKey: .knowledgeLinks) }
+        }
     }
 
     init(url: URL, recoveryBlocked: Bool = false) {
@@ -59,6 +86,7 @@ final class ReadingSourceLibrary: ObservableObject {
                 let archive = try Self.decode(bytes)
                 sources = archive.sources
                 knowledgePages = archive.knowledgePages
+                knowledgeLinks = archive.knowledgeLinks
                 baselineDigest = Self.digest(bytes)
             }
         } catch {
@@ -157,6 +185,115 @@ final class ReadingSourceLibrary: ObservableObject {
 
     var latestKnowledgePages: [KnowledgePage] {
         Self.latestPages(knowledgePages)
+    }
+
+    var latestKnowledgeLinks: [KnowledgePageLink] {
+        Self.latestLinks(knowledgeLinks)
+    }
+
+    /// Exact declarations remain inspectable as history, but only a reviewed
+    /// current head with two current reviewed endpoints may inform retrieval.
+    func availability(of link: KnowledgePageLink) -> String? {
+        guard isCurrentOnDisk else { return "The local library changed. Reopen it before using this link." }
+        guard link.isValid, knowledgeLinks.contains(link) else { return "This exact link version is unavailable." }
+        guard latestKnowledgeLinks.contains(link) else { return "A newer link version exists. Open the current declaration." }
+        guard link.state != .withdrawn else { return "This link was withdrawn." }
+        guard link.state == .reviewed else { return "Review this authored link before using it as related context." }
+        return endpointAvailability(from: link.from, to: link.to)
+    }
+
+    /// Saving is an explicit user-authored declaration, always a draft. A
+    /// correction creates a new revision; withdrawn identities stay withdrawn.
+    @discardableResult
+    func saveKnowledgeLink(id: String? = nil, expectedRevision: UInt64? = nil,
+                           from: KnowledgePageBinding, to: KnowledgePageBinding,
+                           kind: KnowledgePageLinkKind, rationale: String) throws -> KnowledgePageLink {
+        try assertCurrent()
+        let previous: KnowledgePageLink?
+        if let id {
+            guard let expectedRevision else {
+                throw ReadingSourceLibraryError.invalid("Reopen the exact current link before editing it.")
+            }
+            previous = try currentLink(id: id, expectedRevision: expectedRevision)
+            guard previous?.state != .withdrawn else {
+                throw ReadingSourceLibraryError.invalid("A withdrawn link stays withdrawn. Create a new declaration to replace it.")
+            }
+        } else {
+            guard expectedRevision == nil else {
+                throw ReadingSourceLibraryError.invalid("A new link cannot name a previous revision.")
+            }
+            previous = nil
+        }
+        if let reason = endpointAvailability(from: from, to: to) {
+            throw ReadingSourceLibraryError.invalid(reason)
+        }
+        let endpointTime = latestKnowledgePages.filter { $0.binding == from || $0.binding == to }
+            .map(\.updatedAt).max() ?? Date()
+        let now = max(Date(), max(endpointTime, previous?.updatedAt ?? endpointTime))
+        let link = KnowledgePageLink(id: previous?.id ?? UUID().uuidString,
+            revision: (previous?.revision ?? 0) + 1, from: from, to: to, kind: kind, rationale: rationale,
+            state: .draft, createdAt: previous?.createdAt ?? now, updatedAt: now)
+        guard link.isValid else {
+            throw ReadingSourceLibraryError.invalid("Use two distinct current reviewed pages and an explanation of 1–2,048 UTF-8 bytes.")
+        }
+        if let previous, previous.state == .draft, KnowledgePageLink.sameContent(previous, link) { return previous }
+        try persist(sources, links: knowledgeLinks + [link])
+        return link
+    }
+
+    @discardableResult
+    func reviewKnowledgeLink(id: String, expectedRevision: UInt64) throws -> KnowledgePageLink {
+        try assertCurrent()
+        let previous = try currentLink(id: id, expectedRevision: expectedRevision)
+        guard previous.state != .withdrawn else {
+            throw ReadingSourceLibraryError.invalid("This link was withdrawn. Create a new declaration to replace it.")
+        }
+        if let reason = endpointAvailability(from: previous.from, to: previous.to) {
+            throw ReadingSourceLibraryError.invalid(reason)
+        }
+        if previous.state == .reviewed { return previous }
+        let next = transition(previous, to: .reviewed)
+        try persist(sources, links: knowledgeLinks + [next])
+        return next
+    }
+
+    @discardableResult
+    func withdrawKnowledgeLink(id: String, expectedRevision: UInt64) throws -> KnowledgePageLink {
+        try assertCurrent()
+        let previous = try currentLink(id: id, expectedRevision: expectedRevision)
+        if previous.state == .withdrawn { return previous }
+        let next = transition(previous, to: .withdrawn)
+        try persist(sources, links: knowledgeLinks + [next])
+        return next
+    }
+
+    private func currentLink(id: String, expectedRevision: UInt64) throws -> KnowledgePageLink {
+        guard let previous = latestKnowledgeLinks.first(where: { $0.id == id }),
+              previous.revision == expectedRevision, previous.revision < UInt64.max else {
+            throw ReadingSourceLibraryError.invalid("The link changed. Review its exact current revision before continuing.")
+        }
+        return previous
+    }
+
+    private func transition(_ previous: KnowledgePageLink, to state: KnowledgePageState) -> KnowledgePageLink {
+        let now = max(Date(), previous.updatedAt)
+        return KnowledgePageLink(id: previous.id, revision: previous.revision + 1,
+            from: previous.from, to: previous.to, kind: previous.kind, rationale: previous.rationale,
+            state: state, createdAt: previous.createdAt, updatedAt: now,
+            review: KnowledgePageReview(state: state, recordedAt: now))
+    }
+
+    private func endpointAvailability(from: KnowledgePageBinding, to: KnowledgePageBinding) -> String? {
+        guard from.isValid, to.isValid, from.id.lowercased() != to.id.lowercased() else {
+            return "Choose two distinct reviewed pages."
+        }
+        for binding in [from, to] {
+            guard let page = latestKnowledgePages.first(where: { $0.binding == binding }),
+                  availability(of: page) == nil else {
+                return "A linked page or its source changed, was withdrawn, or needs review. Select its exact current reviewed version."
+            }
+        }
+        return nil
     }
 
     func makeAnchor(sourceID: String, range: NSRange) throws -> KnowledgeAnchor {
@@ -373,9 +510,11 @@ final class ReadingSourceLibrary: ObservableObject {
         }
     }
 
-    private func persist(_ next: [ReadingSourceSnapshot], pages: [KnowledgePage]? = nil) throws {
+    private func persist(_ next: [ReadingSourceSnapshot], pages: [KnowledgePage]? = nil,
+                         links: [KnowledgePageLink]? = nil) throws {
         guard !requiresRecovery, url.isFileURL else { throw ReadingSourceLibraryError.unreadable }
         let nextPages = pages ?? knowledgePages
+        let nextLinks = links ?? knowledgeLinks
         guard next.allSatisfy(Self.validSnapshot), Self.uniqueIDs(next) else {
             throw ReadingSourceLibraryError.invalid("Invalid kept reading source identities or revisions.")
         }
@@ -386,13 +525,20 @@ final class ReadingSourceLibrary: ObservableObject {
         guard nextPages.count + Self.latestPages(nextPages).filter({ $0.state != .withdrawn }).count <= Self.maximumKnowledgePageVersions else {
             throw ReadingSourceLibraryError.invalid("The 64-version page history is full; reserved slots remain available for withdrawals. Existing history is preserved.")
         }
+        guard KnowledgePageLink.validHistory(nextLinks, pages: nextPages) else {
+            throw ReadingSourceLibraryError.invalid("Invalid knowledge link history or endpoint versions.")
+        }
+        guard nextLinks.count + Self.latestLinks(nextLinks).filter({ $0.state != .withdrawn }).count <= Self.maximumKnowledgeLinkVersions else {
+            throw ReadingSourceLibraryError.invalid("The 128-version link history is full; reserved slots remain available for withdrawals. Existing history is preserved.")
+        }
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         let hasProvenance = next.contains { $0.provenance != nil }
             || nextPages.contains { $0.anchors.contains { $0.source.provenance != nil } }
-        let archiveSchema = hasProvenance ? Self.provenanceSchema
-            : (nextPages.contains(where: { $0.relationship != nil }) ? Self.relationshipSchema : Self.schema)
-        let bytes = try encoder.encode(Archive(schema: archiveSchema, sources: next, knowledgePages: nextPages))
+        let archiveSchema = !nextLinks.isEmpty ? Self.linkSchema : (hasProvenance ? Self.provenanceSchema
+            : (nextPages.contains(where: { $0.relationship != nil }) ? Self.relationshipSchema : Self.schema))
+        let bytes = try encoder.encode(Archive(schema: archiveSchema, sources: next,
+            knowledgePages: nextPages, knowledgeLinks: nextLinks))
         guard bytes.count <= Self.maximumArchiveBytes else { throw ReadingSourceLibraryError.full }
 
         try assertCurrent()
@@ -436,6 +582,7 @@ final class ReadingSourceLibrary: ObservableObject {
         baselineDigest = Self.digest(bytes)
         sources = next
         knowledgePages = nextPages
+        knowledgeLinks = nextLinks
         loadError = nil
     }
 
@@ -444,21 +591,29 @@ final class ReadingSourceLibrary: ObservableObject {
         try scanner.validate()
         guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               let version = object["schema"] as? String,
-              [schema, relationshipSchema, provenanceSchema, "archi-reading-sources/v1"].contains(version),
-              Set(object.keys) == (version == "archi-reading-sources/v1" ? ["schema", "sources"] : ["schema", "sources", "knowledgePages"]),
+              [schema, relationshipSchema, provenanceSchema, linkSchema, "archi-reading-sources/v1"].contains(version),
+              Set(object.keys) == (version == "archi-reading-sources/v1" ? ["schema", "sources"]
+                : (version == linkSchema ? ["schema", "sources", "knowledgePages", "knowledgeLinks"]
+                    : ["schema", "sources", "knowledgePages"])),
               let rows = object["sources"] as? [[String: Any]], rows.count <= maximumSources,
               rows.allSatisfy({ row in
                   let required: Set<String> = ["id", "title", "revision", "text"]
                   let keys = Set(row.keys)
-                  return required.isSubset(of: keys) && keys.isSubset(of: version == provenanceSchema ? required.union(["provenance"]) : required)
+                  return required.isSubset(of: keys) && keys.isSubset(of: [provenanceSchema, linkSchema].contains(version) ? required.union(["provenance"]) : required)
               }) else {
             throw ReadingSourceLibraryError.unreadable
         }
         let archive: Archive
         if version != "archi-reading-sources/v1" {
             guard let pages = object["knowledgePages"] as? [[String: Any]], pages.count <= maximumKnowledgePageVersions,
-                  [relationshipSchema, provenanceSchema].contains(version) || pages.allSatisfy({ $0["relationship"] == nil }) else {
+                  [relationshipSchema, provenanceSchema, linkSchema].contains(version) || pages.allSatisfy({ $0["relationship"] == nil }) else {
                 throw ReadingSourceLibraryError.unreadable
+            }
+            if version == linkSchema {
+                guard let links = object["knowledgeLinks"] as? [[String: Any]],
+                      !links.isEmpty, links.count <= maximumKnowledgeLinkVersions else {
+                    throw ReadingSourceLibraryError.unreadable
+                }
             }
             archive = try JSONDecoder().decode(Archive.self, from: data)
         } else {
@@ -467,9 +622,11 @@ final class ReadingSourceLibrary: ObservableObject {
                 knowledgePages: [])
         }
         guard archive.sources.allSatisfy(validSnapshot), uniqueIDs(archive.sources), withinCapacity(archive.sources),
-              version == provenanceSchema || archive.knowledgePages.allSatisfy({ $0.anchors.allSatisfy { $0.source.provenance == nil } }),
+              [provenanceSchema, linkSchema].contains(version) || archive.knowledgePages.allSatisfy({ $0.anchors.allSatisfy { $0.source.provenance == nil } }),
               validPageHistory(archive.knowledgePages),
-              archive.knowledgePages.count + latestPages(archive.knowledgePages).filter({ $0.state != .withdrawn }).count <= maximumKnowledgePageVersions else {
+              archive.knowledgePages.count + latestPages(archive.knowledgePages).filter({ $0.state != .withdrawn }).count <= maximumKnowledgePageVersions,
+              KnowledgePageLink.validHistory(archive.knowledgeLinks, pages: archive.knowledgePages),
+              archive.knowledgeLinks.count + latestLinks(archive.knowledgeLinks).filter({ $0.state != .withdrawn }).count <= maximumKnowledgeLinkVersions else {
             throw ReadingSourceLibraryError.unreadable
         }
         return archive
@@ -477,6 +634,10 @@ final class ReadingSourceLibrary: ObservableObject {
 
     private static func latestPages(_ pages: [KnowledgePage]) -> [KnowledgePage] {
         pages.filter { page in !pages.contains { $0.id == page.id && $0.revision > page.revision } }
+    }
+
+    private static func latestLinks(_ links: [KnowledgePageLink]) -> [KnowledgePageLink] {
+        links.filter { link in !links.contains { $0.id == link.id && $0.revision > link.revision } }
     }
 
     private static func sameContent(_ lhs: KnowledgePage, _ rhs: KnowledgePage) -> Bool {

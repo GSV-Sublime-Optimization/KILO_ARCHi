@@ -1,8 +1,8 @@
 import Foundation
 import CryptoKit
 
-/// Derived navigation over the existing source library. Edges record attribution,
-/// not semantic entailment, model retrieval, or evidence of companion development.
+/// Derived navigation over the existing source library. Edges record attribution
+/// and reviewed user declarations, not certified entailment or development.
 @MainActor
 enum KnowledgePageGraph {
     static func append(to base: CompanionGraphSnapshot, library: ReadingSourceLibrary) -> CompanionGraphSnapshot {
@@ -75,6 +75,14 @@ enum KnowledgePageGraph {
                 guard let sourceID = addSource(anchor.source) else { continue }
                 link(id, sourceID, "source passage")
             }
+        }
+        // Only exact current reviewed connections enter the graph. Old endpoints
+        // remain inspectable in page history, never silently rebound to new pages.
+        for connection in library.latestKnowledgeLinks.sorted(by: { $0.identity < $1.identity }) {
+            guard library.availability(of: connection) == nil else { continue }
+            link(key(["knowledge", connection.from.id, String(connection.from.revision)]),
+                 key(["knowledge", connection.to.id, String(connection.to.revision)]),
+                 "declared " + connection.kind.title.lowercased())
         }
         // Kept sources have their own identity even before a page cites them.
         // Reuse exactly the same version key as passage and parent references.

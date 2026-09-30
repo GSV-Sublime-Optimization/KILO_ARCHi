@@ -33,7 +33,7 @@ extension CompanionStore {
     }
 
     func useKnowledgePageInChat(_ page: KnowledgePage) {
-        guard !isShuttingDown, knowledgePageDraft == nil else { return }
+        guard !isShuttingDown, !hasOpenKnowledgeDraft else { return }
         guard readingSources.availability(of: page) == nil else {
             knowledgePageMessage = readingSources.availability(of: page); return
         }
@@ -68,7 +68,7 @@ extension CompanionStore {
 
     func beginKnowledgePage(_ page: KnowledgePage? = nil) {
         guard canChangeKnowledgePages else { return }
-        guard knowledgePageDraft == nil else {
+        guard !hasOpenKnowledgeDraft else {
             knowledgePageMessage = "Save or discard the open page draft first."
             open(.memory)
             return
@@ -119,8 +119,36 @@ extension CompanionStore {
         } catch { knowledgePageMessage = error.localizedDescription }
     }
 
+    @discardableResult
+    func saveKnowledgeLink(prior: KnowledgePageLink?, from: KnowledgePageBinding,
+                           to: KnowledgePageBinding, kind: KnowledgePageLinkKind, rationale: String) -> Bool {
+        guard canChangeKnowledgePages, knowledgePageDraft == nil else { return false }
+        do {
+            _ = try readingSources.saveKnowledgeLink(id: prior?.id, expectedRevision: prior?.revision,
+                from: from, to: to, kind: kind, rationale: rationale)
+            knowledgePageMessage = "Connection saved as a draft. Review both pages and their passages before marking it reviewed."
+            return true
+        } catch { knowledgePageMessage = error.localizedDescription; return false }
+    }
+
+    func reviewKnowledgeLink(_ link: KnowledgePageLink) {
+        guard canChangeKnowledgePages, !hasOpenKnowledgeDraft else { return }
+        do {
+            _ = try readingSources.reviewKnowledgeLink(id: link.id, expectedRevision: link.revision)
+            knowledgePageMessage = "Your connection review is recorded. It can suggest related pages; it does not certify either claim."
+        } catch { knowledgePageMessage = error.localizedDescription }
+    }
+
+    func withdrawKnowledgeLink(_ link: KnowledgePageLink) {
+        guard canChangeKnowledgePages, !hasOpenKnowledgeDraft else { return }
+        do {
+            _ = try readingSources.withdrawKnowledgeLink(id: link.id, expectedRevision: link.revision)
+            knowledgePageMessage = "Connection withdrawn from suggestions. Its earlier versions remain in history."
+        } catch { knowledgePageMessage = error.localizedDescription }
+    }
+
     func beginRelationshipPage(_ kind: RelationshipMemoryKind, person: KnowledgePage? = nil) {
-        guard canChangeKnowledgePages, knowledgePageDraft == nil else { return }
+        guard canChangeKnowledgePages, !hasOpenKnowledgeDraft else { return }
         if kind != .person {
             guard let person, person.relationship?.kind == .person,
                   readingSources.availability(of: person) == nil else {
@@ -162,7 +190,7 @@ extension CompanionStore {
     /// Replaces previous selections so a brief never silently includes another person's pages.
     /// It prepares local context only; the user still writes and sends the request.
     func prepareRelationshipConversation(person: KnowledgePage, records: [KnowledgePage]) {
-        guard canChangeKnowledgePages, knowledgePageDraft == nil else { return }
+        guard canChangeKnowledgePages, !hasOpenKnowledgeDraft else { return }
         let pages = [person] + records
         guard person.relationship?.kind == .person, pages.count <= 4,
               Set(pages.map(\.id)).count == pages.count,

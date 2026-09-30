@@ -8,7 +8,7 @@ extension CompanionStore {
     @discardableResult
     func keepKnowledgeProcedure(page: KnowledgePage, title: String, instruction: String,
                                 requirements: DocumentWorkRequirements) -> Bool {
-        guard canKeepDocumentProcedure, knowledgePageDraft == nil,
+        guard canKeepDocumentProcedure, !hasOpenKnowledgeDraft,
               documentWork.isCurrentOnDisk, knowledgeDependenciesAreCurrent([page.binding]) else {
             knowledgePageMessage = "Review the current page and finish any open work before saving a method."
             return false

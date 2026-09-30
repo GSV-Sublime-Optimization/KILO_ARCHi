@@ -18,15 +18,15 @@ An anchor contains the retained source UUID, revision, SHA-256 digest, UTF-16 lo
 
 Source replacement or forgetting makes dependent reviewed pages unavailable for current use. The page keeps its authored note and hash/range references; unavailable source prose is never reconstructed. Make a new draft with fresh anchors before reviewing again. Withdrawing a page appends a revision; it is not erasure of authored history.
 
-The graph shows only explicit page-to-source attribution. A link is not proof that the source entails the claim. Shared sources give inspectable backlinks, not an inferred semantic relationship.
+The graph shows page-to-source attribution and current [reviewed page connections](native-reviewed-connections.md). Supports, Contradicts and Depends on are directed user declarations, not proof of entailment. Shared sources give inspectable backlinks.
 
 ## Persistence and bounds
 
-The existing `preferences.reading-sources.json` uses v2 for page history, v3 when relationship records are present, and v4 when source provenance is retained. Legacy v1–v3 files load without writes; explicit edits choose the required schema. V4 adds [source origin and derivation](native-source-provenance.md) to the same atomic owner. Older binaries cannot read newer schemas; preserve the installed app rollback and data backup when intentionally downgrading.
+The existing `preferences.reading-sources.json` uses v2 for page history, v3 when relationship records are present, v4 when source provenance is retained, and v5 after a page connection is saved. Legacy v1–v4 files load without writes; explicit edits choose the required schema. V4 adds [source origin and derivation](native-source-provenance.md) to the same atomic owner. Older binaries cannot read newer schemas; preserve the installed app rollback and data backup when intentionally downgrading.
 
 Bounds: eight kept copies, 100 KB per source, 400 KB total source text; page title 240 UTF-8 bytes, note 8,192 UTF-8 bytes, one to four anchors, 64 total page versions. Each active page reserves a future withdrawal slot. Full history is preserved and reported; no automatic pruning. File locking and exact disk-digest checks prevent stale windows from overwriting each other. Malformed schemas, duplicate keys and invalid histories block writes.
 
-The native profile backup already includes `preferences.reading-sources.json`. Its source copies and page versions travel together as one exact-byte file, including explicit file absence. The earlier statement that this library was excluded was incorrect. Backup bounds now match the library's 8 MiB file ceiling, the outer envelope accounts for base64, and the restore summary reports page-version count. Use [Backup & restore](native-desktop-backup-and-restore.md) for a profile checkpoint; Markdown copy is a separate inspectable export, not a replacement for revision history.
+The native profile backup already includes `preferences.reading-sources.json`. Its source copies, page versions and connection history travel together as one exact-byte file, including explicit file absence. The earlier statement that this library was excluded was incorrect. Backup bounds now match the library's 8 MiB file ceiling, the outer envelope accounts for base64, and the restore summary reports page-version count. Use [Backup & restore](native-desktop-backup-and-restore.md) for a profile checkpoint; Markdown copy is a separate inspectable export, not a replacement for revision history.
 
 ## Hampton placement and present limit
 

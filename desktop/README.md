@@ -69,3 +69,7 @@ Document revision and ARC3 planning now use one versioned native controller. Exi
 ## Read with context
 
 Open a document or meeting notes in Work together, write a question and choose Find relevant passages. Local Qwen uses a bounded section plan with exact source ranges. The preview identifies omitted coverage. After a completed local answer, Helpful or Needs correction feeds the next reading approach for that source. The same reply controls are available in Chat and the Seed bubble. See [native document reading](../docs/native-document-reading.md).
+
+### Reviewed knowledge connections
+
+Memories supports user-reviewed **Supports**, **Contradicts** and **Depends on** links between exact page versions. Local search suggests current neighbors one step away, with direction and rationale visible. Source corrections invalidate those suggestions. See [use, limits and recovery](../docs/native-reviewed-connections.md) and [delivery evidence](../docs/accountability/evidence/r29-reviewed-knowledge-connections-2026-09-29.json).

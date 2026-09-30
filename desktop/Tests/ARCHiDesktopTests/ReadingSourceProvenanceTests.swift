@@ -321,7 +321,7 @@ final class ReadingSourceProvenanceTests: XCTestCase {
         changed["unexpected"] = true
         corruptions.append(changed)
         changed = base
-        changed["schema"] = "archi-reading-sources/v5"
+        changed["schema"] = "archi-reading-sources/v6"
         corruptions.append(changed)
         for version in 1...3 {
             changed = base

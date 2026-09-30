@@ -107,6 +107,8 @@ final class CompanionStore: ObservableObject {
     @Published private(set) var readingSources: ReadingSourceLibrary
     @Published var selectedReadingSourceIDs: Set<String> = []
     @Published var knowledgePageDraft: KnowledgePageDraft?
+    @Published var knowledgeLinkDraft: KnowledgeLinkDraft?
+    var hasOpenKnowledgeDraft: Bool { knowledgePageDraft != nil || knowledgeLinkDraft != nil }
     @Published var selectedKnowledgePageID: String?
     @Published var selectedKnowledgePages: [KnowledgePageBinding] = []
     @Published var knowledgePageMessage: String?
@@ -145,9 +147,9 @@ final class CompanionStore: ObservableObject {
         didSet {
             // The page editor is hosted by Memories. Keep that host alive until
             // the user explicitly saves or cancels its local editable fields.
-            if knowledgePageDraft != nil, section != .memory {
+            if hasOpenKnowledgeDraft, section != .memory {
                 section = .memory
-                knowledgePageMessage = "Save or cancel your open page draft before changing views."
+                knowledgePageMessage = "Save or cancel your open page or connection draft before changing views."
             }
             if section == .play && !allowsPlay { section = .assistant }
             if section != oldValue, focusGesturePlayback != nil { stopFocusGesture() }
@@ -1833,7 +1835,7 @@ final class CompanionStore: ObservableObject {
 
     func canDraftKnowledgeMethod(page: KnowledgePage) -> Bool {
         !isShuttingDown && !isWorking && !isARCWorking && !voiceInput.isActive
-            && knowledgePageDraft == nil && page.kind == .concept && page.state == .reviewed
+            && !hasOpenKnowledgeDraft && page.kind == .concept && page.state == .reviewed
             && knowledgeDependenciesAreCurrent([page.binding])
     }
 
@@ -1911,7 +1913,7 @@ final class CompanionStore: ObservableObject {
     }
 
     func editKnowledgeConceptDraft() {
-        guard let draft = currentKnowledgeConceptDraft, knowledgePageDraft == nil, !isWorking else { return }
+        guard let draft = currentKnowledgeConceptDraft, !hasOpenKnowledgeDraft, !isWorking else { return }
         knowledgePageDraft = KnowledgePageDraft(proposal: draft)
         knowledgePageMessage = "Review this generated interpretation and its limitations. Save creates an unreviewed draft."
     }
@@ -1926,7 +1928,7 @@ final class CompanionStore: ObservableObject {
     @discardableResult
     func draftKnowledgeConcept(title: String, anchors: [KnowledgeAnchor]) -> Bool {
         guard !isShuttingDown, !isWorking, !isARCWorking, !voiceInput.isActive,
-              knowledgePageDraft == nil, client(for: .qwen) is HamptonReasonsAssistant else { return false }
+              !hasOpenKnowledgeDraft, client(for: .qwen) is HamptonReasonsAssistant else { return false }
         do {
             let target = try KnowledgeConceptDraftRequest(requestID: UUID().uuidString, title: title,
                 anchors: anchors, quotes: anchors.compactMap { readingSources.quote(for: $0) })
@@ -3777,7 +3779,7 @@ extension CompanionStore {
             return "Save your changed appearance and rhythm settings before restoring."
         }
         if lessonDraft != nil { return "Keep or discard the lesson draft before restoring." }
-        if knowledgePageDraft != nil { return "Save or discard the knowledge page draft before restoring." }
+        if hasOpenKnowledgeDraft { return "Save or discard the knowledge page or connection draft before restoring." }
         if focusGestureDraft != nil { return "Keep or discard the gesture draft before restoring." }
         if voiceInput.phase == .review { return "Use or discard the voice draft before restoring." }
         return nil

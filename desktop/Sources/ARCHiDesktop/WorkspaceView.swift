@@ -152,7 +152,9 @@ struct WorkspaceView: View {
         return Button {
             // Native accessibility actions can arrive during a SwiftUI layout
             // callback. Navigate on the next event turn, after that update ends.
-            DispatchQueue.main.async { store.open(section) }
+            DispatchQueue.main.async {
+                section == .nodeLab ? store.openMemoryMap() : store.open(section)
+            }
         } label: {
             HStack(spacing: 11) {
                 Image(systemName: section == .connections ? "gearshape" : section.icon)

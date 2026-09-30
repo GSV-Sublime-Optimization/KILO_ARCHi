@@ -48,7 +48,7 @@ enum KnowledgePageGraph {
             guard add(.init(id: id, title: retained?.title ?? "Unavailable source version",
                 subtitle: "Source v\(identity.revision)", kind: .source,
                 status: issue == nil ? "Retained source" : "Needs source review",
-                details: details, target: .context)) else { return nil }
+                details: details, target: .memory)) else { return nil }
             return id
         }
         func addSource(_ binding: ReadingSourceBinding) -> String? {

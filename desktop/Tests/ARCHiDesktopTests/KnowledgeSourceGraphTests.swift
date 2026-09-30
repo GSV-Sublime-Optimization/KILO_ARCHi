@@ -15,7 +15,7 @@ final class KnowledgeSourceGraphTests: XCTestCase {
         let node = try sourceNode(source.binding, in: graph)
         XCTAssertEqual(node.title, source.title)
         XCTAssertEqual(node.status, "Retained source")
-        XCTAssertEqual(node.target, .context)
+        XCTAssertEqual(node.target, .memory, "Kept sources must not navigate to an unrelated working document.")
         XCTAssertTrue(node.details.contains(.init(label: "Declared origin", value: "Human authored")))
         XCTAssertTrue(node.details.contains(.init(label: "Acquisition", value: "External publication")))
         XCTAssertFalse(strings(graph).contains(source.text))

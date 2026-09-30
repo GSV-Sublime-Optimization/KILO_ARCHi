@@ -494,7 +494,7 @@ final class DesktopDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     @objc private func openMemory() { showWorkspace(.memory) }
     @objc private func openAppearance() { showWorkspace(.appearance) }
     @objc private func openEvolution() { showWorkspace(.evolution) }
-    @objc private func openNodeLab() { showWorkspace(.nodeLab) }
+    @objc private func openNodeLab() { store.openMemoryMap() }
     @objc private func openSettings() { showWorkspace(.connections) }
     @objc private func showCompanion() { store.showCompanion() }
     @objc private func hideCompanion() { store.hideCompanion() }
@@ -558,7 +558,7 @@ final class DesktopDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         windowMenu.addItem(item("Assistant", #selector(openAssistant), key: "1"))
         windowMenu.addItem(item("Companion · Appearance", #selector(openAppearance), key: "2"))
         windowMenu.addItem(item("Companion · Growth", #selector(openEvolution), key: "3"))
-        windowMenu.addItem(item("Node Lab", #selector(openNodeLab), key: "4"))
+        windowMenu.addItem(item("Memory map", #selector(openNodeLab), key: "4"))
         windowMenu.addItem(item("Marketplace", #selector(openMarketplace), key: "5"))
         windowMenu.addItem(item("Arena", #selector(openUnity), key: "6"))
         windowMenu.addItem(item("Work together", #selector(openWorkTogether), key: "7"))

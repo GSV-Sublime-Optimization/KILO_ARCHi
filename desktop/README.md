@@ -20,6 +20,8 @@ Use `--stage-only --stage-dir /private/tmp/unique-candidate-directory` to build 
 
 ## Current native experience
 
+- **Memory map** is now a primary sidebar destination and Home feature. Explore actual retained sources, authored pages and kept lessons; use Showcase for a focused local presentation, or All activity for receipts and usage. [Guide and limits](../docs/native-memory-dashboard.md).
+
 - **ARC → Interactive ARC3** discovers an installed offline runtime, displays its actual frames, accepts manual actions and explores in batches of up to eight actions. Chat and the Seed bubble expose `/arc3 open`, `/arc3 explore` and `/arc3 stop`. Episodes retain proposed actions, observed outcomes and task-local transition evidence, with Usage and Activity map links. This first explorer uses no model calls; goal-directed model planning remains future work. [Setup and scope](../docs/active-arc3.md).
 
 - **Capability checks → Solve an ARC task locally** imports standard train/test JSON or loads a synthetic sample, runs a bounded rule search, independently checks predictions and retains traces with Usage/activity graph links. [Scope and operation](../docs/native-arc-solving.md).

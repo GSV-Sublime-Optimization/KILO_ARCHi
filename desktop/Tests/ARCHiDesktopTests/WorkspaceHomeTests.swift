@@ -114,7 +114,7 @@ final class WorkspaceHomeTests: XCTestCase {
         }
         XCTAssertTrue(snapshot(window).contains { $0.id == "home.workspace" },
                       "Home must expose its own native accessibility container.")
-        for id in ["home.ask", "home.appearance", "home.play-arena", "home.unity", "home.marketplace"] {
+        for id in ["home.ask", "home.appearance"] {
             let action = try XCTUnwrap(snapshot(window).first { $0.id == id })
             XCTAssertTrue(isVisible(action, inside: window.convertToScreen(window.contentLayoutRect)),
                           "\(id) must be visible on arrival, including at the minimum window size.")
@@ -147,9 +147,17 @@ final class WorkspaceHomeTests: XCTestCase {
         ] + WorkspaceNavigation.allHomeFeatures.map {
             (HomeFeatureDirectory.identifier(for: $0), $0, "directory-\($0.id)")
         }
+        let directoryToggle = try await reachable("home.features-disclosure", hosting: hosting, window: window, needsPress: true)
+        try press(directoryToggle)
+        try await settle(hosting, window: window)
         _ = try await reachable(HomeFeatureDirectory.identifier(for: .advanced), hosting: hosting, window: window)
         try capture("all-features-\(name)", hosting: hosting, window: window, output: output, samples: &samples)
         for (identifier, destination, filename) in routes {
+            if identifier.hasPrefix("home.feature.") && !snapshot(window).contains(where: { $0.id == identifier }) {
+                let toggle = try await reachable("home.features-disclosure", hosting: hosting, window: window, needsPress: true)
+                try press(toggle)
+                try await settle(hosting, window: window)
+            }
             let action = try await reachable(identifier, hosting: hosting, window: window, needsPress: true)
             samples.append(sample("reachable-\(identifier)", nodes: snapshot(window), window: window))
             try press(action)

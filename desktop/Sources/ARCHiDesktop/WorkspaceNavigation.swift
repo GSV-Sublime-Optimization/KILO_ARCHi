@@ -4,16 +4,16 @@ import SwiftUI
 /// state or save a preference when a user moves between related screens.
 enum WorkspaceNavigation {
     static let work: [WorkspaceSection] = [.home, .assistant, .context]
-    static let companion: [WorkspaceSection] = [.appearance, .memory]
+    static let companion: [WorkspaceSection] = [.nodeLab, .memory, .appearance]
     static let explore: [WorkspaceSection] = [.unity, .marketplace]
-    static let tools: [WorkspaceSection] = [.nodeLab, .steward, .capabilities]
+    static let tools: [WorkspaceSection] = [.steward, .capabilities]
     static var allSidebarDestinations: [WorkspaceSection] { work + companion + explore + tools + [.connections] }
     static let homeFeatureGroups: [(title: String, destinations: [WorkspaceSection])] = [
         ("Everyday", [.assistant, .context]),
-        ("Your companion", [.appearance, .evolution, .memory]),
+        ("Your companion", [.nodeLab, .memory, .appearance, .evolution]),
         ("Play & create", [.unity, .marketplace]),
         ("Make it yours", [.connections, .rhythm, .accessibility, .advanced]),
-        ("More tools", [.nodeLab, .steward, .capabilities])
+        ("More tools", [.steward, .capabilities])
     ]
     static var allHomeFeatures: [WorkspaceSection] { homeFeatureGroups.flatMap(\.destinations) }
 
@@ -24,7 +24,7 @@ enum WorkspaceNavigation {
         case .appearance: "My companion"
         case .memory: "Memories"
         case .unity: "Arena"
-        case .nodeLab: "Activity map"
+        case .nodeLab: "Memory map"
         case .steward: "Usage"
         case .capabilities: "Reasoning"
         case .connections: "Settings"

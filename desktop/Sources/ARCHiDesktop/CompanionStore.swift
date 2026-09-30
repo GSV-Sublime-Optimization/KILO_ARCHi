@@ -804,6 +804,12 @@ final class CompanionStore: ObservableObject {
         return available
     }
 
+    /// General navigation starts at memory; exact receipt routes retain their selection.
+    func openMemoryMap() {
+        selectedGraphNodeID = nil
+        open(.nodeLab)
+    }
+
     @discardableResult
     func openARCGraph(evidenceID: String) -> Bool {
         let node = companionGraphSnapshot().nodes.first {

@@ -185,6 +185,7 @@ struct CompanionGraphView: View {
     var reduceMotion = false
     var seedColor: CompanionSeedColor = .original
 
+    @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
     @State private var selectedID: String?
     @State private var query = ""
     @State private var kindFilter: CompanionGraphKind?
@@ -196,15 +197,18 @@ struct CompanionGraphView: View {
     @State private var particleSpread = 1.0
     @State private var particlePulses = true
     @State private var particleExportMessage: String?
+    @State private var isShowcase = false
 
     init(snapshot: CompanionGraphSnapshot, onOpen: @escaping (CompanionGraphTarget) -> Void,
          initialLayout: CompanionGraphLayout = .particles, initialSelectionID: String? = nil,
-         reduceMotion: Bool = false, seedColor: CompanionSeedColor = .original) {
+         reduceMotion: Bool = false, seedColor: CompanionSeedColor = .original,
+         initialShowcase: Bool = false) {
         self.snapshot = snapshot
         self.onOpen = onOpen
         self.reduceMotion = reduceMotion; self.seedColor = seedColor
         _layout = State(initialValue: initialLayout)
         _selectedID = State(initialValue: initialSelectionID)
+        _isShowcase = State(initialValue: initialShowcase)
     }
 
     private var visibleNodes: [CompanionGraphNode] {
@@ -219,26 +223,32 @@ struct CompanionGraphView: View {
     // Keep only an ID in view state: replacement/removal immediately changes the inspector.
     private var selectedNode: CompanionGraphNode? { visibleNodes.first { $0.id == selectedID } }
     private var focusNode: CompanionGraphNode? { snapshot.nodes.first { $0.id == focusID } }
+    private var hasFilters: Bool { !query.isEmpty || kindFilter != nil || focusID != nil }
+    private var showsInspector: Bool { !isShowcase || selectedNode != nil }
 
     var body: some View {
         GeometryReader { viewport in
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     heading
-                    filters
+                    if !isShowcase { filters }
+                    else if hasFilters { showcaseFilterSummary }
                     if viewport.size.width >= 930 {
-                        let graphHeight = max(280, viewport.size.height - 296)
+                        let graphHeight = max(280, viewport.size.height - (isShowcase ? 196 : 296))
                         HStack(alignment: .top, spacing: 16) {
                             graphCard(height: graphHeight)
-                            ScrollView { inspector }
-                                .frame(width: 270, height: graphHeight + 78, alignment: .top)
-                                .clipShape(RoundedRectangle(cornerRadius: 18))
-                                .id(selectedID)
-                                .accessibilityIdentifier("companion-graph.inspector-scroll")
+                            if showsInspector {
+                                ScrollView { inspector }
+                                    .frame(width: 270, height: graphHeight + 78, alignment: .top)
+                                    .clipShape(RoundedRectangle(cornerRadius: 18))
+                                    .id(selectedID)
+                                    .accessibilityIdentifier("companion-graph.inspector-scroll")
+                            }
                         }
                     } else {
-                        graphCard(height: max(280, min(400, viewport.size.height * 0.57)))
-                        inspector
+                        graphCard(height: isShowcase ? max(300, viewport.size.height - 196)
+                            : max(280, min(400, viewport.size.height * 0.57)))
+                        if showsInspector { inspector }
                     }
                 }
                 .padding(20)
@@ -263,8 +273,8 @@ struct CompanionGraphView: View {
             VStack(alignment: .leading, spacing: 5) {
                 Text("LOCAL CONNECTIONS").font(.system(size: 9, weight: .semibold)).tracking(2)
                     .foregroundStyle(Color.teal)
-                Text("Activity map").font(.system(size: 25, weight: .medium, design: .rounded))
-                Text("\(visibleNodes.count) of \(snapshot.nodes.count) nodes · \(visibleEdges.count) connections")
+                Text("Memory map").font(.system(size: 25, weight: .medium, design: .rounded))
+                Text("\(visibleNodes.count) of \(snapshot.nodes.count) records · \(visibleEdges.count) connections")
                     .font(.system(size: 11)).foregroundStyle(.secondary)
                     .accessibilityIdentifier("companion-graph.counts")
             }
@@ -275,7 +285,34 @@ struct CompanionGraphView: View {
             .buttonStyle(.bordered).controlSize(.small)
             .accessibilityLabel(showsList ? "Show graph" : "Show accessible node list")
             .accessibilityIdentifier("companion-graph.list-toggle")
+            Button {
+                isShowcase.toggle()
+                fitRevision += 1
+            } label: {
+                Label(isShowcase ? "Exit showcase" : "Showcase",
+                    systemImage: isShowcase ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
+            }
+            .buttonStyle(.bordered).controlSize(.small)
+            .tint(isShowcase ? WorkspaceTheme.accent : nil)
+            .help(isShowcase ? "Return to map controls. Escape also exits showcase." : "Give the map more space. Select any record to inspect it.")
+            .keyboardShortcut(isShowcase ? .cancelAction : nil)
+            .accessibilityValue(isShowcase ? "On" : "Off")
+            .accessibilityIdentifier("companion-graph.showcase")
         }
+    }
+
+    private var showcaseFilterSummary: some View {
+        HStack(spacing: 8) {
+            Label("Showing a filtered map", systemImage: "line.3.horizontal.decrease.circle")
+                .foregroundStyle(.secondary)
+            if let focusNode { Text(focusNode.title).lineLimit(1) }
+            Spacer(minLength: 0)
+            Button("Show all records") {
+                query = ""; kindFilter = nil; focusID = nil; fitRevision += 1
+            }.buttonStyle(.borderless)
+        }
+        .font(.system(size: 11))
+        .accessibilityIdentifier("companion-graph.showcase-filter-summary")
     }
 
     private var filters: some View {
@@ -328,13 +365,25 @@ struct CompanionGraphView: View {
     private func graphCard(height: CGFloat) -> some View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
-                Picker("Graph layout", selection: $layout) {
-                    ForEach(CompanionGraphLayout.allCases) { Text($0.rawValue).tag($0) }
+                if isShowcase {
+                    Label(showsList ? "Connected records" : layout.rawValue,
+                        systemImage: showsList ? "list.bullet" : "point.3.connected.trianglepath.dotted")
+                        .font(.system(size: 11, weight: .medium)).foregroundStyle(WorkspaceTheme.accent)
+                    Spacer(minLength: 8)
+                    if !showsList {
+                        Button("Fit map") { fitRevision += 1 }
+                            .accessibilityLabel("Fit and center graph")
+                            .accessibilityIdentifier("companion-graph.fit")
+                    }
+                } else {
+                    Picker("Graph layout", selection: $layout) {
+                        ForEach(CompanionGraphLayout.allCases) { Text($0.rawValue).tag($0) }
+                    }
+                    .pickerStyle(.segmented).frame(maxWidth: 375)
+                    .disabled(showsList).accessibilityIdentifier("companion-graph.layout")
+                    Spacer(minLength: 0)
                 }
-                .pickerStyle(.segmented).frame(maxWidth: 375)
-                .disabled(showsList).accessibilityIdentifier("companion-graph.layout")
-                Spacer(minLength: 0)
-                if !showsList {
+                if !showsList && !isShowcase {
                     Button { zoom = max(layout == .particles ? 1 : 0.005, zoom - 0.15) } label: { Image(systemName: "minus.magnifyingglass") }
                         .disabled(zoom <= (layout == .particles ? 1 : 0.005)).accessibilityLabel("Zoom out")
                     Text("\(Int((zoom * 100).rounded()))%")
@@ -346,7 +395,7 @@ struct CompanionGraphView: View {
                 }
             }
             .controlSize(.small).buttonStyle(.borderless).padding(12)
-            if layout == .particles && !showsList {
+            if layout == .particles && !showsList && !isShowcase {
                 HStack(spacing: 10) {
                     Text("Orb").foregroundStyle(.secondary)
                     Slider(value: $particleSpread, in: 0...1).frame(maxWidth: 180)
@@ -392,9 +441,12 @@ struct CompanionGraphView: View {
             }
             .font(.system(size: 10)).foregroundStyle(.secondary).padding(.horizontal, 13).padding(.vertical, 10)
         }
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18))
+        .background {
+            RadialGradient(colors: [seedColor.accent.opacity(0.06), .clear],
+                center: .center, startRadius: 0, endRadius: 420)
+        }
+        .modifier(WorkspaceSurface(emphasis: isShowcase))
         .clipShape(RoundedRectangle(cornerRadius: 18))
-        .overlay(RoundedRectangle(cornerRadius: 18).stroke(.primary.opacity(0.08), lineWidth: 1))
     }
 
     private var layoutHint: String {
@@ -412,7 +464,7 @@ struct CompanionGraphView: View {
             ScrollViewReader { scroll in
                 ScrollView([.horizontal, .vertical]) {
                     KnowledgeParticleView(field: field, nodes: visibleNodes, selectedID: selectedID,
-                        spread: particleSpread, pulses: particlePulses, reduceMotion: reduceMotion,
+                        spread: particleSpread, pulses: particlePulses, reduceMotion: reduceMotion || systemReduceMotion,
                         tint: seedColor.accent, onSelect: { selectNode($0) })
                         .frame(width: max(viewport.size.width, viewport.size.width * zoom),
                                height: max(viewport.size.height, viewport.size.height * zoom))
@@ -659,7 +711,7 @@ struct CompanionGraphView: View {
         switch target {
         case .assistant: "Open assistant"
         case .context: "Open shared context"
-        case .memory: "Open memory"
+        case .memory: "Manage memories"
         case .knowledgePage: "Open this knowledge page"
         case .advanced: "Open local receipts"
         case .capabilities: "Open ARC"

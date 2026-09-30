@@ -1,6 +1,6 @@
 # Memory map and Home
 
-The memory graph is a primary ARCHi destination under **Your companion**. Home puts it directly below the current companion, ahead of Arena and Marketplace. **Explore memory** opens the map; **Showcase** opens a spacious, read-only view in the same app. **Manage memories** returns to the existing memory owner.
+The memory graph is a primary ARCHi destination under **Your companion**. Home puts it directly below the current companion, ahead of Arena and Marketplace. **Explore memory** opens the map; **Present map** opens a spacious, read-only view in the same app. **Manage memories** returns to the existing memory owner.
 
 ## Working with the map
 
@@ -23,3 +23,5 @@ The general Memory map route clears old deep-link selection. Exact activity-rece
 The implementation was compiled on authored and curated sources. Fourteen focused projection/source/navigation checks passed; no models, puzzles or broad benchmark suite were run. Installed observations and profile preservation are recorded in [the delivery receipt](accountability/evidence/r29-memory-dashboard-2026-09-29.json).
 
 This delivers a desktop navigation and presentation increment. iPhone parity, long-session dense-graph performance and the wider Alpha/Beta release blockers remain separately qualified. Showing a graph does not validate a research theory or establish learned capability.
+
+The subsequent [intuitive Home refinement](native-intuitive-home.md) adds document review and saved-method access, a larger preview, and a **View options** popover. The original delivery receipt above remains historical.

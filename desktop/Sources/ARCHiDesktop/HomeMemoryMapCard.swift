@@ -26,48 +26,15 @@ struct HomeMemoryMapCard: View {
     private var hasRecords: Bool { !library.sources.isEmpty || pageCount > 0 || store.keptLessons.contains(where: \.isValid) }
 
     var body: some View {
-        HStack(spacing: 20) {
-            VStack(alignment: .leading, spacing: 8) {
-                WorkspaceEyebrow(text: "Connected memory")
-                Text("A map of what you keep.")
-                    .font(.system(size: 22, weight: .medium, design: .rounded))
-                    .fixedSize(horizontal: false, vertical: true)
-                Text(hasRecords
-                     ? "Follow sources, ideas and lessons back to the records behind them."
-                     : "Keep a source or a useful lesson. Its place in your memory map starts here.")
-                    .font(.system(size: 13)).foregroundStyle(WorkspaceTheme.muted)
-                    .fixedSize(horizontal: false, vertical: true)
-                HStack(spacing: 18) {
-                    recordCount(library.sources.count, title: "sources", identifier: "sources")
-                    recordCount(pageCount, title: "pages", identifier: "pages")
-                    recordCount(lessonCount, title: "active lessons", identifier: "lessons")
-                }
-                .padding(.vertical, 2)
-                if libraryNeedsAttention {
-                    Label("Source library needs review", systemImage: "exclamationmark.circle")
-                        .font(.system(size: 11)).foregroundStyle(WorkspaceTheme.muted)
-                        .accessibilityIdentifier("home.memory-map.needs-review")
-                }
-                HStack(spacing: 10) {
-                    Button(action: onExplore) {
-                        Label("Explore memory", systemImage: "point.3.connected.trianglepath.dotted")
-                    }
-                    .buttonStyle(WorkspaceActionStyle(prominent: true))
-                    .accessibilityIdentifier("home.memory-map.explore")
-                    Button("Showcase", systemImage: "arrow.up.left.and.arrow.down.right", action: onShowcase)
-                        .buttonStyle(WorkspaceActionStyle())
-                        .disabled(!hasRecords)
-                        .accessibilityIdentifier("home.memory-map.showcase")
-                }
-                Button(hasRecords ? "Manage memories" : "Add a source") { store.open(.memory) }
-                    .buttonStyle(.plain).font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(WorkspaceTheme.accent)
-                    .accessibilityIdentifier("home.memory")
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 28) {
+                summary.frame(minWidth: 290)
+                preview.frame(width: 270, height: 246)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            preview
-                .frame(width: 200, height: 194)
+            VStack(alignment: .leading, spacing: 16) {
+                summary
+                preview.frame(height: 190)
+            }
         }
         .padding(20)
         .background {
@@ -89,6 +56,47 @@ struct HomeMemoryMapCard: View {
         .onChange(of: scenePhase) { _, phase in if phase == .active { refresh() } }
     }
 
+    private var summary: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            WorkspaceEyebrow(text: "Connected memory")
+            Text("Your memory, connected.")
+                .font(.system(size: 22, weight: .medium, design: .rounded))
+                .fixedSize(horizontal: false, vertical: true)
+            Text(hasRecords
+                 ? "Follow sources, ideas and lessons back to the records behind them."
+                 : "Keep a source or a useful lesson. Its place in your memory map starts here.")
+                .font(.system(size: 13)).foregroundStyle(WorkspaceTheme.muted)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 18) {
+                recordCount(library.sources.count, title: "sources", identifier: "sources")
+                recordCount(pageCount, title: "pages", identifier: "pages")
+                recordCount(lessonCount, title: "active lessons", identifier: "lessons")
+            }
+            .padding(.vertical, 2)
+            if libraryNeedsAttention {
+                Label("Source library needs review", systemImage: "exclamationmark.circle")
+                    .font(.system(size: 11)).foregroundStyle(WorkspaceTheme.muted)
+                    .accessibilityIdentifier("home.memory-map.needs-review")
+            }
+            HStack(spacing: 10) {
+                Button(action: onExplore) {
+                    Label("Explore memory", systemImage: "point.3.connected.trianglepath.dotted")
+                }
+                .buttonStyle(WorkspaceActionStyle(prominent: true))
+                .accessibilityIdentifier("home.memory-map.explore")
+                Button("Present map", systemImage: "arrow.up.left.and.arrow.down.right", action: onShowcase)
+                    .buttonStyle(WorkspaceActionStyle())
+                    .disabled(!hasRecords)
+                    .accessibilityIdentifier("home.memory-map.showcase")
+            }
+            Button(hasRecords ? "Manage memories" : "Add a source") { store.open(.memory) }
+                .buttonStyle(.plain).font(.system(size: 11, weight: .medium))
+                .foregroundStyle(WorkspaceTheme.accent)
+                .accessibilityIdentifier("home.memory")
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
     private var preview: some View {
         Button(action: onExplore) {
             ZStack {
@@ -97,12 +105,12 @@ struct HomeMemoryMapCard: View {
                 if hasRecords {
                     KnowledgeParticleView(field: field, nodes: snapshot.nodes, selectedID: nil,
                         spread: 1, pulses: false, reduceMotion: true,
-                        tint: store.preferences.seedColor.accent, onSelect: { _ in })
+                        tint: store.preferences.seedColor.accent, showsLabels: false, onSelect: { _ in })
                         .allowsHitTesting(false).accessibilityHidden(true)
                         .padding(8)
                     VStack {
                         Spacer()
-                        Text(snapshot.truncatedCount > 0 ? "Bounded preview · open to inspect" : "Your retained records")
+                        Text(snapshot.truncatedCount > 0 ? "Partial preview · open to inspect" : "Open the map to follow a connection")
                             .font(.system(size: 10)).foregroundStyle(WorkspaceTheme.muted)
                             .padding(.bottom, 9)
                     }
@@ -129,7 +137,7 @@ struct HomeMemoryMapCard: View {
     private func recordCount(_ count: Int, title: String, identifier: String) -> some View {
         VStack(alignment: .leading, spacing: 3) {
             Text(count, format: .number)
-                .font(.system(size: 21, weight: .medium, design: .rounded)).monospacedDigit()
+                .font(.system(size: 18, weight: .medium, design: .rounded)).monospacedDigit()
             Text(title).font(.system(size: 11)).foregroundStyle(WorkspaceTheme.muted)
         }
         .accessibilityElement(children: .ignore)

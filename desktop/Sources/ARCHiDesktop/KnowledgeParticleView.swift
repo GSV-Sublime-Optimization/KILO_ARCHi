@@ -9,6 +9,7 @@ struct KnowledgeParticleView: View {
     let pulses: Bool
     let reduceMotion: Bool
     let tint: Color
+    var showsLabels = true
     let onSelect: (String) -> Void
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
     @Environment(\.scenePhase) private var scenePhase
@@ -72,7 +73,8 @@ struct KnowledgeParticleView: View {
                 ForEach(nodes) { node in
                     if let position = points[node.id] {
                         nodeButton(node).position(position)
-                        if node.id == active || (nodes.count <= 12 && spread > 0.75) {
+                        // Nearby records can overlap; name the focused record and keep all titles in List.
+                        if showsLabels && node.id == active {
                             Text(node.title).font(.system(size: 10, weight: .medium)).lineLimit(1)
                                 .padding(.horizontal, 5).padding(.vertical, 3)
                                 .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 5))

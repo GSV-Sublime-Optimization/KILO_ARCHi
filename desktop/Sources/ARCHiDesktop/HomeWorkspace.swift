@@ -25,14 +25,19 @@ struct HomeWorkspace: View {
         GeometryReader { geometry in
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
-                    introduction
                     companionStage
                     HomeMemoryMapCard(store: store, onExplore: { store.openMemoryMap() },
                                       onShowcase: { showsShowcase = true })
-                    contextPanel
-                    HStack(alignment: .top, spacing: 16) {
-                        HomeUnityDestination(store: store)
-                        HomeMarketplaceDestination(store: store)
+                    HomeWorkSummaryCard(store: store)
+                    ViewThatFits(in: .horizontal) {
+                        HStack(alignment: .top, spacing: 16) {
+                            HomeUnityDestination(store: store).frame(minWidth: 255)
+                            HomeMarketplaceDestination(store: store).frame(minWidth: 255)
+                        }
+                        VStack(spacing: 12) {
+                            HomeUnityDestination(store: store)
+                            HomeMarketplaceDestination(store: store)
+                        }
                     }
                     DisclosureGroup(isExpanded: $showsAllFeatures) {
                         HomeFeatureDirectory(store: store).padding(.top, 16)
@@ -71,91 +76,60 @@ struct HomeWorkspace: View {
         .accessibilityIdentifier("home.workspace")
     }
 
-    private var introduction: some View {
-        HStack(alignment: .center, spacing: 16) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Here, with you.").font(.system(size: 27, weight: .medium, design: .rounded))
-                Text("A place to think, remember, and create together.")
+    private var companionStage: some View {
+        HStack(alignment: .center, spacing: 24) {
+            VStack(alignment: .leading, spacing: 12) {
+                WorkspaceEyebrow(text: "With \(companionName)")
+                Text("Think together.\nKeep what matters.")
+                    .font(.system(size: 32, weight: .medium, design: .rounded))
+                    .fixedSize(horizontal: false, vertical: true)
+                Text("A helping hand for your work. A memory you can explore.")
                     .font(.system(size: 13)).foregroundStyle(WorkspaceTheme.muted)
-            }
-            Spacer(minLength: 8)
-            Button { store.open(.connections) } label: {
-                HStack(spacing: 7) {
-                    Circle().fill(store.connectionState == .ready ? WorkspaceTheme.positive : WorkspaceTheme.muted)
-                        .frame(width: 6, height: 6)
-                    Text(Self.chatStatus(store.connectionState))
-                    Image(systemName: "chevron.right").font(.system(size: 9, weight: .medium))
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: 14) {
+                    Button { store.open(.assistant) } label: {
+                        Label("Let's talk", systemImage: "bubble.left.and.bubble.right")
+                    }
+                    .buttonStyle(WorkspaceActionStyle(prominent: true))
+                    .accessibilityLabel("Talk with \(companionName)")
+                    .accessibilityIdentifier("home.ask")
+                    Button { store.open(.connections) } label: {
+                        HStack(spacing: 6) {
+                            Circle().fill(store.connectionState == .ready ? WorkspaceTheme.positive : WorkspaceTheme.muted)
+                                .frame(width: 5, height: 5)
+                            Text(Self.chatStatus(store.connectionState))
+                        }
+                    }
+                    .buttonStyle(.plain).font(.system(size: 11)).foregroundStyle(WorkspaceTheme.muted)
+                    .accessibilityLabel("Chat connection")
+                    .accessibilityValue(Self.chatStatus(store.connectionState))
+                    .accessibilityIdentifier("home.connections")
+                    .help("Manage your chat connection")
+                }
+                if store.assistantActivity != .idle {
+                    Text(store.assistantActivity.title).font(.system(size: 12))
+                        .foregroundStyle(WorkspaceTheme.accent)
                 }
             }
-            .buttonStyle(.plain).font(.system(size: 12)).foregroundStyle(WorkspaceTheme.muted)
-            .accessibilityLabel("Chat connection")
-            .accessibilityValue(Self.chatStatus(store.connectionState))
-            .accessibilityIdentifier("home.connections")
-            .help("Manage your chat connection")
-        }
-    }
-
-    private var companionStage: some View {
-        HStack(spacing: 16) {
-            ZStack {
-                Circle().fill(WorkspaceTheme.accent.opacity(0.06)).frame(width: 84, height: 84)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            VStack(spacing: 8) {
                 CompanionPresenceArt(form: store.presentationForm, family: store.presentationFamily,
-                    size: 82, reduceMotion: still,
+                    size: 112, reduceMotion: still,
                     treatment: store.preferences.visualTreatment, recipe: store.presentationRecipe,
                     naturalVariation: store.presentationNaturalVariation, equipment: store.preferences.equipment,
                     lightExpression: store.kinLightExpression, seedColor: store.preferences.seedColor)
+                    .frame(width: 128, height: 128)
+                    .background {
+                        Circle().fill(store.preferences.seedColor.accent.opacity(0.07))
+                    }
                     .accessibilityLabel("\(companionName), current companion appearance")
-            }.frame(width: 88, height: 88)
-            VStack(alignment: .leading, spacing: 8) {
-                Text(companionName).font(.system(size: 24, weight: .medium, design: .rounded))
-                Text(store.isVisible ? "Your companion on the desktop" : "Your companion is taking a break")
-                    .font(.system(size: 12)).foregroundStyle(WorkspaceTheme.muted)
-                    .fixedSize(horizontal: false, vertical: true)
-                if store.assistantActivity != .idle {
-                    Text(store.assistantActivity.title)
-                        .font(.system(size: 12)).foregroundStyle(WorkspaceTheme.accent)
-                }
-            }
-            Spacer(minLength: 0)
-            VStack(alignment: .trailing, spacing: 12) {
-                Button { store.open(.assistant) } label: {
-                    Label("Let's talk", systemImage: "bubble.left.and.bubble.right")
-                }
-                .buttonStyle(WorkspaceActionStyle(prominent: true))
-                .accessibilityLabel("Talk with \(companionName)")
-                .accessibilityIdentifier("home.ask")
-                Button("Customize", systemImage: "slider.horizontal.3") { store.open(.appearance) }
-                    .buttonStyle(.plain).font(.system(size: 12)).foregroundStyle(WorkspaceTheme.accent)
+                Button("My companion", systemImage: "slider.horizontal.3") { store.open(.appearance) }
+                    .buttonStyle(.plain).font(.system(size: 11)).foregroundStyle(WorkspaceTheme.accent)
                     .accessibilityIdentifier("home.appearance")
                     .help("Your companion's appearance and growth")
             }
         }
-        .padding(18)
-        .background {
-            RadialGradient(colors: [WorkspaceTheme.accent.opacity(0.09), .clear],
-                           center: .leading, startRadius: 20, endRadius: 380)
-        }
-        .modifier(WorkspaceSurface(emphasis: true))
-        .clipShape(RoundedRectangle(cornerRadius: WorkspaceTheme.corner))
-    }
-
-    private var contextPanel: some View {
-        HStack(spacing: 14) {
-            Image(systemName: "doc.text").font(.system(size: 21, weight: .light))
-                .foregroundStyle(WorkspaceTheme.accent)
-            VStack(alignment: .leading, spacing: 5) {
-                Text(store.sourceName == nil ? "Work together" : "Continue together")
-                    .font(.system(size: 15, weight: .medium))
-                Text(store.sourceName ?? "Bring a document. Read, write, and refine with ARCHi.")
-                    .font(.system(size: 12)).foregroundStyle(WorkspaceTheme.muted).lineLimit(2)
-                    .help(store.sourceName ?? "Choose a document to read or refine")
-            }
-            Spacer(minLength: 0)
-            Button(store.sourceName == nil ? "Choose a document" : "Open document", systemImage: "arrow.right") {
-                store.open(.context)
-            }
-            .buttonStyle(WorkspaceActionStyle())
-            .accessibilityIdentifier("home.document")
-        }.padding(18).modifier(WorkspaceSurface())
+        .padding(.vertical, 8)
+        .accessibilityElement(children: .contain)
     }
 }

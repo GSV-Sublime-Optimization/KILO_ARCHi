@@ -25,7 +25,7 @@ struct HomeUnityDestination: View {
                 Label(entry.canEnter ? entry.actionTitle : "Open Arena", systemImage: "play.fill")
                     .frame(maxWidth: .infinity)
             }
-            .buttonStyle(WorkspaceActionStyle(prominent: true))
+            .buttonStyle(WorkspaceActionStyle())
             .disabled(store.isShuttingDown)
             .accessibilityIdentifier("home.play-arena")
             .help(entry.summary)
@@ -73,7 +73,7 @@ private struct HomeDestinationSurface<Content: View>: View {
         }
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .frame(height: 192, alignment: .topLeading)
+        .frame(minHeight: 142, alignment: .topLeading)
         .modifier(WorkspaceSurface())
     }
 }

@@ -1,3 +1,13 @@
+## 29 September 2026 — Everyday Home, method review and calmer memory map
+
+`R29-INTUITIVE-HOME` · **IMPLEMENTED_INSTALLED_FOCUSED** · [Design and primary sources](docs/native-intuitive-home.md) · [Evidence](docs/accountability/evidence/r29-intuitive-home-2026-09-29.json)
+
+Home now prioritizes the current companion, real-record memory and the existing document review/method loop. The map places secondary display controls in View options and reveals particle titles on hover/selection. No new state owner, synthetic memory, inferred outcome or model training was introduced. Unknown history remains unavailable rather than zero.
+
+The curated build and 14 focused memory-navigation/outcome-review checks passed. A final label-overlap correction was rebuilt and visually observed. Installed Home, review/method empty states, return to Work together, map options, retained-source version/backlinks, Showcase and keyboard dismissal were observed. All 22 monitored profile JSON files remained byte-identical; guarded rollback and existing Unity/representation/v008 packages were retained. No models, puzzles or broad suite ran.
+
+This is desktop UI delivery, not beta readiness or research efficacy. iPhone parity, populated method walkthrough, minimum-window/VoiceOver coverage, dense-graph performance and existing release blockers remain open.
+
 # ARCHi developer delivery ledger
 
 ## 29 September 2026 — Memory map becomes a primary workspace feature

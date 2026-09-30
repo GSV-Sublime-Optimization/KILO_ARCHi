@@ -1,3 +1,13 @@
+## 29 September 2026 — One installed app and organized rollback recovery
+
+`R29-ONE-APP-CONSOLIDATION` · **CLEANUP_COMPLETE_INSTALLER_SOURCE_UPDATED** · [Operation and recovery](docs/one-app-system.md) · [Evidence](docs/accountability/evidence/r29-one-app-consolidation-2026-09-29.json)
+
+Applications contained one current ARCHi app and 107 dated rollback bundles, not 108 independent products. All inactive rollback bundles were moved into private `~/Library/Application Support/ARCHiRecovery/Rollbacks` using same-filesystem renames. A local index records old and new paths; directory identities, executable hashes and Info.plist hashes match. No bundle was deleted. The active executable and all 22 monitored profile JSON files remain unchanged. Reopening the installed app showed the existing companion, Ask ARCHi and populated memory in Home.
+
+Both main and curated installers now reserve unique private rollback destinations outside Applications. Symlinks, unexpected app identity, invalid permissions and cross-filesystem moves fail before displacement. Normal Quit, candidate signature verification, stage-only behavior and failed-promotion restoration are preserved. Thirteen focused temporary-fixture checks and two shell syntax checks passed. The modified installer was not used for an unnecessary app rebuild; its live next-upgrade behavior remains separately observable.
+
+Existing entry documents now lead to one-app operation and current system status; missing main-workspace procedure/Q2E documentation links were restored. Historical research and delivery evidence stays intact. This does not promote pending authored iPhone/Liminal work, reclaim backup disk space or resolve existing release blockers. No model calls, puzzle runs or broad suite.
+
 ## 29 September 2026 — Unified Ask ARCHi and inspectable personal context
 
 `R29-ASK-PROFILE` · **IMPLEMENTED_INSTALLED_FOCUSED** · [Interface guide](docs/native-ask-archi.md) · [Current system status](docs/system-status-2026-09-29.md) · [Evidence](docs/accountability/evidence/r29-profile-interface-2026-09-29.json)

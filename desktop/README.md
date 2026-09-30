@@ -14,7 +14,7 @@ Export any working draft, keep the choices you want to retain, and **Quit ARCHi 
 ./script/build_and_run.sh
 ```
 
-The script updates the single `/Applications/ARCHi.app`, preserving the existing Review bundle identifier and profile ownership. `--review` is a compatibility alias; it does not create another personal app. The script retains the installed Unity helper, or requires `--unity-player /path/to/qualified-player.app` for a first installation. It refuses to replace any running ARCHi session and preserves the previous bundle for recovery.
+The script updates the single `/Applications/ARCHi.app`, preserving the existing Review bundle identifier and profile ownership. `--review` is a compatibility alias; it does not create another personal app. The script retains the installed Unity helper, or requires `--unity-player /path/to/qualified-player.app` for a first installation. It refuses to replace any running ARCHi session and preserves the previous bundle for recovery. Normal updates now keep rollback bundles in `~/Library/Application Support/ARCHiRecovery/Rollbacks`, outside Applications. See [one-app operation and recovery](../docs/one-app-system.md).
 
 Use `--stage-only --stage-dir /private/tmp/unique-candidate-directory` to build a candidate without replacing or launching the installed app. Generated build products use `/private/tmp/archi-desktop-build-<user-id>`; `ARCHI_BUILD_SCRATCH_PATH` can select another scratch directory. `--verify` also runs the native test suite. These locally signed builds are not notarized distribution releases. Reopen the installed app normally instead of rebuilding just to open it.
 

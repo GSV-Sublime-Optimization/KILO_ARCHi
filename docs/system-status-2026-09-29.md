@@ -2,6 +2,10 @@
 
 Status: **local development alpha**. This is a current-source and retained-evidence assessment, not a whole-system qualification or an investor performance claim. Read dated evidence at its stated scope; earlier failed studies and release blockers remain visible.
 
+## Main system and delivery
+
+Use `/Applications/ARCHi.app` as the installed entry point. Ask ARCHi, memory, documents, Marketplace and Arena share its existing owners. Source integration and installed delivery are separate: later authored Liminal and iPhone work requires its own qualification before promotion. The [one-app guide](one-app-system.md) identifies current ownership, source roles and recoverable application backups.
+
 ## Working foundation and unfinished work
 
 | Area | Current implementation and evidence | Still unfinished |
@@ -13,7 +17,7 @@ Status: **local development alpha**. This is a current-source and retained-evide
 | Memory | Kept sources, versioned anchored pages, typed relationship records, reviewed directed links, deterministic one-hop retrieval and correction invalidation. | Broader correction/deletion and alternative-evidence workflows, phone parity and useful procedural transfer. No trained WFM is installed. |
 | Everyday methods | Explicit method selection, checked Apply, attributable feedback and version-bound retained methods. | Populated owner-use → Apply → feedback → restart → reuse evidence, skill certification and controlled improvement claims. |
 | Arena | Local room/practice, two seats on one Mac, reasoning trials and manually tracked advice. | Remote battles, paired/hybrid outcome attribution, model-issued world actions and proven improvement. No canonical growth from unverified actions. |
-| Liminal | Real v008 package, shared native/Unity identity and retained Seed continuity. Capability-4 presentation has retained delivery evidence. | Direct body-particle picking, full stale-session/profile/palette/Reduce Motion coverage and measured sustained 30 fps/hidden suspension. Later capability-5 visual work is authored, not installed in this UI increment. |
+| Liminal | Real v008 package, shared native/Unity identity and retained Seed continuity. Capability-4 presentation has retained delivery evidence. | Direct body-particle picking, full stale-session/profile/palette/Reduce Motion coverage and measured sustained 30 fps/hidden suspension. Later visual changes in the authoring workspace are not part of the installed UI increment. |
 | iPhone | Retained 29 September evidence records version 0.5.0(5) installed on a physical phone with existing files preserved. | Current Apple Intelligence generation/cancel acceptance, Mac model pairing, explicit data transfer/restore, populated memory parity and real two-phone play. The recorded personal-team provisioning expires 4 October 2026 at 5:34 PM Pacific. This desktop pass does not refresh phone evidence. |
 | Marketplace | Local appearance/equipment flows and developer protocols. | Production service operations, moderation, account recovery, rights/payments and canonical game effects. |
 

@@ -201,8 +201,8 @@ plutil -lint "$BUNDLE_DIR/Contents/Info.plist"
 xattr -cr "$BUNDLE_DIR"
 codesign --force --sign - "$BUNDLE_DIR"
 codesign --verify --deep --strict "$BUNDLE_DIR"
-# Only promote a complete signed bundle. Keep the previous installation as a
-# recoverable sibling; application-support data is never copied or replaced.
+# Only promote a complete signed bundle. Keep the previous installation in
+# private recovery storage; application-support data is never copied or replaced.
 require_selected_app_stopped
 mkdir -p "$(dirname "$APP_DIR")"
 # Copy and verify before touching the previous bundle. The two final renames
@@ -220,7 +220,11 @@ if [[ -n "$STAGE_DIR" && ( -e "$APP_DIR" || -L "$APP_DIR" ) ]]; then
     exit 1
 fi
 if [[ -z "$STAGE_DIR" && ( -e "$APP_DIR" || -L "$APP_DIR" ) ]]; then
-    PREVIOUS_BUNDLE="$APP_DIR.previous.$(date +%Y%m%d-%H%M%S).$$"
+    if [[ "$STAGE_ONLY" == 0 ]]; then
+        PREVIOUS_BUNDLE="$(python3 "$REPO_ROOT/script/app_rollback_destination.py" "$APP_DIR" "$APP_IDENTIFIER")"
+    else
+        PREVIOUS_BUNDLE="$APP_DIR.previous.$(date +%Y%m%d-%H%M%S).$$"
+    fi
     mv "$APP_DIR" "$PREVIOUS_BUNDLE"
 fi
 if [[ -n "$STAGE_DIR" ]]; then

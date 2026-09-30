@@ -211,10 +211,12 @@ final class CompanionStore: ObservableObject {
     @Published private(set) var pendingDocumentReceipt: DocumentWorkRecord?
     private var openedWorkingCopyDigest: String?
     private var exportedWorkingCopyDigest: String?
+    @Published private(set) var workingCopyIsPasted = false
+    @Published var pastedDocumentDraft = PastedDocumentDraft()
     var hasUnexportedWorkingCopy: Bool {
         guard sourceName != nil, let openedWorkingCopyDigest else { return false }
         let current = SHA256.hash(data: Data(sharedText.utf8)).map { String(format: "%02x", $0) }.joined()
-        return current != openedWorkingCopyDigest && current != exportedWorkingCopyDigest
+        return (workingCopyIsPasted || current != openedWorkingCopyDigest) && current != exportedWorkingCopyDigest
     }
     private var importedSourceURL: URL?
     @Published var activity: [String] = []
@@ -920,6 +922,62 @@ final class CompanionStore: ObservableObject {
         return true
     }
 
+    var canBeginPastedDocumentImport: Bool {
+        !isShuttingDown && !isWorking && !isARCWorking && profileRecoveryBlock == nil
+            && !voiceInput.isActive && voiceInput.phase != .review
+            && pendingDocumentReceipt == nil && !documentWork.records.contains { $0.state.isActive }
+    }
+
+    func beginPastedDocumentImport() -> PastedDocumentImportContext? {
+        guard canBeginPastedDocumentImport else { return nil }
+        return PastedDocumentImportContext(sourceRevision: sourceRevision, sourceName: sourceName,
+            sourceBytes: Data(sharedText.utf8), journalOwner: ObjectIdentifier(documentWork), companion: activeQiMon)
+    }
+
+    func pastedDocumentImportBlockReason(_ context: PastedDocumentImportContext) -> String? {
+        guard context.journalOwner == ObjectIdentifier(documentWork), context.companion == activeQiMon,
+              context.sourceRevision == sourceRevision, context.sourceName == sourceName,
+              context.sourceBytes == Data(sharedText.utf8) else {
+            return "Your document or profile changed. Keep this text and reopen Paste text from the current workspace."
+        }
+        guard canBeginPastedDocumentImport else {
+            return "Finish the current request, proposal, voice draft or profile recovery before replacing the working copy."
+        }
+        return nil
+    }
+
+    static func pastedDocumentValidationMessage(text: String, title: String) -> String? {
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return "Paste some text to begin." }
+        guard text.utf8.count <= 100_000 else { return "Use up to 100 KB of text. Nothing is trimmed automatically." }
+        guard !text.contains("\0") else { return "Use plain text without binary content." }
+        let name = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard name.count <= 160, name.rangeOfCharacter(from: .controlCharacters) == nil else {
+            return "Use a single-line title of up to 160 characters."
+        }
+        return nil
+    }
+
+    @discardableResult
+    func importPastedDocument(text: String, title: String, context: PastedDocumentImportContext,
+                              reviewWorkingCopy: (() -> Bool)? = nil) -> Bool {
+        if let reason = Self.pastedDocumentValidationMessage(text: text, title: title)
+            ?? pastedDocumentImportBlockReason(context) { status = reason; return false }
+        let review = reviewWorkingCopy ?? {
+            self.confirmDiscardWorkingCopy(before: "using pasted text", discardTitle: "Use pasted text instead")
+        }
+        guard review() else { return false }
+        // Modal alerts can run callbacks. Approval cannot follow a replaced source/profile.
+        if let reason = pastedDocumentImportBlockReason(context) { status = reason; return false }
+        let name = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        share(text: text, name: name.isEmpty ? "Pasted text" : name)
+        workingCopyIsPasted = true
+        pastedDocumentDraft = PastedDocumentDraft()
+        workingCopyNotice = "Pasted copy · Export to keep. Select a passage to begin."
+        status = "Pasted locally · no content sent"
+        open(.context)
+        return true
+    }
+
     func chooseDocument() {
         let panel = NSOpenPanel()
         panel.allowedContentTypes = [.plainText, .utf8PlainText, .text, .json]
@@ -1018,6 +1076,7 @@ final class CompanionStore: ObservableObject {
         sharedText = text
         openedWorkingCopyDigest = SHA256.hash(data: Data(text.utf8)).map { String(format: "%02x", $0) }.joined()
         exportedWorkingCopyDigest = nil
+        workingCopyIsPasted = false
         sourceName = name
         importedSourceURL = nil
         workingCopyUndo = nil
@@ -1073,7 +1132,9 @@ final class CompanionStore: ObservableObject {
         let reviewedBytes = Data(sharedText.utf8)
         let alert = NSAlert()
         alert.messageText = "Keep this draft before \(action)?"
-        alert.informativeText = "Your working copy has edits that have not been exported. Keep working to export a separate draft, or discard these session edits. The original file stays unchanged."
+        alert.informativeText = workingCopyIsPasted
+            ? "This pasted copy has not been exported. Keep working to save a draft, or discard this session copy."
+            : "Your working copy has edits that have not been exported. Keep working to export a separate draft, or discard these session edits. The original file stays unchanged."
         alert.alertStyle = .warning
         let keep = alert.addButton(withTitle: "Keep working")
         keep.keyEquivalent = "\r"
@@ -1098,6 +1159,7 @@ final class CompanionStore: ObservableObject {
         clearSessionContext()
         sharedText = ""; sourceName = nil; sourceRevision &+= 1
         openedWorkingCopyDigest = nil; exportedWorkingCopyDigest = nil
+        workingCopyIsPasted = false
         importedSourceURL = nil; workingCopyUndo = nil; requestsRevision = false
         workingCopyNotice = "Select a text document to begin."
         compareResults = [:]
@@ -3784,6 +3846,7 @@ extension CompanionStore {
         if profileRecoveryBlock == nil, preferences != (preferenceDocument.preferences ?? CompanionPreferences()) {
             return "Save your changed appearance and rhythm settings before restoring."
         }
+        if pastedDocumentDraft.hasContent { return "Use or discard the pasted text draft before restoring." }
         if lessonDraft != nil { return "Keep or discard the lesson draft before restoring." }
         if hasOpenKnowledgeDraft { return "Save or discard the knowledge page or connection draft before restoring." }
         if focusGestureDraft != nil { return "Keep or discard the gesture draft before restoring." }

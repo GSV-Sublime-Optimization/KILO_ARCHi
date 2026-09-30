@@ -1,3 +1,11 @@
+## 30 September 2026 — Method review stays attached to its exact version
+
+The current outcome and restarted review queue now show the existing method used by an edit, its version-specific outcomes and next reuse guidance. Ordinary source edits retain their kept-method relationship after withdrawal, correction or supersession. Stale owners or missing versions show an unavailable state. This closes a visible handoff that previously invited duplicate method families; existing review, source and preparation owners remain authoritative.
+
+Six focused disposable-owner checks passed; the lifecycle case was rerun once after switching its optional screenshot to native controls. The labeled populated fixture was visually inspected. No model calls, puzzle runs or broad suite. The curated app built and installed through the guarded updater; all 22 monitored profile JSON files and Unity, RepresentationBridge, RecordReader and Liminal resource payloads remained unchanged. Compiled/installed Mach-O UUID and text-section hashes match; signature passed and rollback is retained outside Applications.
+
+Installed Home → Review outcomes → Work together was observed with local Qwen connected and nothing sent. The personal method library and review queue are empty, so populated interaction and owner-rated useful transfer remain open. [Delivery receipt](docs/accountability/evidence/r30-method-follow-through-2026-09-30.json) · [Method guide](docs/native-document-procedures.md). Existing broader adaptation and release blockers remain unchanged.
+
 ## 29 September 2026 — One installed app and organized rollback recovery
 
 `R29-ONE-APP-CONSOLIDATION` · **CLEANUP_COMPLETE_INSTALLER_SOURCE_UPDATED** · [Operation and recovery](docs/one-app-system.md) · [Evidence](docs/accountability/evidence/r29-one-app-consolidation-2026-09-29.json)

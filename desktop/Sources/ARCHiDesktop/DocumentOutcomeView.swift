@@ -7,13 +7,6 @@ struct DocumentOutcomeView: View {
     @ObservedObject var store: CompanionStore
     let record: DocumentWorkRecord
 
-    private var keptMethods: [DocumentProcedure] {
-        store.documentProcedures.latestProcedures.filter {
-            $0.originRecordID == record.id && $0.originFeedbackID == record.feedback?.id
-                && store.documentProcedureUnavailable($0.binding) == nil
-        }
-    }
-
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Label("Review this change", systemImage: "checkmark.bubble")
@@ -21,16 +14,7 @@ struct DocumentOutcomeView: View {
             Text("The edit is in your working copy. Your review helps ARCHi choose its next approach.")
                 .font(.caption).foregroundStyle(.secondary)
             DocumentFeedbackControls(store: store, record: record)
-            if keptMethods.isEmpty {
-                KeepDocumentProcedureView(store: store, record: record, startsExpanded: true)
-            } else {
-                ForEach(keptMethods) { method in
-                    Label("Kept: \(method.title) · v\(method.revision)", systemImage: "bookmark")
-                        .font(.caption.weight(.medium))
-                }
-                Text("Select another passage, choose Revise, then choose this method in Saved procedures. Review its instruction before Send.")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
+            DocumentMethodFollowThroughView(store: store, record: record, startsExpanded: true)
             HStack {
                 Button("Undo this edit") { store.undoWorkingCopyEdit() }
                     .disabled(!store.canUndoWorkingCopyEdit || store.isWorking)

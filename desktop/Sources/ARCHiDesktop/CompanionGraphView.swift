@@ -752,7 +752,7 @@ struct CompanionGraphView: View {
 
     private func openTitle(_ target: CompanionGraphTarget) -> String {
         switch target {
-        case .assistant: "Open assistant"
+        case .assistant: "Open " + AskARCHiBrand.title
         case .context: "Open shared context"
         case .memory: "Manage memories"
         case .knowledgePage: "Open this knowledge page"

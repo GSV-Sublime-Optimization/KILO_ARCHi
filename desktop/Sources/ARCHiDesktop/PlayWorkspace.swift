@@ -9,7 +9,7 @@ struct PlayWorkspace: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 8) {
-                Text("Assistant").font(.system(size: 10)).foregroundStyle(.secondary)
+                Text("ARCHi").font(.system(size: 10)).foregroundStyle(.secondary)
                 AssistantTaskCue(activity: store.assistantActivity, quiet: store.preferences.quiet, reduceMotion: store.preferences.reduceMotion)
                 Spacer(minLength: 0)
             }

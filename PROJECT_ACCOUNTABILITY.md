@@ -1,3 +1,15 @@
+## 29 September 2026 — Unified Ask ARCHi and inspectable personal context
+
+`R29-ASK-PROFILE` · **IMPLEMENTED_INSTALLED_FOCUSED** · [Interface guide](docs/native-ask-archi.md) · [Current system status](docs/system-status-2026-09-29.md) · [Evidence](docs/accountability/evidence/r29-profile-interface-2026-09-29.json)
+
+Ask ARCHi now names the existing Home, sidebar, menu, bubble and full-workspace entry points, with the companion name retained. The idle workspace opens Memory map and Work together; document controls are compact and supplementary bubble options disclose progressively. Knowledge selections now display their actual local sharing scope. Drafts, requests and provider choices still belong to the existing owners.
+
+The private profile card has direct Add a detail, searchable usage/status filters and per-entry source disclosure. Editing preserves supplied attribution rather than inventing an author or silently truncating it; validation, stale-baseline rejection and lifecycle draft guards remain intact. Routing, representation and method guides now distinguish implemented bounded mechanisms from historical missing-work descriptions.
+
+Curated builds passed; nine personal-context and ten Ask ARCHi navigation/composer/bubble checks passed, with three optional Home-render cases skipped. Final accessibility grouping was rebuilt and observed. Installed Ask ARCHi, map navigation and unsent-draft return, profile search/source disclosure and populated real-record/version/backlink inspection were observed. The temporary message was cleared without Send. Guarded installation retained rollback and existing Unity/representation/v008 packages; compiled and installed Mach-O identity/text match. All 22 monitored profile JSON files were unchanged across the final installation. Authorized private profile enrichment is separate local data, excluded from this source checkpoint. No model calls, puzzle runs or broad suite.
+
+This is desktop development-alpha delivery. It does not complete phone parity, an ordinary-day reliability walkthrough, useful method transfer, research efficacy or the existing release blockers. The contextual bubble has focused render/continuity evidence; its final installed walkthrough was not repeated in this increment.
+
 ## 29 September 2026 — Everyday Home, method review and calmer memory map
 
 `R29-INTUITIVE-HOME` · **IMPLEMENTED_INSTALLED_FOCUSED** · [Design and primary sources](docs/native-intuitive-home.md) · [Evidence](docs/accountability/evidence/r29-intuitive-home-2026-09-29.json)

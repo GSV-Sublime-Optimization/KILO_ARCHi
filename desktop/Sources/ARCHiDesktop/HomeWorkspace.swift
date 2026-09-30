@@ -88,10 +88,10 @@ struct HomeWorkspace: View {
                     .fixedSize(horizontal: false, vertical: true)
                 HStack(spacing: 14) {
                     Button { store.open(.assistant) } label: {
-                        Label("Let's talk", systemImage: "bubble.left.and.bubble.right")
+                        Label(AskARCHiBrand.title, systemImage: "bubble.left.and.bubble.right")
                     }
                     .buttonStyle(WorkspaceActionStyle(prominent: true))
-                    .accessibilityLabel("Talk with \(companionName)")
+                    .accessibilityLabel(AskARCHiBrand.title)
                     .accessibilityIdentifier("home.ask")
                     Button { store.open(.connections) } label: {
                         HStack(spacing: 6) {
@@ -101,10 +101,10 @@ struct HomeWorkspace: View {
                         }
                     }
                     .buttonStyle(.plain).font(.system(size: 11)).foregroundStyle(WorkspaceTheme.muted)
-                    .accessibilityLabel("Chat connection")
+                    .accessibilityLabel("Ask ARCHi connection")
                     .accessibilityValue(Self.chatStatus(store.connectionState))
                     .accessibilityIdentifier("home.connections")
-                    .help("Manage your chat connection")
+                    .help("Manage the connection used by Ask ARCHi")
                 }
                 if store.assistantActivity != .idle {
                     Text(store.assistantActivity.title).font(.system(size: 12))

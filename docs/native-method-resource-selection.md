@@ -1,6 +1,8 @@
 # Reviewed methods and local resource use
 
-25 September 2026. This native integration connects the saved document-method library to Token Steward's measured local invocations. The same ordering supplies **Prepare next step** when the existing Q2E controller selects reuse. Nothing generates a reply merely to calculate this ordering.
+Introduced 25 September 2026. This native integration connects the saved document-method library to Token Steward's measured local invocations. It orders eligible method options without generating a reply. Choosing and confirming a method remains explicit.
+
+Status clarification, 29 September 2026: the numerical-domain and representation-reader gaps recorded at this increment have since narrowed. The current boundaries below link the implemented consumers; the original accounting mechanism and historical verification remain unchanged. [Explicit method selection](native-method-finder.md) now owns choosing and confirming a saved method; resource ordering does not select one automatically.
 
 ## Mechanism
 
@@ -40,9 +42,11 @@ This is resource-aware task learning: experience can change which already availa
 
 [Cowsik et al., *Self-Play Pretraining with Zero Data*, v1](https://arxiv.org/abs/2609.30063v1) supplies a separate research direction: learning to generate useful training experience. Its gradient/optimizer/history reward requires a training environment beyond the current inference client. No self-play training or generated practice is enabled here. The retained local research note records its equations, results and limits separately.
 
-The larger bounded numerical Q2E mechanism still needs a declared native domain adapter and compatible measurements, targets, gains and coupling. Existing operational pressures are not relabeled as IQ/EQ/AQ. A local Qwen installation alone does not qualify the failed representation reader.
+Declared numerical adapters now exist for [document revision](native-numerical-adaptation.md), [document reading](native-numerical-reading.md), [interactive ARC3](native-numerical-arc3.md) and [Arena advice](native-arena-advice.md), each with domain-specific measurements, targets, gains and coupling. These operational coordinates are not relabeled IQ/EQ/AQ, and their implementation does not establish general calibrated transfer or a learned latent quotient mapping.
 
-## Verification scope
+The separately qualified synthetic record-field reader also has an installed [native Record lookup consumer](native-record-lookup.md). Earlier failed readers remain failed. Ordinary-chat measurement, representation steering and useful transfer to everyday records remain unqualified; another Qwen installation does not provide that evidence. See the [current representation guide](native-qwen-representation.md) for the dated attempts and exact scope.
+
+## Historical verification scope: 25 September 2026 increment
 
 Focused synthetic checks cover accounting completeness, retry cost, exact model identity, review reversals, unequal Helpful denominators and stable ordering with unknown evidence. Build, installed binary, preserved profile and publication are recorded in the increment's delivery receipt. No puzzle campaign, paid API request, model generation or empirical savings comparison is part of this increment.
 

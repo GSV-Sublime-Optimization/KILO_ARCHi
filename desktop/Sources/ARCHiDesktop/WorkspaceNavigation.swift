@@ -20,7 +20,7 @@ enum WorkspaceNavigation {
     static func title(for section: WorkspaceSection) -> String {
         switch section {
         case .home: "Home"
-        case .assistant: "Chat"
+        case .assistant: AskARCHiBrand.title
         case .appearance: "My companion"
         case .memory: "Memories"
         case .unity: "Arena"

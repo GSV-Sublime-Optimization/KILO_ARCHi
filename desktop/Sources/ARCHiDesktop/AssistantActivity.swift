@@ -61,9 +61,9 @@ struct AssistantTaskCue: View {
         .font(.system(size: 11, weight: .medium))
         .foregroundStyle(activity == .failed ? Color.orange : WorkspaceTheme.accent)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Assistant: \(activity.title)")
+        .accessibilityLabel("ARCHi: \(activity.title)")
         .accessibilityIdentifier("assistant-task-activity")
-        .help("Assistant: \(activity.title)")
+        .help("ARCHi: \(activity.title)")
     }
 }
 

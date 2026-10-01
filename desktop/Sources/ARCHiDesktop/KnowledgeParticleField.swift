@@ -87,8 +87,8 @@ struct KnowledgeParticleField {
         guard !reduceMotion, t > 0, t < 1 else { return straight }
         let envelope = pow(max(0, sin(.pi * t)), 1.5)
         let angle = 2 * Double.pi * 1.15 * t + particle.phase
-        let deviation = Vector(x: cos(angle), y: sin(angle))
-            * (min(0.065, 0.16 * (particle.constellation - particle.orb).length) * envelope)
+        let amplitude = min(0.065, 0.16 * (particle.constellation - particle.orb).length) * envelope
+        let deviation = Vector(x: cos(angle) * amplitude, y: sin(angle) * amplitude)
         return straight + deviation
     }
 

@@ -37,7 +37,7 @@ struct ReasoningWorkspace: View {
                     if session.observation != nil || session.isWorking || session.error != nil {
                         ARC3AssistantReply(store: store, session: session)
                     }
-                    WorkspaceRouteRow(title: "Talk it through", detail: "Continue in Chat with your question and the context you've shared.",
+                    WorkspaceRouteRow(title: "Talk it through", detail: "Continue in Ask ARCHi with your question and the context you've shared.",
                         icon: "bubble.left.and.bubble.right", identifier: "reasoning.chat") { store.open(.assistant) }
                     WorkspaceRouteRow(title: "Explore a connected environment",
                         detail: "Choose a local environment, observe it together, and review bounded actions.",
@@ -82,7 +82,7 @@ struct ReasoningWorkspace: View {
                      : "A passage is selected. ARCHi can prepare a revision for you to review.")
                     .font(.callout).foregroundStyle(.secondary)
             } else {
-                Text("Share a document or bring a question to Chat. Your current context stays under your control.")
+                Text("Share a document or bring a question to Ask ARCHi. Your current context stays under your control.")
                     .font(.callout).foregroundStyle(.secondary)
             }
             if decision.lane != .stop {

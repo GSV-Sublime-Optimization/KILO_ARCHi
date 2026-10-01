@@ -23,7 +23,7 @@ struct KnowledgeRetrievalView: View {
                         .accessibilityIdentifier("knowledge.retrieval.search")
                 }
                 if let result {
-                    Text("\(result.hits.count) of \(result.matchingCount) word matches · \(result.excludedPageCount) unavailable pages excluded")
+                    Text("\(result.hits.count) shown · \(result.matchingCount) word matches · \(result.relatedCount) connected pages · \(result.excludedPageCount) unavailable pages excluded")
                         .font(.caption).foregroundStyle(.secondary)
                     if result.isPartial {
                         Text("Results are bounded. Narrow the search to find omitted matches.").font(.caption).foregroundStyle(.orange)
@@ -33,6 +33,11 @@ struct KnowledgeRetrievalView: View {
                             Text(hit.title).font(.system(size: 12, weight: .medium))
                             Text(hit.kind == .page ? "Reviewed interpretation" : "Source passage · \(hit.sourceTitle ?? "Kept copy")")
                                 .font(.caption2).foregroundStyle(.secondary)
+                            if let link = hit.viaLink {
+                                Text("Connected through your reviewed link: \(endpointTitle(link.from)) → \(link.kind.title) → \(endpointTitle(link.to))")
+                                    .font(.caption).foregroundStyle(.secondary)
+                                Text(link.rationale).font(.caption).textSelection(.enabled)
+                            }
                             DisclosureGroup("Read match") { Text(hit.text).font(.caption).textSelection(.enabled) }
                             if let anchor = hit.anchor {
                                 let picked = selected.contains(anchor)
@@ -45,6 +50,9 @@ struct KnowledgeRetrievalView: View {
                                 }.disabled(!picked && selected.count >= 3)
                             } else if let binding = hit.pageBinding {
                                 Button("Open page") {
+                                    if let link = hit.viaLink, store.readingSources.availability(of: link) != nil {
+                                        message = "This connection changed or is no longer available. Search again."; return
+                                    }
                                     guard store.knowledgeDependenciesAreCurrent([binding]) else {
                                         message = "This page changed or is no longer available. Search again."; return
                                     }
@@ -83,11 +91,24 @@ struct KnowledgeRetrievalView: View {
                 if let message { Text(message).font(.caption).foregroundStyle(.orange) }
             }.padding(.vertical, 10)
         }.accessibilityIdentifier("knowledge.retrieval")
+        .onChange(of: store.readingSources.knowledgeLinks) { _, _ in invalidateResults() }
+        .onChange(of: store.readingSources.knowledgePages) { _, _ in invalidateResults() }
+        .onChange(of: store.readingSources.sources) { _, _ in invalidateResults() }
+    }
+    private func endpointTitle(_ binding: KnowledgePageBinding) -> String {
+        let title = store.readingSources.knowledgePages.first { $0.binding == binding }?.title ?? "Unavailable page"
+        return "\(title) v\(binding.revision)"
+    }
+    private func invalidateResults() {
+        if result != nil { message = "Your library changed. Search again for current pages and connections." }
+        result = nil
+        selected = selected.filter { store.readingSources.quote(for: $0) != nil }
     }
     private func search() {
         do {
             result = try KnowledgeRetrieval.search(query: query, sources: store.readingSources.sources,
-                pages: store.readingSources.knowledgePages, libraryIsCurrent: store.readingSources.isCurrentOnDisk)
+                pages: store.readingSources.knowledgePages, links: store.readingSources.knowledgeLinks,
+                libraryIsCurrent: store.readingSources.isCurrentOnDisk)
             message = nil
         } catch { result = nil; message = error.localizedDescription }
     }

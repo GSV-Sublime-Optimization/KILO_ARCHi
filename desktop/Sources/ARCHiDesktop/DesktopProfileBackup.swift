@@ -30,6 +30,7 @@ enum DesktopProfileBackup {
         let procedureCount: Int
         let readingSourceCount: Int
         let knowledgePageVersionCount: Int
+        let knowledgeLinkVersionCount: Int
     }
     struct RestorePreview: Sendable {
         let summary: ArchiveSummary
@@ -401,7 +402,8 @@ enum DesktopProfileBackup {
             includesDocumentWork: archive.pair.includesDocumentWork,
             documentRecordCount: work.records.count, procedureCount: methods.procedures.count,
             readingSourceCount: sources.sources.count,
-            knowledgePageVersionCount: sources.knowledgePages.count)
+            knowledgePageVersionCount: sources.knowledgePages.count,
+            knowledgeLinkVersionCount: sources.knowledgeLinks.count)
     }
     private static func replacePairSlot(_ slot: Slot, with entry: Entry, expected: Pair, preferenceURL: URL) throws {
         guard try readPair(preferenceURL, includingWork: expected.includesDocumentWork) == expected else { throw Failure.stalePreview }

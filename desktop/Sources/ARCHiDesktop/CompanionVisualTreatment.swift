@@ -6,6 +6,7 @@ enum CompanionVisualTreatment: String, CaseIterable, Identifiable, Codable {
     case original = "Original"
     case pearlStudy = "Pearl study"
     case protoStudy = "Proto expression"
+    case liminalV008 = "Liminal v008"
     var id: String { rawValue }
 }
 
@@ -152,6 +153,7 @@ enum CompanionVisualAsset {
                                   recipe: CompanionAppearanceRecipe?, naturalVariation: CompanionNaturalVariation?) -> String {
         if family == nil && form == .velaSeed { return "Vela · Opal Seed" }
         if family == nil && form == .velaLantern { return "Vela · Lantern Wing" }
+        if LiminalV008Runtime.applies(form: form, family: family, treatment: treatment) { return "Hampton · Liminal v008 particles" }
         if family == nil && form == .hamptonSeed { return "Hampton · Liminal Seed" }
         if family == nil && form == .corePearl { return "ARCHi · Ball of Light" }
         if family == nil && form == .particleSeed { return "KIN · Particle Seed look" }
@@ -183,7 +185,12 @@ enum CompanionVisualAsset {
     static func appearanceID(form: CompanionForm, family: EvolutionFamily?, treatment: CompanionVisualTreatment,
                              recipe: CompanionAppearanceRecipe? = nil, naturalVariation: CompanionNaturalVariation? = nil,
                              equipment: CompanionEquipment = .empty,
-                             assetAvailable: Bool? = nil, seedColor: CompanionSeedColor = .original) -> String {
+                             assetAvailable: Bool? = nil, seedColor: CompanionSeedColor = .original,
+                             pointProgress: Double = 107.0 / 119.0) -> String {
+        if LiminalV008Runtime.applies(form: form, family: family, treatment: treatment), let asset = LiminalV008Runtime.asset {
+            return liminalAppearanceID(manifestSHA256: asset.manifestSHA256, seedColor: seedColor,
+                equipment: equipment, pointProgress: pointProgress)
+        }
         let original = baseAppearanceID(form: form, family: family, treatment: treatment, recipe: recipe,
             naturalVariation: naturalVariation, assetAvailable: assetAvailable)
         let base = SeedColorRendering.identity(base: original, form: form, family: family, color: seedColor)
@@ -193,6 +200,17 @@ enum CompanionVisualAsset {
         let canonical = "archi-equipped-appearance/v1\nappearance=\(base)\n\(equipment.canonicalIdentity)"
         let digest = SHA256.hash(data: Data(canonical.utf8)).map { String(format: "%02x", $0) }.joined()
         return "e1-\(digest)"
+    }
+
+    /// Cache the authenticated displayed frame, not a fractional playhead. This
+    /// keeps a source-clock half-step from returning another pose's saved PNG.
+    static func liminalAppearanceID(manifestSHA256: String, seedColor: CompanionSeedColor = .original,
+                                     equipment: CompanionEquipment = .empty,
+                                     pointProgress: Double = 107.0 / 119.0) -> String {
+        let progress = pointProgress.isFinite ? pointProgress : LiminalV008Runtime.orbProgress
+        let frame = (try? LiminalPointAsset.sourceFrameIndex(progress: progress)) ?? 107
+        let canonical = "\(manifestSHA256)\n\(LiminalSeedStyle.revision)\n\(seedColor.rawValue)\n\(equipment.canonicalIdentity)\nframe=\(frame + 1)"
+        return "liminal-v008-" + LiminalKnowledgeBindings.sha256(Data(canonical.utf8))
     }
 
     private static func baseAppearanceID(form: CompanionForm, family: EvolutionFamily?, treatment: CompanionVisualTreatment,

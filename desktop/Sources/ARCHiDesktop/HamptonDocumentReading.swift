@@ -127,7 +127,7 @@ struct DocumentReadingSections: View {
         DisclosureGroup("\(plan.sections.count) of \(plan.totalSections) source sections · \(plan.isPartial ? "partial context" : "full context")") {
             ForEach(plan.sections, id: \.id) { section in
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(section.sourceTitle + " · " + section.title + (citedIDs?.contains(section.id) == true ? " · cited" : " · supplied"))
+                    Text(section.sourceTitle + " · " + section.title + (citedIDs?.contains(section.id) == true ? " · cited" : " · prepared"))
                         .font(.caption.weight(.medium))
                     Text(section.text).font(.caption2).textSelection(.enabled)
                     Text("Source range \(section.location)–\(section.location + section.length) · \(section.sha256.prefix(10))")
@@ -149,9 +149,9 @@ struct DocumentReadingFeedback: View {
     @ObservedObject var store: CompanionStore
     let provider: AssistantProvider
     var body: some View {
-        if let receipt = store.compareResults[provider]?.receipt, let plan = receipt.documentReading {
+        if let receipt = store.compareResults[provider]?.receipt {
             VStack(alignment: .leading, spacing: 6) {
-                DocumentReadingSections(plan: plan, citedIDs: receipt.readingResult?.citedSectionIDs)
+                AssistantSourceEvidenceView(receipt: receipt)
                 if receipt.readingResult?.kind == "ANSWER" {
                     HStack {
                         Button("Helpful") { store.reviewReading(receipt, useful: true) }

@@ -96,6 +96,9 @@ struct KnowledgePagesCard: View {
         .sheet(item: $store.knowledgePageDraft) { draft in
             KnowledgePageEditor(store: store, draft: draft).interactiveDismissDisabled()
         }
+        .sheet(item: $store.knowledgeLinkDraft) { draft in
+            KnowledgePageLinkEditor(store: store, page: draft.page, prior: draft.prior).interactiveDismissDisabled()
+        }
     }
 
     private func pageRow(_ page: KnowledgePage) -> some View {
@@ -114,6 +117,7 @@ struct KnowledgePagesCard: View {
                         .accessibilityIdentifier("knowledge.availability.\(page.id)")
                 }
                 KnowledgePageEvidence(store: store, anchors: page.anchors)
+                KnowledgePageLinksView(store: store, page: page)
                 HStack {
                     Button("Use in local chat") { store.useKnowledgePageInChat(page) }
                         .disabled(store.readingSources.availability(of: page) != nil)
@@ -190,10 +194,13 @@ struct KnowledgePageEvidence: View {
                 let source = store.readingSources.sources.first { $0.binding == anchor.source }
                 DisclosureGroup("Passage \(offset + numberOffset + 1) · \(source?.title ?? "Unavailable kept copy") · v\(anchor.source.revision)") {
                     VStack(alignment: .leading, spacing: 5) {
+                        Text(anchor.source.provenance.map { "\($0.origin.title) · \($0.acquisition.title) · \($0.parents.count) parent copies · declared, not verified" }
+                            ?? "Origin unknown · no source declaration")
+                            .font(.caption2).foregroundStyle(.secondary)
                         if let quote = store.readingSources.quote(for: anchor) {
                             Text(quote).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
                         } else {
-                            Text("This exact passage is unavailable. Its kept copy changed or was removed.")
+                            Text("This exact passage is unavailable. Its kept copy or a derivation parent changed or was removed.")
                                 .foregroundStyle(.orange)
                         }
                         Text("Position \(anchor.location + 1) · \(anchor.length) UTF-16 units")

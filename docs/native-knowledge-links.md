@@ -2,6 +2,10 @@
 
 25 September 2026. Hampton Stack R2 L07 (memory/retrieval) and L06 (reviewed experience and reusable methods), through the existing native ARCHi owners.
 
+## Current page connections — 29 September 2026
+
+The earlier method-dependency work below is retained as its dated checkpoint. Native claims/concepts, source provenance and now [reviewed typed page connections](native-reviewed-connections.md) extend the same owner. The new guide defines current review, one-hop retrieval, correction and backup behavior; the earlier remaining-work table is historical.
+
 ## Installed mechanism
 
 A completed passage-revision request now retains two different collections: all supplied lesson versions and the subset the model cited. Each reference includes lesson identity, revision and snapshot digest; it duplicates no private lesson text. A supplied lesson can influence an answer without being cited, so method availability follows **all supplied versions**. Learning credit still requires the existing explicit review; supplying a lesson earns none.

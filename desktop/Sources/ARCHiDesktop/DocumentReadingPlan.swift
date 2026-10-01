@@ -5,17 +5,33 @@ struct ReadingSourceSnapshot: Codable, Equatable, Sendable, Identifiable {
     let title: String
     let revision: UInt64
     let text: String
+    let provenance: ReadingSourceProvenance?
+
+    init(id: String, title: String, revision: UInt64, text: String, provenance: ReadingSourceProvenance? = nil) {
+        self.id = id; self.title = title; self.revision = revision; self.text = text; self.provenance = provenance
+    }
+    private enum CodingKeys: String, CodingKey { case id, title, revision, text, provenance }
+    init(from decoder: Decoder) throws {
+        try SourceProvenanceKeys.require(["id", "title", "revision", "text"], optional: ["provenance"], in: decoder)
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id); title = try c.decode(String.self, forKey: .title)
+        revision = try c.decode(UInt64.self, forKey: .revision); text = try c.decode(String.self, forKey: .text)
+        provenance = c.contains(.provenance) ? try c.decode(ReadingSourceProvenance.self, forKey: .provenance) : nil
+        guard isValid else { throw SourceProvenanceKeys.invalid(decoder) }
+    }
 
     var digest: String { LessonSource.digest(of: text) }
     var isValid: Bool {
         (id == "shared-copy" || UUID(uuidString: id) != nil) && revision >= 1
             && !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && (1...240).contains(title.utf8.count) && (1...100_000).contains(text.utf8.count)
+            && (provenance?.isValid ?? true)
     }
 
     static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.id.utf8.elementsEqual(rhs.id.utf8) && lhs.title.utf8.elementsEqual(rhs.title.utf8)
             && lhs.revision == rhs.revision && lhs.text.utf8.elementsEqual(rhs.text.utf8)
+            && lhs.provenance == rhs.provenance
     }
 }
 
@@ -428,6 +444,7 @@ struct DocumentReadingPlan: Equatable, Sendable {
             let title: String
             let revision: UInt64
             let digest: String
+            let provenance: ReadingSourceProvenanceReceipt?
         }
         struct Binding: Encodable {
             let version = "document-reading-sources/v1"
@@ -435,7 +452,7 @@ struct DocumentReadingPlan: Equatable, Sendable {
             let references: [ReferenceBinding]
         }
         let value = Binding(primaryDigest: primaryDigest, references: references.map {
-            ReferenceBinding(id: $0.id, title: $0.title, revision: $0.revision, digest: $0.digest)
+            ReferenceBinding(id: $0.id, title: $0.title, revision: $0.revision, digest: $0.digest, provenance: $0.provenance?.receipt)
         })
         let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
         guard let bytes = try? encoder.encode(value) else { return "" }

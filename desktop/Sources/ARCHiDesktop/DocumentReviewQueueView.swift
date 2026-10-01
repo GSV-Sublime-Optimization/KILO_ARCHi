@@ -120,7 +120,7 @@ private struct DocumentHistoricalReviewSheet: View {
                             DocumentFeedbackControls(store: store, record: record)
                             // Keep the sheet open after rating so the existing
                             // method and correction actions remain reachable.
-                            KeepDocumentProcedureView(store: store, record: record)
+                            DocumentMethodFollowThroughView(store: store, record: record)
                         } else {
                             Text("This result is no longer available for review. Its source support or operation state changed.")
                                 .foregroundStyle(.orange)

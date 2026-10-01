@@ -83,6 +83,10 @@ struct WorkspaceView: View {
             }
             .background(WorkspaceTheme.background)
         }
+        // Body consumers share the selected authored pose. Cursor surfaces keep
+        // their explicit Seed-orb override outside this workspace.
+        .environment(\.liminalPointProgress, store.preferences.liminalPointProgress)
+        .environment(\.liminalLightExpression, store.kinLightExpression)
         .preferredColorScheme(store.preferences.workspaceAppearance.colorScheme)
         .tint(WorkspaceTheme.accent)
         // The native window owns the 880 × 640 content minimum.
@@ -148,7 +152,9 @@ struct WorkspaceView: View {
         return Button {
             // Native accessibility actions can arrive during a SwiftUI layout
             // callback. Navigate on the next event turn, after that update ends.
-            DispatchQueue.main.async { store.open(section) }
+            DispatchQueue.main.async {
+                section == .nodeLab ? store.openMemoryMap() : store.open(section)
+            }
         } label: {
             HStack(spacing: 11) {
                 Image(systemName: section == .connections ? "gearshape" : section.icon)
@@ -271,20 +277,21 @@ private struct AssistantWorkspace: View {
                             naturalVariation: store.presentationNaturalVariation, equipment: store.preferences.equipment,
                             lightExpression: store.kinLightExpression, seedColor: store.preferences.seedColor)
                         VStack(alignment: .leading, spacing: 5) {
-                            Text(store.activeQiMon == nil ? "Here, with you." : "\(store.activeQiMon?.name ?? "ARCHi") is here, with you.")
+                            Text(AskARCHiBrand.title)
                                 .font(.system(size: 23, weight: .medium, design: .rounded))
-                            if store.activeQiMon != nil {
-                                Button("Life with \(store.activeQiMon?.name ?? "your companion")") { store.open(.evolution) }
-                                    .buttonStyle(.borderless).font(.system(size: 11))
-                            } else {
-                                Text("Start with a thought. Add a document when it helps.")
-                                    .font(.system(size: 12)).foregroundStyle(.secondary)
-                            }
+                                .accessibilityIdentifier("assistant.title")
+                            Text(AskARCHiBrand.companionLine(name: store.activeQiMon?.name))
+                                .font(.system(size: 12, weight: .medium)).foregroundStyle(WorkspaceTheme.accent)
+                                .accessibilityIdentifier("assistant.companion")
+                            Text("Think something through, draw on memory, or work with a document.")
+                                .font(.system(size: 12)).foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
                         }
                         Spacer(minLength: 0)
                         AssistantTaskCue(activity: store.assistantActivity, quiet: store.preferences.quiet,
                             reduceMotion: store.preferences.reduceMotion)
                     }
+                    if showsStartingPoints { startingPoints }
                     if store.selectedKnowledgePages.isEmpty { attachmentSummary }
                     KnowledgeChatContextView(store: store)
                     PreparedDocumentProcedureView(store: store)
@@ -306,20 +313,63 @@ private struct AssistantWorkspace: View {
         .frame(minHeight: 0, maxHeight: .infinity)
     }
 
-    private var attachmentSummary: some View {
-        WorkspaceCard(inset: 12) {
+    // Existing owners establish whether there is any work or result to present.
+    // Never classify replies by their text: status and error messages stay visible.
+    private var showsStartingPoints: Bool {
+        !store.isWorking && store.assistantActivity == .idle && store.compareResults.isEmpty
+            && !store.showsARC3Reply && store.activeARCAnswer == nil
+            && store.localConversation.exchanges.isEmpty && store.sourceName == nil
+            && store.selectedKnowledgePages.isEmpty && store.preparedDocumentProcedure == nil
+            && store.textSelection == nil && store.replySourceSelection == nil && !store.voiceInput.isActive
+    }
+
+    private var startingPoints: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 12) { memoryStartingPoint; workStartingPoint }
+            VStack(alignment: .leading, spacing: 10) { memoryStartingPoint; workStartingPoint }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("assistant.starting-points")
+    }
+
+    private var memoryStartingPoint: some View {
+        Button("Memory map", systemImage: "point.3.connected.trianglepath.dotted") { store.openMemoryMap() }
+            .buttonStyle(WorkspaceActionStyle())
+            .accessibilityHint("Explore retained sources, linked knowledge and lessons.")
+            .accessibilityIdentifier("assistant.open-memory-map")
+    }
+
+    private var workStartingPoint: some View {
+        Button("Work together", systemImage: "doc.text.viewfinder") { store.open(.context) }
+            .buttonStyle(WorkspaceActionStyle())
+            .accessibilityHint("Open your document workspace and review tools.")
+            .accessibilityIdentifier("assistant.start-work")
+    }
+
+    @ViewBuilder private var attachmentSummary: some View {
+        if store.sourceName == nil {
             HStack(spacing: 10) {
-                Image(systemName: "doc.text").foregroundStyle(WorkspaceTheme.accent)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(store.sourceName ?? "Add a document")
-                        .font(.system(size: 12, weight: .medium)).lineLimit(1)
-                        .help(store.sourceName ?? "Choose a UTF-8 text file")
-                        .accessibilityIdentifier("assistant.attachment-name")
-                    Text(store.sourceName == nil ? "Optional · UTF-8 text" : "Full working copy shared with your next message")
-                        .font(.system(size: 10)).foregroundStyle(.secondary)
-                }
-                Spacer(minLength: 0)
-                if store.sourceName != nil {
+                Label("Add a document", systemImage: "paperclip")
+                    .font(.system(size: 12)).foregroundStyle(.secondary)
+                    .accessibilityIdentifier("assistant.attachment-name")
+                Text("Optional · UTF-8 text").font(.system(size: 10)).foregroundStyle(.secondary)
+                Spacer(minLength: 8)
+                Button("Choose…") { store.chooseDocument() }.buttonStyle(.borderless)
+                    .accessibilityLabel("Choose document")
+                    .accessibilityIdentifier("assistant.choose-document")
+            }.padding(.horizontal, 4).padding(.vertical, 3)
+            DesktopInterestSharingNotice(store: store)
+        } else if let name = store.sourceName {
+            WorkspaceCard(inset: 12) {
+                HStack(spacing: 10) {
+                    Image(systemName: "doc.text").foregroundStyle(WorkspaceTheme.accent)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(name).font(.system(size: 12, weight: .medium)).lineLimit(1)
+                            .help(name).accessibilityIdentifier("assistant.attachment-name")
+                        Text("Full working copy shared with your next message")
+                            .font(.system(size: 10)).foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 0)
                     Button("Work together", systemImage: "doc.text.viewfinder") { store.section = .context }
                         .buttonStyle(.bordered).controlSize(.small)
                         .accessibilityIdentifier("assistant.open-document")
@@ -329,12 +379,9 @@ private struct AssistantWorkspace: View {
                     } label: { Image(systemName: "ellipsis.circle") }
                     .menuStyle(.borderlessButton).fixedSize()
                     .accessibilityLabel("Shared document actions")
-                } else {
-                    Button("Choose…") { store.chooseDocument() }.buttonStyle(.bordered).controlSize(.small)
-                        .accessibilityLabel("Choose document")
                 }
+                DesktopInterestSharingNotice(store: store)
             }
-            DesktopInterestSharingNotice(store: store)
         }
     }
 }
@@ -477,6 +524,7 @@ private struct AppearanceWorkspace: View {
             if store.keptQiMon?.character == .kin {
                 ProtoAppearanceCard(store: store)
             }
+            LiminalV008AppearanceCard(store: store)
             CompanionWardrobeCard(store: store)
             if store.activeQiMon != nil {
                 DisclosureGroup("Light & sound") { personalLightAbilities.padding(.top, 14) }
@@ -520,7 +568,7 @@ private struct AppearanceWorkspace: View {
                 if store.canChooseStartingForm && store.presentationForm == .companion && store.presentationFamily == nil {
                     SettingsRow(title: "Companion finish", detail: "Choose the original, soft Pearl or long-eared aqua Proto.", icon: "paintpalette") {
                         Picker("Companion finish", selection: $store.preferences.visualTreatment) {
-                            ForEach(CompanionVisualTreatment.allCases) { treatment in
+                            ForEach(CompanionVisualTreatment.allCases.filter { $0 != .liminalV008 }) { treatment in
                                 Text(treatment.rawValue).tag(treatment)
                             }
                         }

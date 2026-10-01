@@ -191,7 +191,7 @@ public static class ARCHiPortBuild
         };
         var report = BuildPipeline.BuildPlayer(options);
         var receipt = NewReceipt();
-        receipt.status = report.summary.result == BuildResult.Succeeded
+        receipt.status = report.summary.result == BuildResult.Succeeded && report.summary.totalErrors == 0
             ? "MAC_PLAYER_BUILT_RUNTIME_NOT_EXERCISED" : "MAC_PLAYER_BUILD_FAILED";
         receipt.artifact = artifact;
         receipt.result = report.summary.result.ToString();
@@ -200,7 +200,7 @@ public static class ARCHiPortBuild
         receipt.artifactBytes = report.summary.totalSize;
         receipt.buildSeconds = report.summary.totalTime.TotalSeconds;
         WriteReceipt(receipt, "build");
-        if (report.summary.result != BuildResult.Succeeded)
+        if (report.summary.result != BuildResult.Succeeded || report.summary.totalErrors != 0)
             throw new BuildFailedException("ARCHi Mac build failed: " + report.summary.result);
         if (!File.Exists(Path.Combine(artifact, "Contents/Info.plist")))
             throw new BuildFailedException("Build reported success but the Mac bundle is incomplete.");
@@ -212,7 +212,8 @@ public static class ARCHiPortBuild
             + "\t<key>ARCHiNativeStaffRecipeVersion</key>\n\t<integer>1</integer>\n"
             + "\t<key>ARCHiNativeArenaProtocol</key>\n\t<integer>1</integer>\n"
             + "\t<key>ARCHiSeedAppearanceVersion</key>\n\t<integer>1</integer>\n"
-            + "\t<key>ARCHiPersonalSeedVersion</key>\n\t<integer>1</integer>\n");
+            + "\t<key>ARCHiPersonalSeedVersion</key>\n\t<integer>1</integer>\n"
+            + "\t<key>ARCHiLiminalPointAssetVersion</key>\n\t<integer>4</integer>\n");
         File.WriteAllText(plistPath, plist);
         Debug.Log("ARCHI_PORT_MAC_BUILD_SUCCEEDED " + artifact);
     }

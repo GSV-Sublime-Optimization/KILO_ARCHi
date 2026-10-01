@@ -580,7 +580,7 @@ private final class CompanionInteractionView: NSView {
             menu.addItem(item)
             return item
         }
-        _ = add("Ask ARCHi…", #selector(ask))
+        _ = add(AskARCHiBrand.title + "…", #selector(ask))
         _ = add("Point at a window…", #selector(pointAtWindow))
         _ = add("Work together…", #selector(context))
         menu.addItem(.separator())

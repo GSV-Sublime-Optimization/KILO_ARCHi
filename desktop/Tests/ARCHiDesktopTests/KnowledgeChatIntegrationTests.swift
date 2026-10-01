@@ -34,6 +34,8 @@ final class KnowledgeChatIntegrationTests: XCTestCase {
         let receipt = try XCTUnwrap(fixture.store.compareResults[.qwen]?.receipt)
         XCTAssertEqual(receipt.knowledgeDependencies, [page.binding])
         XCTAssertEqual(receipt.knowledgeContextDigest, request.localKnowledge?.digest)
+        XCTAssertEqual(receipt.sourceContext?.excerpts.map(\.id), request.localKnowledge?.sourceIDs)
+        XCTAssertEqual(receipt.sourceContext?.excerpts.first?.text, page.body)
         XCTAssertTrue(fixture.store.isCurrentReplyContext(receipt))
         XCTAssertFalse(fixture.store.nextReplyConversation.isEmpty)
         XCTAssertTrue(fixture.store.keptLessons.isEmpty)

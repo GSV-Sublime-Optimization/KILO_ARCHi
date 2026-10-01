@@ -64,6 +64,7 @@ struct UnityWorkspace: View {
                             if connection.isSharing { WorldOutcomeCard(connection: connection) }
                             connectionDetails
                             companionRoom
+                            ArenaBiosignalPreview(store: store)
                         }
                         .frame(maxWidth: 980)
                         .padding(.horizontal, geometry.size.width < 800 ? 20 : 28).padding(.bottom, 28)

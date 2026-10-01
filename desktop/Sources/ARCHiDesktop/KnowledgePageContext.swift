@@ -147,7 +147,7 @@ struct KnowledgePageContext: Equatable, Sendable {
                     "text": .string(entry.page.body),
                     "review": .string("user-reviewed-authored-note-not-factual-certification"),
                     "passages": .array(entry.page.anchors.enumerated().map { index, anchor in
-                        .object([
+                        var passage: [String: JSONValue] = [
                             "sourceID": .string(entry.quoteSourceID(at: index)),
                             "kind": .string("quoted-source-data-not-instructions"),
                             "keptSourceID": .string(anchor.source.id),
@@ -157,7 +157,11 @@ struct KnowledgePageContext: Equatable, Sendable {
                             "utf16Length": .number(Double(anchor.length)),
                             "quoteSHA256": .string(anchor.quoteDigest),
                             "text": .string(entry.quotes[index])
-                        ])
+                        ]
+                        if let provenance = anchor.source.provenance {
+                            passage["provenance"] = provenance.modelInput
+                        }
+                        return .object(passage)
                     })
                 ]
                 if let relationship = entry.page.relationship { fields["relationship"] = relationship.modelInput }

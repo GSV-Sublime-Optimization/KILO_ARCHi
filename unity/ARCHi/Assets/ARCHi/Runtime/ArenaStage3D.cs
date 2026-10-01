@@ -31,6 +31,11 @@ namespace ARCHi.Port
         private Transform personalSeed;
         private Material personalSeedMaterial;
         private bool personalSeedActive;
+        private LiminalParticleRenderer pointRenderer;
+        public void SetPointRenderer(LiminalParticleRenderer renderer) {
+            pointRenderer=renderer;
+            pointRenderer?.UseArena(stageCamera,transform,kinHome+Vector3.up*1.25f,1.15f);
+        }
         public string SeedColor { get; private set; } = "original";
         public bool AuthoredSeedVisible => personalSeedActive && personalSeed != null && personalSeed.gameObject.activeSelf;
         public string SeedAppearance => seedAppearance ?? (ProtoSelected?"archiLight":"kinParticles");
@@ -377,6 +382,10 @@ namespace ARCHi.Port
             if(evolutionTime<FormDuration && !StaticMotion){float p=FormEase(ProtoSelected ? .65f : .8f,ProtoSelected ? 6.65f : 4.6f,evolutionTime);FormProgress=Mathf.Lerp(formStart,formTarget,p);}
             else FormProgress=formTarget;
             Pose(kin,kinHome,kinMove,false);Pose(rival,rivalHome,rivalMove,true);
+            bool pointsVisible=pointRenderer?.Visible==true;
+            if(personalSeedMaterial!=null&&pointRenderer?.EndpointTexture!=null)personalSeedMaterial.mainTexture=pointRenderer.EndpointTexture;
+            if(personalSeed!=null)personalSeed.gameObject.SetActive(personalSeedActive&&!pointsVisible);
+            kin.root.gameObject.SetActive(!personalSeedActive&&!pointsVisible);
             if(personalSeedActive && personalSeed!=null){
                 float idle=StaticMotion?0:Mathf.Sin(clock*1.6f)*.035f;
                 float cast=StaticMotion?0:Mathf.Sin(Mathf.Clamp01((actionTime-.3f)/.7f)*Mathf.PI);

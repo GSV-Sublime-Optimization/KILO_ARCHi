@@ -3,6 +3,35 @@ import XCTest
 @testable import ARCHiDesktop
 
 final class UnityPresentationTests: XCTestCase {
+    @MainActor func testPointAcknowledgmentCannotBeSatisfiedByLegacyOrDifferentAsset() throws {
+        let fixture = try makeFixture(); defer { fixture.clean() }
+        let now = Date()
+        var snapshot = try XCTUnwrap(UnityPresentationSnapshot.capture(store: fixture.store,
+            sessionID: UUID(), revision: 1, active: true, now: now, systemReduceMotion: false))
+        let digest = String(repeating: "a", count: 64)
+        snapshot.pointPresentation = .init(schemaVersion: 1, assetID: "liminal-v008",
+            manifestSHA256: digest, progress: 107.0 / 119, motion: "sampled", color: "original", visible: true)
+        snapshot.pointKnowledgeSHA256 = String(repeating: "b", count: 64)
+        var ack = UnityPresentationAcknowledgment(schemaVersion: 1, sessionID: snapshot.sessionID,
+            originDigest: snapshot.originDigest, revision: snapshot.revision, updatedAtUnix: now.timeIntervalSince1970,
+            active: snapshot.active, body: snapshot.body, appearance: snapshot.appearance,
+            staffPalette: snapshot.staffPalette, staffCrown: snapshot.staffCrown, renderer: "unity-companion")
+        XCTAssertFalse(ack.matches(snapshot, now: now))
+        ack.pointAssetVersion = 1; ack.pointManifestSHA256 = digest
+        ack.pointKnowledgeSHA256 = snapshot.pointKnowledgeSHA256
+        XCTAssertFalse(ack.matches(snapshot, now: now), "A v1 linear renderer cannot acknowledge the v2 source-clock package.")
+        ack.pointAssetVersion = 2
+        XCTAssertFalse(ack.matches(snapshot, now: now), "The source-clock renderer alone does not include the restored garnet Seed presentation.")
+        ack.pointAssetVersion = 3
+        XCTAssertFalse(ack.matches(snapshot, now: now), "The static Seed renderer cannot acknowledge shared activity expression.")
+        ack.pointAssetVersion = 4
+        XCTAssertTrue(ack.matches(snapshot, now: now))
+        ack.pointManifestSHA256 = String(repeating: "c", count: 64)
+        XCTAssertFalse(ack.matches(snapshot, now: now))
+        ack.pointManifestSHA256 = digest; ack.pointKnowledgeSHA256 = nil
+        XCTAssertFalse(ack.matches(snapshot, now: now))
+    }
+
     @MainActor func testWorldOutcomesRequireSeparateCapabilityAndClearWithSession() async throws {
         let fixture = try makeFixture(); defer { fixture.clean() }
         let store = fixture.store, connection = store.unityPresentation

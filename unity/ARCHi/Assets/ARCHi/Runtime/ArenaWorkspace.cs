@@ -31,11 +31,19 @@ namespace ARCHi.Port
         private string nativeName;
         private Button modeButton, rivalPulse, rivalGuard, rivalSignature;
         private Label rivalName, multiplayerStatus;
+        private LiminalParticleRenderer pointRenderer;
+        private Button pointInspectButton;
+        private Image pointImage;
+        private bool wasPointReady;
         private VisualElement rivalActions;
         public ArenaMultiplayerSession Multiplayer { get; private set; }
         public bool TwoPlayers => Multiplayer != null;
         public bool NativeIdentity => nativeIdentity;
-        public bool NativeInputAllowed => !nativeBound || nativeInputAllowed;
+        public bool NativeInputAllowed => (!nativeBound || nativeInputAllowed) && pointRenderer?.Inspection != true;
+        public void SetPointRenderer(LiminalParticleRenderer renderer) {
+            if(ReferenceEquals(pointRenderer,renderer))return;
+            pointRenderer=renderer;Stage.SetPointRenderer(renderer);pointRenderer?.Freeze(ReducedMotion);Refresh();
+        }
         // Observers receive rule facts only after an existing explicit solo input resolves.
         public event Action<ArenaPracticeAction> SoloActionResolved;
         private string outcomeBoutID = Guid.NewGuid().ToString();
@@ -53,6 +61,15 @@ namespace ARCHi.Port
             overlay.RegisterCallback<KeyDownEvent>(Key);overlay.RegisterCallback<GeometryChangedEvent>(Layout);
             root.Add(overlay);
             var image=new Image{name="arena-live-render",image=Stage.Texture,scaleMode=ScaleMode.ScaleAndCrop,pickingMode=PickingMode.Ignore};Absolute(image,0,0,65,138);overlay.Add(image);
+            pointImage=image;
+            image.RegisterCallback<PointerDownEvent>(e=>{
+                if(pointRenderer?.Inspection!=true)return;
+                var rect=image.contentRect;float scale=Mathf.Max(rect.width/1600f,rect.height/1000f);
+                if(scale<=0)return;
+                pointRenderer.Pick(new Vector2((e.localPosition.x+(1600*scale-rect.width)*.5f)/(1600*scale),
+                    1-(e.localPosition.y+(1000*scale-rect.height)*.5f)/(1000*scale)));
+                e.StopPropagation();
+            });
             var header=new VisualElement{name="arena-header"};Absolute(header,0,0,0,float.NaN);header.style.height=140;
             header.style.paddingLeft=30;header.style.paddingTop=23;header.style.backgroundColor=new Color(.015f,.025f,.038f,.98f);
             header.Add(Text("ARCHi     /     BATTLE + BECOMING",11,Gold,true));
@@ -76,6 +93,8 @@ namespace ARCHi.Port
             rivalValue=Text("36 / 36",24,Ink,true);leftContent.Add(rivalValue);rivalBar=Bar(leftContent,Mint);
             readiness=Text("Ready · a fresh session",11,Muted);readiness.style.marginTop=18;leftContent.Add(readiness);
             field=Button("Train Scout field",ToggleField,"arena-field");field.style.marginTop=16;leftContent.Add(field);
+            pointInspectButton=Button("Inspect knowledge points",TogglePointInspection,"arena-inspect-points");
+            pointInspectButton.style.display=DisplayStyle.None;leftContent.Add(pointInspectButton);
             var rest=Button("Rest together",Rest,"arena-rest");leftContent.Add(rest);
             overlay.Add(leftPanel);
 
@@ -140,7 +159,7 @@ namespace ARCHi.Port
             nativeBound=true;nativeIdentity=!value.LocalPractice;nativeName=value.displayName;
             nativeInputAllowed=value.active&&value.visible;
             nativeMotionPolicy=staticMotion;
-            ReducedMotion=nativeMotionPolicy||locallyStill;Stage.StaticMotion=ReducedMotion;
+            ReducedMotion=nativeMotionPolicy||locallyStill||pointRenderer?.Inspection==true;Stage.StaticMotion=ReducedMotion;pointRenderer?.Freeze(ReducedMotion);
             if(nativeIdentity){
                 bool proto=value.Appearance=="proto";
                 bool expressionChanged=Stage.ProtoSelected!=proto;
@@ -204,17 +223,31 @@ namespace ARCHi.Port
         public void ToggleMantle(){if(nativeIdentity||!NativeInputAllowed)return;Stage.SetMantle(!Stage.MantleEquipped);Refresh();}
         public void Rest(){if(!NativeInputAllowed)return;Stage.Recover();activityRounds=0;resting=!resting;Refresh();}
         public void ToggleMotion(){
-            if(nativeBound){locallyStill=!locallyStill;ReducedMotion=nativeMotionPolicy||locallyStill;}
+            if(nativeBound){locallyStill=!locallyStill;ReducedMotion=nativeMotionPolicy||locallyStill||pointRenderer?.Inspection==true;}
             else ReducedMotion=!ReducedMotion;
-            Stage.StaticMotion=ReducedMotion;if(ReducedMotion)Stage.Stop();Refresh();
+            Stage.StaticMotion=ReducedMotion;pointRenderer?.Freeze(ReducedMotion);if(ReducedMotion)Stage.Stop();Refresh();
         }
-        public void Stop(){if(nativeBound){locallyStill=true;ReducedMotion=true;Stage.StaticMotion=true;}Stage.Stop();Refresh();}
+        public void Stop(){if(nativeBound){locallyStill=true;ReducedMotion=true;Stage.StaticMotion=true;pointRenderer?.Freeze(true);}Stage.Stop();Refresh();}
         public void Close(){ReleaseView();gameObject.SetActive(false);Destroy(gameObject);}
-        private void Update(){if(Stage==null)return;if(wasBusy!=Stage.Busy){wasBusy=Stage.Busy;Refresh();}}
+        private void Update(){if(Stage==null)return;bool ready=pointRenderer?.CanInspect==true;
+            if(nativeBound){ReducedMotion=nativeMotionPolicy||locallyStill||pointRenderer?.Inspection==true;Stage.StaticMotion=ReducedMotion;pointRenderer?.Freeze(ReducedMotion);}
+            if(wasBusy!=Stage.Busy||wasPointReady!=ready){wasBusy=Stage.Busy;wasPointReady=ready;Refresh();}}
+        private void TogglePointInspection() {
+            if(pointRenderer==null||Stage.Busy)return;
+            pointRenderer.SetInspection(!pointRenderer.Inspection);
+            ReducedMotion=nativeMotionPolicy||locallyStill||pointRenderer.Inspection;Stage.StaticMotion=ReducedMotion;pointRenderer.Freeze(ReducedMotion);
+            if(pointRenderer.Inspection)Stage.Stop();Refresh();
+        }
         private void OnFieldTrainingChanged(ArenaFieldTrainingBody actor){Refresh();}
         private void Refresh()
         {
             if(overlay==null)return;
+            if(pointInspectButton!=null){
+                pointInspectButton.style.display=pointRenderer?.Ready==true?DisplayStyle.Flex:DisplayStyle.None;
+                pointInspectButton.text=pointRenderer?.Inspection==true?"Leave inspection · Esc":"Inspect knowledge points · I";
+                pointInspectButton.SetEnabled(pointRenderer?.CanInspect==true&&!Stage.Busy);
+            }
+            if(pointImage!=null)pointImage.pickingMode=pointRenderer?.Inspection==true?PickingMode.Position:PickingMode.Ignore;
             round.text=Bout.Complete?(Bout.Winner=="draw"?"DRAW":Bout.Winner=="one"?CharacterName.ToUpperInvariant()+" PREVAILS":(TwoPlayers?"PLAYER TWO PREVAILS":"ECHO PREVAILS")):$"ROUND {Bout.Round:00}";
             fieldLabel.text=$"{CharacterName} · {Bout.Field} field";kinValue.text=$"{Bout.Integrity} / 36";rivalValue.text=$"{Bout.RivalIntegrity} / 36";
             kinBar.style.width=Length.Percent(Bout.Integrity/36f*100);rivalBar.style.width=Length.Percent(Bout.RivalIntegrity/36f*100);
@@ -250,7 +283,10 @@ namespace ARCHi.Port
             if(nativeBound){motionButton.text=nativeMotionPolicy?"Still · desktop setting":locallyStill?"Resume motion":"Pause motion";motionButton.SetEnabled(!nativeMotionPolicy);}
             readiness.text=resting?"Resting together · click Rest to return":activityRounds>5?"A pause is available. No absence penalty.":"Ready · choose your own pace";
             motion.text=resting?CharacterName+" / REST":Stage.Busy?$"{CharacterName} / {Stage.MotionName.ToUpperInvariant()}":CharacterName+" / OBSERVE";
-            feedback.text=Bout.Feedback;
+            feedback.text=pointRenderer?.Inspection==true ? pointRenderer.KnowledgeRecordCount>0
+                ? "Inspection · select a highlighted knowledge point. Press Esc to return to Arena."
+                : "Inspection · no current graph records. These particles are artwork. Press Esc to return to Arena."
+                : Bout.Feedback;
             if(TwoPlayers)lesson.text="Two human players · session-only match. Guest uses ECHO. Online pairing is not available yet.";
         }
         private static string TrainingLabel(ArenaFieldTrainingState state)
@@ -260,9 +296,15 @@ namespace ARCHi.Port
         }
         private void Key(KeyDownEvent e)
         {
-            // App/system shortcuts must not also change a match (for example Cmd+N).
             if(e.commandKey||e.ctrlKey||e.altKey)return;
-            if(e.keyCode==KeyCode.Alpha1)Play(ArenaMove.Pulse);
+            if(pointRenderer?.Inspection==true){
+                if(e.keyCode==KeyCode.Escape||e.keyCode==KeyCode.I)TogglePointInspection();
+                else if(e.keyCode==KeyCode.B)Close();
+                e.StopPropagation();return;
+            }
+            // App/system shortcuts must not also change a match (for example Cmd+N).
+            if(e.keyCode==KeyCode.I)TogglePointInspection();
+            else if(e.keyCode==KeyCode.Alpha1)Play(ArenaMove.Pulse);
             else if(e.keyCode==KeyCode.Alpha2)Play(ArenaMove.Guard);
             else if(e.keyCode==KeyCode.Alpha3)Play(ArenaMove.Signature);
             else if(e.keyCode==KeyCode.P)ToggleCharacter();

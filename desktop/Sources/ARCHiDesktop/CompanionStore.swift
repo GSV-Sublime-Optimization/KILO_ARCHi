@@ -47,6 +47,7 @@ struct CompanionPreferences: Codable, Equatable {
     var seedAppearance: CompanionSeedAppearance = .kinParticles
     var seedColor: CompanionSeedColor = .original
     var visualTreatment: CompanionVisualTreatment = .original
+    var liminalPointProgress: Double = 107.0 / 119.0
     var equipment: CompanionEquipment = .empty
     var tone = "Calm"
     var replyLength = 0.35
@@ -58,7 +59,8 @@ struct CompanionPreferences: Codable, Equatable {
     var musicalVolume = 0.35
 
     var isValid: Bool {
-        equipment.isValid && size.isFinite && (0.65...1.6).contains(size)
+        liminalPointProgress.isFinite && (0...1).contains(liminalPointProgress)
+        && equipment.isValid && size.isFinite && (0.65...1.6).contains(size)
         && replyLength.isFinite && (0...1).contains(replyLength)
         && musicalVolume.isFinite && (0...1).contains(musicalVolume)
         && ["Calm", "Direct", "Playful", "Warm"].contains(tone)
@@ -75,6 +77,7 @@ extension CompanionPreferences {
         seedAppearance = try values.decodeIfPresent(CompanionSeedAppearance.self, forKey: .seedAppearance) ?? .kinParticles
         seedColor = try values.decodeIfPresent(CompanionSeedColor.self, forKey: .seedColor) ?? .original
         visualTreatment = try values.decodeIfPresent(CompanionVisualTreatment.self, forKey: .visualTreatment) ?? .original
+        liminalPointProgress = try values.decodeIfPresent(Double.self, forKey: .liminalPointProgress) ?? 107.0 / 119.0
         equipment = try values.decodeIfPresent(CompanionEquipment.self, forKey: .equipment) ?? .empty
         tone = try values.decode(String.self, forKey: .tone)
         replyLength = try values.decode(Double.self, forKey: .replyLength)
@@ -104,6 +107,8 @@ final class CompanionStore: ObservableObject {
     @Published private(set) var readingSources: ReadingSourceLibrary
     @Published var selectedReadingSourceIDs: Set<String> = []
     @Published var knowledgePageDraft: KnowledgePageDraft?
+    @Published var knowledgeLinkDraft: KnowledgeLinkDraft?
+    var hasOpenKnowledgeDraft: Bool { knowledgePageDraft != nil || knowledgeLinkDraft != nil }
     @Published var selectedKnowledgePageID: String?
     @Published var selectedKnowledgePages: [KnowledgePageBinding] = []
     @Published var knowledgePageMessage: String?
@@ -142,9 +147,9 @@ final class CompanionStore: ObservableObject {
         didSet {
             // The page editor is hosted by Memories. Keep that host alive until
             // the user explicitly saves or cancels its local editable fields.
-            if knowledgePageDraft != nil, section != .memory {
+            if hasOpenKnowledgeDraft, section != .memory {
                 section = .memory
-                knowledgePageMessage = "Save or cancel your open page draft before changing views."
+                knowledgePageMessage = "Save or cancel your open page or connection draft before changing views."
             }
             if section == .play && !allowsPlay { section = .assistant }
             if section != oldValue, focusGesturePlayback != nil { stopFocusGesture() }
@@ -206,10 +211,12 @@ final class CompanionStore: ObservableObject {
     @Published private(set) var pendingDocumentReceipt: DocumentWorkRecord?
     private var openedWorkingCopyDigest: String?
     private var exportedWorkingCopyDigest: String?
+    @Published private(set) var workingCopyIsPasted = false
+    @Published var pastedDocumentDraft = PastedDocumentDraft()
     var hasUnexportedWorkingCopy: Bool {
         guard sourceName != nil, let openedWorkingCopyDigest else { return false }
         let current = SHA256.hash(data: Data(sharedText.utf8)).map { String(format: "%02x", $0) }.joined()
-        return current != openedWorkingCopyDigest && current != exportedWorkingCopyDigest
+        return (workingCopyIsPasted || current != openedWorkingCopyDigest) && current != exportedWorkingCopyDigest
     }
     private var importedSourceURL: URL?
     @Published var activity: [String] = []
@@ -799,6 +806,12 @@ final class CompanionStore: ObservableObject {
         return available
     }
 
+    /// General navigation starts at memory; exact receipt routes retain their selection.
+    func openMemoryMap() {
+        selectedGraphNodeID = nil
+        open(.nodeLab)
+    }
+
     @discardableResult
     func openARCGraph(evidenceID: String) -> Bool {
         let node = companionGraphSnapshot().nodes.first {
@@ -808,6 +821,18 @@ final class CompanionStore: ObservableObject {
         open(.nodeLab)
         workspaceRoutingNotice = node == nil ? "That ARC result is unavailable in this profile's Activity map. No replacement was selected." : nil
         return node != nil
+    }
+
+    /// Resolve the current record again at interaction time. This opens the
+    /// existing inspector; it does not run the target action or admit memory.
+    @discardableResult
+    func inspectKnowledgeParticle(nodeID: String, graphDigest: String) -> Bool {
+        let graph = companionGraphSnapshot()
+        guard LiminalKnowledgeBindings.digest(graph) == graphDigest,
+              graph.nodes.contains(where: { $0.id == nodeID }) else { return false }
+        selectedGraphNodeID = nodeID
+        open(.nodeLab)
+        return true
     }
 
     func canOpenARCEvidenceForUsage(taskID: String) -> Bool {
@@ -894,6 +919,62 @@ final class CompanionStore: ObservableObject {
         qiMonMessage = "KIN is here. Your QiMon is saved with this Journey on this Mac."
         status = qiMonMessage
         showCompanion()
+        return true
+    }
+
+    var canBeginPastedDocumentImport: Bool {
+        !isShuttingDown && !isWorking && !isARCWorking && profileRecoveryBlock == nil
+            && !voiceInput.isActive && voiceInput.phase != .review
+            && pendingDocumentReceipt == nil && !documentWork.records.contains { $0.state.isActive }
+    }
+
+    func beginPastedDocumentImport() -> PastedDocumentImportContext? {
+        guard canBeginPastedDocumentImport else { return nil }
+        return PastedDocumentImportContext(sourceRevision: sourceRevision, sourceName: sourceName,
+            sourceBytes: Data(sharedText.utf8), journalOwner: ObjectIdentifier(documentWork), companion: activeQiMon)
+    }
+
+    func pastedDocumentImportBlockReason(_ context: PastedDocumentImportContext) -> String? {
+        guard context.journalOwner == ObjectIdentifier(documentWork), context.companion == activeQiMon,
+              context.sourceRevision == sourceRevision, context.sourceName == sourceName,
+              context.sourceBytes == Data(sharedText.utf8) else {
+            return "Your document or profile changed. Keep this text and reopen Paste text from the current workspace."
+        }
+        guard canBeginPastedDocumentImport else {
+            return "Finish the current request, proposal, voice draft or profile recovery before replacing the working copy."
+        }
+        return nil
+    }
+
+    static func pastedDocumentValidationMessage(text: String, title: String) -> String? {
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return "Paste some text to begin." }
+        guard text.utf8.count <= 100_000 else { return "Use up to 100 KB of text. Nothing is trimmed automatically." }
+        guard !text.contains("\0") else { return "Use plain text without binary content." }
+        let name = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard name.count <= 160, name.rangeOfCharacter(from: .controlCharacters) == nil else {
+            return "Use a single-line title of up to 160 characters."
+        }
+        return nil
+    }
+
+    @discardableResult
+    func importPastedDocument(text: String, title: String, context: PastedDocumentImportContext,
+                              reviewWorkingCopy: (() -> Bool)? = nil) -> Bool {
+        if let reason = Self.pastedDocumentValidationMessage(text: text, title: title)
+            ?? pastedDocumentImportBlockReason(context) { status = reason; return false }
+        let review = reviewWorkingCopy ?? {
+            self.confirmDiscardWorkingCopy(before: "using pasted text", discardTitle: "Use pasted text instead")
+        }
+        guard review() else { return false }
+        // Modal alerts can run callbacks. Approval cannot follow a replaced source/profile.
+        if let reason = pastedDocumentImportBlockReason(context) { status = reason; return false }
+        let name = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        share(text: text, name: name.isEmpty ? "Pasted text" : name)
+        workingCopyIsPasted = true
+        pastedDocumentDraft = PastedDocumentDraft()
+        workingCopyNotice = "Pasted copy · Export to keep. Select a passage to begin."
+        status = "Pasted locally · no content sent"
+        open(.context)
         return true
     }
 
@@ -995,6 +1076,7 @@ final class CompanionStore: ObservableObject {
         sharedText = text
         openedWorkingCopyDigest = SHA256.hash(data: Data(text.utf8)).map { String(format: "%02x", $0) }.joined()
         exportedWorkingCopyDigest = nil
+        workingCopyIsPasted = false
         sourceName = name
         importedSourceURL = nil
         workingCopyUndo = nil
@@ -1050,7 +1132,9 @@ final class CompanionStore: ObservableObject {
         let reviewedBytes = Data(sharedText.utf8)
         let alert = NSAlert()
         alert.messageText = "Keep this draft before \(action)?"
-        alert.informativeText = "Your working copy has edits that have not been exported. Keep working to export a separate draft, or discard these session edits. The original file stays unchanged."
+        alert.informativeText = workingCopyIsPasted
+            ? "This pasted copy has not been exported. Keep working to save a draft, or discard this session copy."
+            : "Your working copy has edits that have not been exported. Keep working to export a separate draft, or discard these session edits. The original file stays unchanged."
         alert.alertStyle = .warning
         let keep = alert.addButton(withTitle: "Keep working")
         keep.keyEquivalent = "\r"
@@ -1075,6 +1159,7 @@ final class CompanionStore: ObservableObject {
         clearSessionContext()
         sharedText = ""; sourceName = nil; sourceRevision &+= 1
         openedWorkingCopyDigest = nil; exportedWorkingCopyDigest = nil
+        workingCopyIsPasted = false
         importedSourceURL = nil; workingCopyUndo = nil; requestsRevision = false
         workingCopyNotice = "Select a text document to begin."
         compareResults = [:]
@@ -1818,7 +1903,7 @@ final class CompanionStore: ObservableObject {
 
     func canDraftKnowledgeMethod(page: KnowledgePage) -> Bool {
         !isShuttingDown && !isWorking && !isARCWorking && !voiceInput.isActive
-            && knowledgePageDraft == nil && page.kind == .concept && page.state == .reviewed
+            && !hasOpenKnowledgeDraft && page.kind == .concept && page.state == .reviewed
             && knowledgeDependenciesAreCurrent([page.binding])
     }
 
@@ -1896,7 +1981,7 @@ final class CompanionStore: ObservableObject {
     }
 
     func editKnowledgeConceptDraft() {
-        guard let draft = currentKnowledgeConceptDraft, knowledgePageDraft == nil, !isWorking else { return }
+        guard let draft = currentKnowledgeConceptDraft, !hasOpenKnowledgeDraft, !isWorking else { return }
         knowledgePageDraft = KnowledgePageDraft(proposal: draft)
         knowledgePageMessage = "Review this generated interpretation and its limitations. Save creates an unreviewed draft."
     }
@@ -1911,7 +1996,7 @@ final class CompanionStore: ObservableObject {
     @discardableResult
     func draftKnowledgeConcept(title: String, anchors: [KnowledgeAnchor]) -> Bool {
         guard !isShuttingDown, !isWorking, !isARCWorking, !voiceInput.isActive,
-              knowledgePageDraft == nil, client(for: .qwen) is HamptonReasonsAssistant else { return false }
+              !hasOpenKnowledgeDraft, client(for: .qwen) is HamptonReasonsAssistant else { return false }
         do {
             let target = try KnowledgeConceptDraftRequest(requestID: UUID().uuidString, title: title,
                 anchors: anchors, quotes: anchors.compactMap { readingSources.quote(for: $0) })
@@ -2340,6 +2425,8 @@ final class CompanionStore: ObservableObject {
         compareResults[provider]?.receipt?.knowledgeDependencies = capturedKnowledgeDependencies
         compareResults[provider]?.receipt?.isKnowledgeAcquisition = request.isKnowledgeAcquisition
         compareResults[provider]?.receipt?.knowledgeContextDigest = request.localKnowledge?.digest
+        compareResults[provider]?.receipt?.sourceContext = provider == .qwen
+            ? AssistantSourceContext.capture(request, sourceTitles: Dictionary(uniqueKeysWithValues: readingSources.sources.map { ($0.id, $0.title) })) : nil
         compareResults[provider]?.receipt?.documentReading = request.localReading
         compareResults[provider]?.receipt?.readingControl = request.localReading == nil ? nil : request.localControl
         compareResults[provider]?.receipt?.localLessons = request.localLessons
@@ -3759,8 +3846,9 @@ extension CompanionStore {
         if profileRecoveryBlock == nil, preferences != (preferenceDocument.preferences ?? CompanionPreferences()) {
             return "Save your changed appearance and rhythm settings before restoring."
         }
+        if pastedDocumentDraft.hasContent { return "Use or discard the pasted text draft before restoring." }
         if lessonDraft != nil { return "Keep or discard the lesson draft before restoring." }
-        if knowledgePageDraft != nil { return "Save or discard the knowledge page draft before restoring." }
+        if hasOpenKnowledgeDraft { return "Save or discard the knowledge page or connection draft before restoring." }
         if focusGestureDraft != nil { return "Keep or discard the gesture draft before restoring." }
         if voiceInput.phase == .review { return "Use or discard the voice draft before restoring." }
         return nil

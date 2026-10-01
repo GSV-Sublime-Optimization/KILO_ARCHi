@@ -22,6 +22,11 @@ namespace ARCHi.Port
         public string activity, lightMode;
         public string appearance;
         public string seedAppearance, seedColor;
+        // JsonUtility cannot represent a null inline serializable class. Keep this
+        // derived value out of its field serializer and admit only an actual wire
+        // descriptor below, so legacy snapshots remain descriptor-free.
+        [NonSerialized] public NativePointPresentation pointPresentation;
+        public string pointKnowledgeSHA256;
         public string SeedColor => string.IsNullOrEmpty(seedColor) ? "original" : seedColor;
         public string SeedAppearance => string.IsNullOrEmpty(seedAppearance)?"kinParticles":seedAppearance;
         public string ExpectedSeedDigest => SeedAppearance == "hamptonLiminal"
@@ -49,18 +54,27 @@ namespace ARCHi.Port
             if (json == null || Encoding.UTF8.GetByteCount(json) > MaximumBytes) return false;
             try
             {
+                LiminalPointAsset.RejectDuplicateKeys(json);
                 // JsonUtility supplies defaults for missing fields. Required presence prevents
                 // an older/partial producer from silently weakening motion and visibility policy.
                 foreach (var field in new[] { "schemaVersion", "sessionID", "revision", "originDigest", "displayName", "body", "cursor",
                     "seedAssetSHA256", "bodyAssetSHA256", "activity", "lightMode", "quiet", "reduceMotion", "visible", "equippedFocusStaff", "active", "updatedAtUnix" })
-                    if (Regex.Matches(json, "\\\"" + field + "\\\"\\s*:").Count != 1)
+                    if (TopLevelFieldCount(json, field) != 1)
                     { reason = "Missing or repeated presentation field: " + field; return false; }
-                if (Regex.Matches(json, "\"appearance\"\\s*:").Count > 1)
+                if (TopLevelFieldCount(json, "appearance") > 1)
                 { reason = "Repeated appearance field."; return false; }
-                foreach (var field in new[] { "staffPalette", "staffCrown", "sessionKind", "destination", "destinationRevision", "seedAppearance", "seedColor" })
-                    if (Regex.Matches(json, "\"" + field + "\"\\s*:").Count > 1)
+                foreach (var field in new[] { "staffPalette", "staffCrown", "sessionKind", "destination", "destinationRevision", "seedAppearance", "seedColor", "pointPresentation", "pointKnowledgeSHA256" })
+                    if (TopLevelFieldCount(json, field) > 1)
                     { reason = "Repeated staff recipe field."; return false; }
                 var value = JsonUtility.FromJson<NativePresentationSnapshot>(json);
+                if(value!=null && TopLevelField(json,"pointPresentation",out var descriptor)>0 && descriptor!="null"){
+                    if(string.IsNullOrEmpty(descriptor)||descriptor[0]!='{'||descriptor[descriptor.Length-1]!='}')
+                    {reason="Malformed point descriptor.";return false;}
+                    foreach(var field in new[]{"schemaVersion","assetID","manifestSHA256","progress","motion","color","visible"})
+                        if(TopLevelFieldCount(descriptor,field)!=1){reason="Missing point descriptor field.";return false;}
+                    value.pointPresentation=JsonUtility.FromJson<NativePointPresentation>(descriptor);
+                    if(value.pointPresentation==null){reason="Malformed point descriptor.";return false;}
+                }
                 if (value == null || value.schemaVersion != 1 || value.sessionID != session || !Guid.TryParse(session, out _)
                     || value.revision < 1)
                 { reason = "Presentation protocol, session or origin was rejected."; return false; }
@@ -94,6 +108,10 @@ namespace ARCHi.Port
                     || Array.IndexOf(new[] { "lilac", "mint", "gold", "rose", "ice" }, value.staffPalette) < 0
                     || Array.IndexOf(new[] { "pearl", "star", "leaf" }, value.staffCrown) < 0))
                 { reason = "Staff recipe requires an equipped staff and a supported palette and crown."; return false; }
+                if ((value.pointPresentation != null && !value.pointPresentation.IsValid(value))
+                    || (!string.IsNullOrEmpty(value.pointKnowledgeSHA256) && (value.pointPresentation == null
+                        || !Regex.IsMatch(value.pointKnowledgeSHA256, "^[0-9a-f]{64}$"))))
+                { reason = "Point presentation descriptor was rejected."; return false; }
                 if (double.IsNaN(now) || double.IsInfinity(now) || double.IsNaN(value.updatedAtUnix) || double.IsInfinity(value.updatedAtUnix)
                     || value.updatedAtUnix <= 0 || now - value.updatedAtUnix > MaximumAge || value.updatedAtUnix - now > MaximumAge)
                 { reason = "Native presentation heartbeat expired."; return false; }
@@ -107,16 +125,65 @@ namespace ARCHi.Port
                 reason = "Native presentation validated.";
                 return true;
             }
-            catch (Exception error) when (error is ArgumentException || error is FormatException)
+            catch (Exception error) when (error is ArgumentException || error is FormatException || error is System.IO.InvalidDataException)
             { reason = "Malformed presentation JSON."; return false; }
         }
 
-        private static bool SameContent(NativePresentationSnapshot a, NativePresentationSnapshot b) =>
+        // Descriptor objects have their own schemaVersion. Count only root keys,
+        // not nested keys or text inside a string.
+        internal static int TopLevelFieldCount(string json, string field) => TopLevelField(json,field,out _);
+
+        private static int TopLevelField(string json,string field,out string fieldJSON)
+        {
+            fieldJSON=null;
+            int depth = 0, count = 0;
+            for (int i = 0; i < json.Length; i++)
+            {
+                char c = json[i];
+                if (c == '{' || c == '[') { depth++; continue; }
+                if (c == '}' || c == ']') { depth--; continue; }
+                if (c != '\"') continue;
+                int start = ++i;
+                bool escaped = false;
+                for (; i < json.Length; i++) {
+                    if (escaped) { escaped = false; continue; }
+                    if (json[i] == '\\') { escaped = true; continue; }
+                    if (json[i] == '\"') break;
+                }
+                int end = i, next = i + 1;
+                while (next < json.Length && char.IsWhiteSpace(json[next])) next++;
+                if (depth == 1 && next < json.Length && json[next] == ':'
+                    && end - start == field.Length && string.CompareOrdinal(json, start, field, 0, field.Length) == 0) {
+                    count++;
+                    int valueStart=next+1,valueDepth=0,j=valueStart;
+                    bool inString=false,valueEscape=false;
+                    for(;j<json.Length;j++){
+                        char token=json[j];
+                        if(inString){
+                            if(valueEscape)valueEscape=false;
+                            else if(token=='\\')valueEscape=true;
+                            else if(token=='"')inString=false;
+                            continue;
+                        }
+                        if(token=='"'){inString=true;continue;}
+                        if(valueDepth==0&&(token==','||token=='}'))break;
+                        if(token=='{'||token=='[')valueDepth++;
+                        else if(token=='}'||token==']')valueDepth--;
+                    }
+                    fieldJSON=json.Substring(valueStart,j-valueStart).Trim();
+                }
+            }
+            return count;
+        }
+
+        internal static bool SameContent(NativePresentationSnapshot a, NativePresentationSnapshot b) =>
             a.Appearance == b.Appearance && a.SeedAppearance == b.SeedAppearance && a.SeedColor == b.SeedColor && a.displayName == b.displayName && a.body == b.body && a.cursor == b.cursor && a.activity == b.activity && a.lightMode == b.lightMode
             && a.quiet == b.quiet && a.reduceMotion == b.reduceMotion && a.visible == b.visible && a.active == b.active
             && a.equippedFocusStaff == b.equippedFocusStaff && (a.staffPalette ?? "") == (b.staffPalette ?? "")
             && (a.staffCrown ?? "") == (b.staffCrown ?? "")
             && a.SessionKind == b.SessionKind && a.Destination == b.Destination && a.destinationRevision == b.destinationRevision
+            && NativePointPresentation.Same(a.pointPresentation, b.pointPresentation)
+            && (a.pointKnowledgeSHA256 ?? "") == (b.pointKnowledgeSHA256 ?? "")
             && a.seedAssetSHA256 == b.seedAssetSHA256 && a.bodyAssetSHA256 == b.bodyAssetSHA256;
     }
 }

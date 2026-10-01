@@ -1,7 +1,8 @@
 import Foundation
 
-/// A local lexical match, not a probability, truth assessment or semantic
-/// entailment result. A page body is authored interpretation; only a section's
+/// A local lexical match or an explicitly reviewed one-hop link, not a
+/// probability, truth assessment or semantic entailment result. A page body is
+/// authored interpretation; only a section's
 /// anchor identifies the exact bytes displayed in `text` as a source quotation.
 struct KnowledgeRetrievalHit: Encodable, Equatable, Sendable, Identifiable {
     enum Kind: String, Codable, Equatable, Sendable { case page, section }
@@ -15,6 +16,17 @@ struct KnowledgeRetrievalHit: Encodable, Equatable, Sendable, Identifiable {
     let pageBinding: KnowledgePageBinding?
     let anchor: KnowledgeAnchor?
     let supportingAnchors: [KnowledgeAnchor]
+    /// A related page has no lexical score. Preserve the reviewed declaration,
+    /// including its direction and exact endpoints, for inspection and recheck.
+    let viaLink: KnowledgePageLink?
+
+    init(id: String, kind: Kind, title: String, text: String, sourceTitle: String?, score: Int,
+         matchedTerms: [String], pageBinding: KnowledgePageBinding?, anchor: KnowledgeAnchor?,
+         supportingAnchors: [KnowledgeAnchor], viaLink: KnowledgePageLink? = nil) {
+        self.id = id; self.kind = kind; self.title = title; self.text = text; self.sourceTitle = sourceTitle
+        self.score = score; self.matchedTerms = matchedTerms; self.pageBinding = pageBinding
+        self.anchor = anchor; self.supportingAnchors = supportingAnchors; self.viaLink = viaLink
+    }
 }
 
 struct KnowledgeRetrievalResult: Equatable, Sendable {
@@ -28,7 +40,10 @@ struct KnowledgeRetrievalResult: Equatable, Sendable {
     let excludedSourceCount: Int
     /// Counts unavailable latest identities, not superseded historical versions.
     let excludedPageCount: Int
-    var omittedHitCount: Int { matchingCount - hits.count }
+    /// Distinct one-hop suggestions from admitted lexical pages, before caps.
+    /// These are reviewed relationships, not additional lexical matches.
+    var relatedCount: Int = 0
+    var omittedHitCount: Int { matchingCount + relatedCount - hits.count }
     var isPartial: Bool { omittedHitCount > 0 }
 }
 
@@ -36,7 +51,7 @@ struct KnowledgeRetrievalResult: Equatable, Sendable {
 /// Callers supply the current library snapshot and must recheck that owner when
 /// opening, selecting or sending a result. This type performs no I/O or writes.
 enum KnowledgeRetrieval {
-    static let version = "native-knowledge-lexical-retrieval/v1"
+    static let version = "native-knowledge-lexical-retrieval/v2"
     static let maximumQueryUTF8Bytes = 512
     static let maximumQueryTerms = 32
     static let maximumResults = 12
@@ -46,8 +61,10 @@ enum KnowledgeRetrieval {
     private static let maximumSources = 8
     private static let maximumSourceTextBytes = 400_000
     private static let maximumPageVersions = 64
+    private static let maximumLinkVersions = 128
 
     static func search(query: String, sources: [ReadingSourceSnapshot], pages: [KnowledgePage],
+                       links: [KnowledgePageLink] = [],
                        libraryIsCurrent: Bool, maximumResults: Int = KnowledgeRetrieval.maximumResults) throws -> KnowledgeRetrievalResult {
         guard libraryIsCurrent else { throw KnowledgeRetrievalError.unavailableLibrary }
         let unsupportedControls = CharacterSet.controlCharacters.subtracting(.whitespacesAndNewlines)
@@ -67,6 +84,7 @@ enum KnowledgeRetrieval {
             sourceBytes += source.text.utf8.count
         }
         guard pages.count <= maximumPageVersions else { throw KnowledgeRetrievalError.pageLimit }
+        guard links.count <= maximumLinkVersions else { throw KnowledgeRetrievalError.linkLimit }
         if queryTerms.isEmpty {
             return KnowledgeRetrievalResult(hits: [], queryTerms: [], matchingCount: 0, contextUTF8Bytes: 2,
                 searchedSourceCount: 0, searchedPageCount: 0, excludedSourceCount: 0, excludedPageCount: 0)
@@ -78,7 +96,8 @@ enum KnowledgeRetrieval {
         var currentSources: [String: Source] = [:]
         for (identity, group) in sourceGroups {
             guard identity != nil, group.count == 1, let source = group.first,
-                  source.isValid, source.binding.isValid else { continue }
+                  source.isValid, source.binding.isValid,
+                  ReadingSourceLineage.availability(of: source.binding, in: sources) == nil else { continue }
             currentSources[source.id.lowercased()] = Source(snapshot: source, binding: source.binding)
         }
         let excludedSources = sources.count - currentSources.count
@@ -157,9 +176,45 @@ enum KnowledgeRetrieval {
             hits.append(candidate)
             bytes = nextBytes
         }
+
+        // Expand from the lexical roots that actually fit, never from a dropped
+        // root or a newly discovered neighbor. Keep every lexical candidate
+        // ahead of related suggestions, including candidates omitted by size.
+        let roots = hits.compactMap(\.pageBinding)
+        let currentLinks = KnowledgePageLink.current(links: links, pages: eligiblePages.map(\.page))
+            .sorted { $0.identity < $1.identity }
+        let pagesByID = Dictionary(uniqueKeysWithValues: eligiblePages.compactMap { item in
+            UUID(uuidString: item.page.id).map { ($0, item.page) }
+        })
+        var seenPages = Set(candidates.compactMap { $0.pageBinding.flatMap { UUID(uuidString: $0.id) } })
+        var related: [KnowledgeRetrievalHit] = []
+        for root in roots {
+            for link in currentLinks {
+                let neighbor: KnowledgePageBinding
+                if link.from == root { neighbor = link.to }
+                else if link.to == root { neighbor = link.from }
+                else { continue }
+                guard let identity = UUID(uuidString: neighbor.id), let page = pagesByID[identity],
+                      page.binding == neighbor, seenPages.insert(identity).inserted else { continue }
+                related.append(KnowledgeRetrievalHit(id: "knowledge-page-" + page.binding.digest,
+                    kind: .page, title: page.title, text: page.body, sourceTitle: nil,
+                    score: 0, matchedTerms: [], pageBinding: page.binding, anchor: nil,
+                    supportingAnchors: page.anchors, viaLink: link))
+            }
+        }
+        for candidate in related {
+            guard hits.count < maximumResults else { break }
+            // The link's full declaration and endpoint bindings consume the
+            // same encoded budget as page text and source anchors.
+            let nextBytes = try encoder.encode(hits + [candidate]).count
+            guard nextBytes <= maximumContextUTF8Bytes else { continue }
+            hits.append(candidate)
+            bytes = nextBytes
+        }
         return KnowledgeRetrievalResult(hits: hits, queryTerms: queryTerms.sorted(), matchingCount: candidates.count,
             contextUTF8Bytes: bytes, searchedSourceCount: currentSources.count,
-            searchedPageCount: eligiblePages.count, excludedSourceCount: excludedSources, excludedPageCount: excludedPages)
+            searchedPageCount: eligiblePages.count, excludedSourceCount: excludedSources, excludedPageCount: excludedPages,
+            relatedCount: related.count)
     }
 
     private struct Source {
@@ -208,7 +263,7 @@ enum KnowledgeRetrieval {
 }
 
 enum KnowledgeRetrievalError: LocalizedError, Equatable {
-    case unavailableLibrary, invalidQuery, invalidResultLimit, sourceLimit, pageLimit, sectionLimit
+    case unavailableLibrary, invalidQuery, invalidResultLimit, sourceLimit, pageLimit, linkLimit, sectionLimit
     var errorDescription: String? {
         switch self {
         case .unavailableLibrary: "The kept-source library changed or needs recovery. Reopen it before searching."
@@ -216,6 +271,7 @@ enum KnowledgeRetrievalError: LocalizedError, Equatable {
         case .invalidResultLimit: "Request between 1 and 12 search results."
         case .sourceLimit: "The search exceeds the kept-source limit of 8 copies and 400,000 text bytes."
         case .pageLimit: "The search exceeds the library limit of 64 knowledge-page versions."
+        case .linkLimit: "The search exceeds the library limit of 128 knowledge-link versions."
         case .sectionLimit: "The sources contain more than 2,048 indexed sections. Search a smaller source set."
         }
     }

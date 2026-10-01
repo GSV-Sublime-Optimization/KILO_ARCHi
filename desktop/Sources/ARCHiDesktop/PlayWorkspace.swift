@@ -9,7 +9,7 @@ struct PlayWorkspace: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 8) {
-                Text("Assistant").font(.system(size: 10)).foregroundStyle(.secondary)
+                Text("ARCHi").font(.system(size: 10)).foregroundStyle(.secondary)
                 AssistantTaskCue(activity: store.assistantActivity, quiet: store.preferences.quiet, reduceMotion: store.preferences.reduceMotion)
                 Spacer(minLength: 0)
             }
@@ -71,9 +71,10 @@ struct PlayWorkspace: View {
         host.updateAppearance(form: store.presentationForm, family: store.presentationFamily,
             reduceMotion: store.preferences.reduceMotion || store.preferences.quiet || systemReduceMotion,
             treatment: store.preferences.visualTreatment,
-            expressionPNG: store.reactorReferenceMatchesCurrentAppearance ? store.reactor.framePNG : nil,
+            expressionPNG: !store.hasPersonalQiMon && store.reactorReferenceMatchesCurrentAppearance ? store.reactor.framePNG : nil,
             expressionRevision: store.reactor.frameRevision,
             recipe: store.presentationRecipe, naturalVariation: store.presentationNaturalVariation,
-            equipment: store.preferences.equipment, seedColor: store.preferences.seedColor)
+            equipment: store.preferences.equipment, seedColor: store.preferences.seedColor,
+            pointProgress: store.preferences.liminalPointProgress)
     }
 }

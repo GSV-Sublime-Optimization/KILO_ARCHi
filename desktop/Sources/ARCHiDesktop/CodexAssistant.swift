@@ -171,14 +171,20 @@ struct AssistantRequest: Sendable {
                 "omittedSourceIDs": .array(localReading.omittedSourceIDs.map { .string($0) }),
                 "partial": .bool(localReading.isPartial),
                 "totalSections": .number(Double(localReading.totalSections)),
-                "sections": .array(localReading.sections.map { section in .object([
-                    "id": .string(section.id), "title": .string(section.title),
-                    "sourceID": .string(section.sourceID), "sourceTitle": .string(section.sourceTitle),
-                    "sourceSHA256": .string(section.sourceDigest),
-                    "text": .string(section.text), "sha256": .string(section.sha256),
-                    "utf16Location": .number(Double(section.location)),
-                    "utf16Length": .number(Double(section.length))
-                ]) })
+                "sections": .array(localReading.sections.map { section in
+                    var fields: [String: JSONValue] = [
+                        "id": .string(section.id), "title": .string(section.title),
+                        "sourceID": .string(section.sourceID), "sourceTitle": .string(section.sourceTitle),
+                        "sourceSHA256": .string(section.sourceDigest),
+                        "text": .string(section.text), "sha256": .string(section.sha256),
+                        "utf16Location": .number(Double(section.location)),
+                        "utf16Length": .number(Double(section.length))
+                    ]
+                    if let provenance = localReading.references.first(where: { $0.id == section.sourceID })?.binding.provenance {
+                        fields["provenance"] = provenance.modelInput
+                    }
+                    return .object(fields)
+                })
             ])
         }
         if let localKnowledge {

@@ -146,6 +146,18 @@ if [[ -n "$UNITY_PLAYER" ]]; then
     [[ "$(/usr/libexec/PlistBuddy -c 'Print :ARCHiNativePresentationProtocol' "$UNITY_PLAYER/Contents/Info.plist")" == "1" ]] || exit 2
     codesign --verify --deep --strict "$UNITY_PLAYER"
     cp -R "$UNITY_PLAYER" "$BUNDLE_DIR/Contents/Resources/UnityCompanion.app"
+    # Point assets are optional and must already be source/render qualified.
+    # A new native build preserves an existing qualified package by default.
+    LIMINAL_PACKAGE="${ARCHI_LIMINAL_PACKAGE:-/Applications/ARCHi.app/Contents/Resources/LiminalV008}"
+    LIMINAL_QUALIFICATION="${ARCHI_LIMINAL_QUALIFICATION:-/Applications/ARCHi.app/Contents/Resources/LiminalV008-qualification.json}"
+    if [[ -d "$LIMINAL_PACKAGE" ]]; then
+        [[ "$(/usr/libexec/PlistBuddy -c 'Print :ARCHiLiminalPointAssetVersion' "$UNITY_PLAYER/Contents/Info.plist")" == "4" ]] || { echo "The selected helper cannot render the qualified Liminal source clock, garnet Seed and shared activity expression." >&2; exit 2; }
+        python3 "$REPO_ROOT/script/package_liminal_v008.py" "$LIMINAL_PACKAGE" "$LIMINAL_QUALIFICATION" \
+            "$BUNDLE_DIR/Contents/Resources" "$BUNDLE_DIR/Contents/Resources/UnityCompanion.app/Contents/Resources/Data/StreamingAssets"
+    elif [[ -n "${ARCHI_LIMINAL_PACKAGE:-}" ]]; then
+        echo "The explicitly selected Liminal v008 package is missing. Nothing was installed." >&2
+        exit 2
+    fi
     # Unity owns a rendering window inside ARCHi's session, not a second Dock
     # product. Only adapt and re-sign this generated copy; preserve the source.
     plutil -replace LSUIElement -bool YES "$BUNDLE_DIR/Contents/Resources/UnityCompanion.app/Contents/Info.plist"
@@ -189,8 +201,8 @@ plutil -lint "$BUNDLE_DIR/Contents/Info.plist"
 xattr -cr "$BUNDLE_DIR"
 codesign --force --sign - "$BUNDLE_DIR"
 codesign --verify --deep --strict "$BUNDLE_DIR"
-# Only promote a complete signed bundle. Keep the previous installation as a
-# recoverable sibling; application-support data is never copied or replaced.
+# Only promote a complete signed bundle. Keep the previous installation in
+# private recovery storage; application-support data is never copied or replaced.
 require_selected_app_stopped
 mkdir -p "$(dirname "$APP_DIR")"
 # Copy and verify before touching the previous bundle. The two final renames
@@ -208,7 +220,11 @@ if [[ -n "$STAGE_DIR" && ( -e "$APP_DIR" || -L "$APP_DIR" ) ]]; then
     exit 1
 fi
 if [[ -z "$STAGE_DIR" && ( -e "$APP_DIR" || -L "$APP_DIR" ) ]]; then
-    PREVIOUS_BUNDLE="$APP_DIR.previous.$(date +%Y%m%d-%H%M%S).$$"
+    if [[ "$STAGE_ONLY" == 0 ]]; then
+        PREVIOUS_BUNDLE="$(python3 "$REPO_ROOT/script/app_rollback_destination.py" "$APP_DIR" "$APP_IDENTIFIER")"
+    else
+        PREVIOUS_BUNDLE="$APP_DIR.previous.$(date +%Y%m%d-%H%M%S).$$"
+    fi
     mv "$APP_DIR" "$PREVIOUS_BUNDLE"
 fi
 if [[ -n "$STAGE_DIR" ]]; then

@@ -1,6 +1,8 @@
 # ARCHi source candidate
 
-**Current status — 26 September:** [Hampton integration and remaining work](docs/system-progress-2026-09-26.md) · [Developer and participant access protocol](docs/developer-access-protocol.md). Start here for the one-app setup, local Marketplace and Unity Arena instructions. Dated entries below retain their historical scope; the current report supersedes stale integration and separate-app descriptions.
+**Current system — 29 September:** [Installed behavior and remaining work](docs/system-status-2026-09-29.md) · [One-app system and recovery](docs/one-app-system.md) · [Desktop guide](desktop/README.md) · [Marketplace and Arena access](docs/developer-access-protocol.md).
+
+Open **`/Applications/ARCHi.app`** for Home, Ask ARCHi, Memory map, Work together, Marketplace and Arena. These are workspaces in one app. Existing profiles, sources and development history remain with their current owners. Dated entries below preserve historical evidence and do not override the current status report.
 
 [Everyday learning, relationship memory and practice outcomes](docs/everyday-learning-and-world-outcomes.md) describes the installed method-review, selected People context and bounded solo-action observer, with measured delivery evidence and remaining limits.
 

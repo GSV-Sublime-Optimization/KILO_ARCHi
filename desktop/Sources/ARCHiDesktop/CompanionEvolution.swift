@@ -236,7 +236,7 @@ struct EvolutionHistoryEntry: Equatable, Identifiable, Sendable {
 
 @MainActor
 final class EvolutionStore: ObservableObject {
-    static let maximumUsefulReceipts = 32
+    nonisolated static let maximumUsefulReceipts = 32
     static let maximumHistoryEntries = 32
     static let maximumSaveBytes = 32 * 1024
     static let schema = "archi-companion-evolution/v7"

@@ -2,7 +2,7 @@
 
 **ARCHi — ARC Hampton Interphase.** This is the ARCHi companion app, a separate product from Quotient Wiki OS. Its interface centers the active companion, conversation, shared work and chosen memories. KIN and other chosen companion names identify the individual within ARCHi; they do not rename the application. See the [interface identity](../docs/archi-interface-identity.md) for the reference direction and product boundary.
 
-The current target is a supervised local desktop Alpha on this Mac. Start with the [desktop Alpha guide](../docs/desktop-alpha-guide.md) for the task checklist, explicit save/load behavior and recovery. Candidate verification remains recorded separately in the [current plan](../docs/archi-qimon-build-plan.md) and [status](../docs/local-alpha-status.md); this README does not declare release acceptance.
+The current target is a supervised local desktop Alpha on this Mac. Start with the [desktop Alpha guide](../docs/desktop-alpha-guide.md) for the task checklist, explicit save/load behavior and recovery. Current delivery and remaining work are summarized in the [29 September system status](../docs/system-status-2026-09-29.md); this README does not declare release acceptance.
 
 ## Build and launch
 
@@ -14,11 +14,13 @@ Export any working draft, keep the choices you want to retain, and **Quit ARCHi 
 ./script/build_and_run.sh
 ```
 
-The script updates the single `/Applications/ARCHi.app`, preserving the existing Review bundle identifier and profile ownership. `--review` is a compatibility alias; it does not create another personal app. The script retains the installed Unity helper, or requires `--unity-player /path/to/qualified-player.app` for a first installation. It refuses to replace any running ARCHi session and preserves the previous bundle for recovery.
+The script updates the single `/Applications/ARCHi.app`, preserving the existing Review bundle identifier and profile ownership. `--review` is a compatibility alias; it does not create another personal app. The script retains the installed Unity helper, or requires `--unity-player /path/to/qualified-player.app` for a first installation. It refuses to replace any running ARCHi session and preserves the previous bundle for recovery. Normal updates now keep rollback bundles in `~/Library/Application Support/ARCHiRecovery/Rollbacks`, outside Applications. See [one-app operation and recovery](../docs/one-app-system.md).
 
 Use `--stage-only --stage-dir /private/tmp/unique-candidate-directory` to build a candidate without replacing or launching the installed app. Generated build products use `/private/tmp/archi-desktop-build-<user-id>`; `ARCHI_BUILD_SCRATCH_PATH` can select another scratch directory. `--verify` also runs the native test suite. These locally signed builds are not notarized distribution releases. Reopen the installed app normally instead of rebuilding just to open it.
 
 ## Current native experience
+
+- **Memory map** is now a primary sidebar destination and Home feature. Explore actual retained sources, authored pages and kept lessons; use Showcase for a focused local presentation, or All activity for receipts and usage. [Guide and limits](../docs/native-memory-dashboard.md).
 
 - **ARC → Interactive ARC3** discovers an installed offline runtime, displays its actual frames, accepts manual actions and explores in batches of up to eight actions. Chat and the Seed bubble expose `/arc3 open`, `/arc3 explore` and `/arc3 stop`. Episodes retain proposed actions, observed outcomes and task-local transition evidence, with Usage and Activity map links. This first explorer uses no model calls; goal-directed model planning remains future work. [Setup and scope](../docs/active-arc3.md).
 
@@ -26,7 +28,8 @@ Use `--stage-only --stage-dir /private/tmp/unique-candidate-directory` to build 
 
 - **ARCHi Home** opens the companion's field interface with dark surfaces, cyan accents and the current companion appearance. Its connection, shared document, active kept lessons, Node Lab records and personal rhythm come from the existing app state. Each action opens its existing destination. Use Window → ARCHi Home (Command–0) to return. The native window retains its 880 × 640 minimum, with scrolling at smaller sizes and grouped panels in wider windows.
 
-- **Assistant** defaults to ARCHi-managed local Qwen, with one Codex fallback for an eligible connection, generation or timeout failure. Local-only auto-connect and manual routes remain available; the chosen route survives restart. Preparation sends no draft or document. Send captures the question, shared copy, selected passage and reply settings; kept lessons, personal context and local conversation never enter fallback. A desktop snapshot requires its own exact-copy permission for external use. Stop cancels owned work.
+- **Ask ARCHi** unifies Home, sidebar, menu and bubble conversation entry points. Its companion subtitle preserves the current individual; Memory map and Work together open their existing owners. [Interface and boundaries](../docs/native-ask-archi.md). It starts with Local only when routing preferences are missing or unreadable. Explicitly selecting Local + Codex fallback permits one eligible fallback after a local connection, generation or timeout failure. Manual and external routes remain available; the chosen route survives restart. See [routing and payload boundaries](../docs/native-automatic-assistance.md). Preparation sends no draft or document. Send captures the question, shared copy, selected passage and reply settings; kept lessons, personal context and local conversation never enter fallback. A desktop snapshot requires its own exact-copy permission for external use. Stop cancels owned work.
+- **Paste text…** in Work together opens a plain-text draft directly, without the file picker. Text is local and session-only; Send remains separate. Export keeps a copy. Pending pasted drafts block Quit, profile switching and restore; stale source/profile changes and pending voice/proposal work cannot be replaced.
 - **Work together** holds a UTF-8 working copy with exact passage selection, placement preview, Explain/Rewrite/Shorten, Before/After review, checked Apply, one-step Undo and separate draft export. The imported original is unchanged. The working copy and Undo are session-only: **Export before Quit, Change document or Stop sharing**.
 - **What I remember** keeps explicitly authored lessons, with inspect/revise/withdraw/export controls. Eligible lessons go only to local Qwen. Temporary session context is separate, off by default, and consumes optional selection/reminder calls only when eligible input exists. Neither feature trains model weights.
 - **Companion room and Arena** use the bundled Unity renderer under the native session owner. Arena currently supports local practice and two seats on one Mac; online multiplayer and canonical rewards remain unimplemented.
@@ -69,3 +72,7 @@ Document revision and ARC3 planning now use one versioned native controller. Exi
 ## Read with context
 
 Open a document or meeting notes in Work together, write a question and choose Find relevant passages. Local Qwen uses a bounded section plan with exact source ranges. The preview identifies omitted coverage. After a completed local answer, Helpful or Needs correction feeds the next reading approach for that source. The same reply controls are available in Chat and the Seed bubble. See [native document reading](../docs/native-document-reading.md).
+
+### Reviewed knowledge connections
+
+Memories supports user-reviewed **Supports**, **Contradicts** and **Depends on** links between exact page versions. Local search suggests current neighbors one step away, with direction and rationale visible. Source corrections invalidate those suggestions. See [use, limits and recovery](../docs/native-reviewed-connections.md) and [delivery evidence](../docs/accountability/evidence/r29-reviewed-knowledge-connections-2026-09-29.json).

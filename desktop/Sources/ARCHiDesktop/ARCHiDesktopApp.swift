@@ -347,11 +347,11 @@ final class DesktopDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         if terminationInProgress { return .terminateLater }
         guard !isReviewingQuit else { return .terminateCancel }
-        if store.knowledgePageDraft != nil {
+        if store.hasOpenKnowledgeDraft {
             pendingProfileID = nil
             let alert = NSAlert()
-            alert.messageText = "Finish your knowledge page"
-            alert.informativeText = "Save or cancel your open page draft before closing or switching companions."
+            alert.messageText = "Finish your knowledge draft"
+            alert.informativeText = "Save or cancel your open page or connection draft before closing or switching companions."
             alert.addButton(withTitle: "Return to draft")
             alert.runModal()
             showWorkspace(.memory)
@@ -430,8 +430,9 @@ final class DesktopDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if store.preferenceRetention == .changed {
             return ("Save your appearance and conversation preferences in Memories before switching. Your current companion stays open.", .memory)
         }
+        if store.pastedDocumentDraft.hasContent { return ("Use or discard your pasted text draft before switching.", .context) }
         if store.lessonDraft != nil { return ("Keep or discard your lesson draft before switching.", .memory) }
-        if store.knowledgePageDraft != nil { return ("Save or discard your knowledge page draft before switching.", .memory) }
+        if store.hasOpenKnowledgeDraft { return ("Save or discard your knowledge page or connection draft before switching.", .memory) }
         if store.focusGestureDraft != nil { return ("Keep or discard your gesture draft before switching.", .appearance) }
         if store.voiceInput.phase == .review { return ("Use or discard your voice draft before switching.", .assistant) }
         if store.marketplaceCatalog.isBusy || store.marketplaceCatalog.hasPendingMutation {
@@ -494,7 +495,7 @@ final class DesktopDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     @objc private func openMemory() { showWorkspace(.memory) }
     @objc private func openAppearance() { showWorkspace(.appearance) }
     @objc private func openEvolution() { showWorkspace(.evolution) }
-    @objc private func openNodeLab() { showWorkspace(.nodeLab) }
+    @objc private func openNodeLab() { store.openMemoryMap() }
     @objc private func openSettings() { showWorkspace(.connections) }
     @objc private func showCompanion() { store.showCompanion() }
     @objc private func hideCompanion() { store.hideCompanion() }
@@ -555,10 +556,10 @@ final class DesktopDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let windowRoot = NSMenuItem()
         let windowMenu = NSMenu(title: "Window")
         windowMenu.addItem(item(ARCHiIdentity.homeTitle, #selector(openHome), key: "0"))
-        windowMenu.addItem(item("Assistant", #selector(openAssistant), key: "1"))
+        windowMenu.addItem(item(AskARCHiBrand.title, #selector(openAssistant), key: "1"))
         windowMenu.addItem(item("Companion · Appearance", #selector(openAppearance), key: "2"))
         windowMenu.addItem(item("Companion · Growth", #selector(openEvolution), key: "3"))
-        windowMenu.addItem(item("Node Lab", #selector(openNodeLab), key: "4"))
+        windowMenu.addItem(item("Memory map", #selector(openNodeLab), key: "4"))
         windowMenu.addItem(item("Marketplace", #selector(openMarketplace), key: "5"))
         windowMenu.addItem(item("Arena", #selector(openUnity), key: "6"))
         windowMenu.addItem(item("Work together", #selector(openWorkTogether), key: "7"))
@@ -580,7 +581,7 @@ final class DesktopDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let quick = NSMenu()
         quick.addItem(item("Open ARCHi Home", #selector(openHome)))
         quick.addItem(item("Show ARCHi", #selector(showCompanion)))
-        quick.addItem(item("Open assistant", #selector(openAssistant)))
+        quick.addItem(item("Open " + AskARCHiBrand.title, #selector(openAssistant)))
         quick.addItem(item("Play Arena", #selector(openUnityArena)))
         quick.addItem(item("Marketplace", #selector(openMarketplace)))
         quick.addItem(item("Settings…", #selector(openSettings)))

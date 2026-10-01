@@ -8,10 +8,13 @@ namespace ARCHi.Port
         private NativeEvolutionBridge nativeBridge;
         private NativePresentationSnapshot nativeSnapshot;
         private KinEvolutionStage nativeStage;
+        private LiminalParticleRenderer nativePoints;
+        public LiminalParticleRenderer PointRenderer => nativePoints;
         private string nativeAppearance = "kin";
         private Image nativeBodyImage;
         private NativeStaffDrawing nativeStaffDrawing;
         private bool nativeStopped, nativeFresh;
+        private bool nativeAdvancedExpanded;
         private long nativeDestinationRevision;
         private readonly KinSeedPresentationMotion seedMotion = new KinSeedPresentationMotion();
         private string nativeState = "Waiting for the native companion.";
@@ -38,24 +41,25 @@ namespace ARCHi.Port
                 if (control != null) control.style.display = DisplayStyle.None;
             }
             var arenaButton = root.Q<Button>("nav-arena");
-            if (arenaButton != null) { arenaButton.style.display = DisplayStyle.Flex; arenaButton.SetEnabled(NativeArenaAvailable); }
+            if (arenaButton != null) { arenaButton.text = "Arena"; arenaButton.tooltip = "Open Arena"; arenaButton.style.display = DisplayStyle.Flex; arenaButton.SetEnabled(NativeArenaAvailable); }
             bool local = nativeSnapshot?.LocalPractice == true;
             companionTab.text = local ? "Local practice" : "Companion";
             stage.style.display = local ? DisplayStyle.None : DisplayStyle.Flex;
             rail.style.flexGrow = local ? 1 : 0;
-            root.Q<Label>("port-mode-title").text = local ? "LOCAL ROSTER PRACTICE" : "NATIVE COMPANION";
+            root.Q<Label>("port-mode-title").text = local ? "LOCAL PRACTICE" : "COMPANION ROOM";
             root.Q<Label>("body-mode-label").text = "CURRENT FORM";
             quietButton.SetEnabled(false);
             motionButton.SetEnabled(false);
             var notice = root.Q<Label>("port-connection-notice");
-            if (notice != null) notice.text = local ? "Local roster · disposable practice · no saved companion" : "Native companion · one identity · presentation connection";
+            if (notice != null) notice.text = local ? "Local roster · this visit only" : "Your companion · connected to ARCHi";
             var explanation = root.Q<Label>("body-preview-explanation");
-            if (explanation != null) explanation.text = nativeSnapshot?.SeedAppearance == "hamptonLiminal" ? "Current native Seed · authored Liminal artwork" : "Current native form · authored 3D body study · Seed artwork preserved";
+            if (explanation != null) explanation.text = "The same companion, here and on your desktop.";
             var comfortNote = root.Q<Label>("comfort-note");
-            if (comfortNote != null) comfortNote.text = "Follows desktop settings. Escape pauses motion.";
+            if (comfortNote != null) comfortNote.text = "Follows your desktop settings. Escape pauses motion.";
             var nameLabel = root.Q<Label>("kin-greeting");
             if (nameLabel != null) nameLabel.text = local ? "A place to practice." : nativeSnapshot == null ? "Waiting for ARCHi." : "Hello, I’m " + nativeSnapshot.displayName + ".";
             if (local) {
+                nativePoints?.Suspend();
                 if (nativeStage != null) { nativeStage.gameObject.SetActive(false); Destroy(nativeStage.gameObject); nativeStage = null; }
                 if (explanation != null) explanation.text = "Choose a roster study inside Arena. It does not create a companion.";
                 var badge = root.Q<Image>("seed-cursor-image");
@@ -93,9 +97,28 @@ namespace ARCHi.Port
                 nativeBodyImage.style.right = 0;
                 nativeBodyImage.style.top = 0;
                 nativeBodyImage.style.bottom = 0;
+                nativeBodyImage.RegisterCallback<PointerDownEvent>(e => {
+                    if (nativePoints?.Inspection != true) return;
+                    var rect = nativeBodyImage.contentRect;
+                    float side = Mathf.Min(rect.width, rect.height);
+                    if (side <= 0) return;
+                    var local = e.localPosition;
+                    nativePoints.Pick(new Vector2((local.x - (rect.width - side) * .5f) / side,
+                        1 - (local.y - (rect.height - side) * .5f) / side));
+                    e.StopPropagation();
+                });
                 bodyImage.parent.Insert(bodyImage.parent.IndexOf(bodyImage) + 1, nativeBodyImage);
             }
             nativeBodyImage.image = nativeStage?.Texture;
+            if (nativeSnapshot?.pointPresentation != null) {
+                if (nativePoints == null) {
+                    var points = new GameObject("Liminal v008 point presentation");
+                    nativePoints = points.AddComponent<LiminalParticleRenderer>();
+                    nativePoints.Initialize(transform);
+                    nativePoints.Selected += (nodeID, pointID) => nativeBridge?.SelectPointKnowledge(nodeID, pointID);
+                }
+                nativePoints.Configure(nativeSnapshot, NativeStaticMotion);
+            } else nativePoints?.Configure(nativeSnapshot, true);
             if (nativeStaffDrawing == null)
             {
                 staff.Clear();
@@ -104,6 +127,35 @@ namespace ARCHi.Port
             }
             nativeStaffDrawing.SetRecipe(nativeSnapshot?.staffPalette, nativeSnapshot?.staffCrown);
             RefreshNativeVisuals();
+            RefreshNativePointControls();
+        }
+
+        private void RefreshNativePointControls()
+        {
+            var pointStatus = root?.Q<Label>("liminal-point-status");
+            if (pointStatus != null) pointStatus.text = nativePoints?.Status ?? "Point presentation unavailable.";
+            var hint = root?.Q<Label>("liminal-inspection-hint");
+            if (hint != null) {
+                bool inspecting = nativePoints?.Inspection == true;
+                hint.style.display = inspecting ? DisplayStyle.Flex : DisplayStyle.None;
+                hint.text = nativePoints?.KnowledgeRecordCount > 0
+                    ? "Choose a highlighted point to open its source. Escape returns to your companion."
+                    : "No current knowledge records. These particles are artwork. Escape returns to your companion.";
+            }
+            var inspect = root?.Q<Button>("liminal-inspect");
+            if (inspect == null) return;
+            inspect.text = nativePoints?.Inspection == true ? "Leave inspection · Esc" : "Inspect knowledge · I";
+            inspect.SetEnabled(nativePoints?.CanInspect == true);
+            inspect.tooltip = nativePoints?.CanInspect == true ? "Open the existing source record for a highlighted point."
+                : "Inspection becomes available when the point package is rendered.";
+        }
+
+        private void ToggleNativePointInspection()
+        {
+            if (nativePoints == null || !nativePoints.CanInspect) return;
+            nativePoints.SetInspection(!nativePoints.Inspection);
+            RefreshNativeVisuals();
+            RefreshNativePointControls();
         }
 
         public void ApplyNativePresentation(NativePresentationSnapshot value, bool fresh)
@@ -127,17 +179,18 @@ namespace ARCHi.Port
             ConfigureNativeView();
             RefreshAll();
             if (!NativeArenaAvailable) arena?.Close();
-            else if (arena != null) arena.ApplyNativePresentation(value, NativeStaticMotion);
+            else if (arena != null) { arena.SetPointRenderer(nativePoints); arena.ApplyNativePresentation(value, NativeStaticMotion); }
             if (value.destinationRevision > nativeDestinationRevision) {
                 nativeDestinationRevision = value.destinationRevision;
                 if (value.Destination == "arena") OpenArena(); else arena?.Close();
             }
-            SetStatus(nativeState);
+            SetStatus(fresh ? "Connected to ARCHi." : "Connection paused.");
         }
 
         public void SuspendNativePresentation(string reason)
         {
             nativeFresh = false;
+            nativePoints?.Suspend();
             arena?.Close();
             seedMotion.Apply(nativeSnapshot?.lightMode ?? "rest", true, Time.unscaledTimeAsDouble);
             nativeState = reason;
@@ -150,19 +203,21 @@ namespace ARCHi.Port
         private void StopNativeMotion()
         {
             nativeStopped = true;
+            nativePoints?.Freeze(true);
             seedMotion.Apply(nativeSnapshot?.lightMode ?? "rest", true, Time.unscaledTimeAsDouble);
             nativeStage?.Apply(firstLight, true, nativeSnapshot?.lightMode ?? "rest", false);
             if (arena != null && nativeSnapshot != null) arena.ApplyNativePresentation(nativeSnapshot, true);
             RefreshAll();
-            SetStatus("Unity motion paused. The native form and identity are unchanged.");
+            SetStatus("Motion paused. Your companion stays here.");
         }
         private void ResumeNativeMotion()
         {
             nativeStopped = false;
+            nativePoints?.Freeze(NativeStaticMotion);
             seedMotion.Apply(nativeSnapshot?.lightMode ?? "rest", NativeStaticMotion, Time.unscaledTimeAsDouble);
             if (nativeSnapshot != null) nativeStage?.Apply(firstLight, NativeStaticMotion, nativeSnapshot.lightMode, false);
             RefreshAll();
-            SetStatus(nativeState);
+            SetStatus(nativeFresh ? "Connected to ARCHi." : "Connection paused.");
         }
 
         private void Update()
@@ -170,6 +225,7 @@ namespace ARCHi.Port
             if (!NativeBound || arena != null) return;
             nativeStage?.Tick(nativeSnapshot != null && nativeSnapshot.visible && (firstLight || nativeStage.Progress > 0));
             RefreshNativeVisuals();
+            RefreshNativePointControls();
         }
 
         private void RefreshNativeVisuals()
@@ -177,12 +233,17 @@ namespace ARCHi.Port
             if (!NativeBound || bodyImage == null) return;
             var visible = nativeSnapshot != null && nativeSnapshot.visible && !nativeSnapshot.LocalPractice;
             var progress = nativeStage == null ? 0 : nativeStage.Progress;
+            bool pointVisible = nativePoints?.Visible == true || nativePoints?.EndpointTexture != null;
             // The Seed endpoint and reference badge share the authored art and chosen palette.
             bodyImage.image = seedTexture;
             if (firstLight && nativeAppearance == "proto") bodyTitle.text = "First Light · Proto expression";
             bodyImage.style.rotate = new Rotate(new Angle((float)seedMotion.Sample(Time.unscaledTimeAsDouble).angle));
-            bodyImage.style.opacity = visible ? 1 - progress : 0;
-            if (nativeBodyImage != null) nativeBodyImage.style.opacity = visible ? progress : 0;
+            bodyImage.style.opacity = visible && !pointVisible ? 1 - progress : 0;
+            if (nativeBodyImage != null) {
+                nativeBodyImage.image = pointVisible ? (nativePoints.EndpointTexture != null ? (UnityEngine.Texture)nativePoints.EndpointTexture : nativePoints.Texture) : nativeStage?.Texture;
+                nativeBodyImage.style.opacity = visible ? (pointVisible ? 1 : progress) : 0;
+                nativeBodyImage.pickingMode = nativePoints?.Inspection == true ? PickingMode.Position : PickingMode.Ignore;
+            }
             if (nativeSnapshot?.LocalPractice == true) bodyTitle.text = "Local roster";
             staff.style.display = visible && equipped ? DisplayStyle.Flex : DisplayStyle.None;
             cueHalo.style.opacity = 0;
@@ -206,19 +267,38 @@ namespace ARCHi.Port
                 practice.Add(Paragraph("Rounds and reviewed lessons last for this visit. Quiet, Reduce Motion and Stop follow ARCHi.", 12));
                 practice.Add(Paragraph(nativeState, 12)); detail.Add(practice); return;
             }
-            var card = DetailCard("SAME COMPANION · NATIVE AUTHORITY", nativeSnapshot?.displayName ?? "KIN");
-            card.Add(Paragraph(nativeState, 13));
-            card.Add(Pill(firstLight ? "First Light · retained milestone" : "Core Seed · current form", Gold));
-            card.Add(Paragraph("Your desktop app owns this companion’s identity, memory and development. Keep, Return and Resume are available there.", 13));
-            card.Add(Paragraph(nativeSnapshot?.SeedAppearance == "hamptonLiminal"
-                ? "Liminal keeps the authored desktop Seed and your chosen color. No later body is claimed by this presentation."
-                : "The desktop Seed stays available as the cursor form. The body here uses your existing authored 3D study and light expressions.", 12));
+            var card = DetailCard("YOUR COMPANION", nativeSnapshot?.displayName ?? "KIN");
+            card.Add(Pill(firstLight ? "First Light" : "Seed", Gold));
+            card.Add(Paragraph("The same companion, here and on your desktop.", 13));
+            if (nativeSnapshot?.pointPresentation != null) {
+                var inspect = MakeButton(nativePoints?.Inspection == true ? "Leave inspection · Esc" : "Inspect knowledge · I",
+                    ToggleNativePointInspection, "liminal-inspect");
+                inspect.SetEnabled(nativePoints?.CanInspect == true); card.Add(inspect);
+                var hint = Text("", 11, Muted); hint.name = "liminal-inspection-hint"; card.Add(hint);
+            }
+            card.Add(MakeButton(nativeStopped ? "Resume motion" : "Pause motion", () => { if (nativeStopped) ResumeNativeMotion(); else StopNativeMotion(); }, "native-pause-motion"));
+            var openArena = MakeButton("Open Arena →", OpenArena, "native-open-arena", true);
+            openArena.SetEnabled(NativeArenaAvailable); card.Add(openArena);
+
+            var advanced = new Foldout { text = "Advanced", name = "native-companion-advanced", value = nativeAdvancedExpanded };
+            advanced.style.marginTop = 12;
+            advanced.RegisterValueChangedCallback(evt => nativeAdvancedExpanded = evt.newValue);
+            advanced.Add(Paragraph(nativeState, 11));
+            if (nativeSnapshot?.pointPresentation != null) {
+                var state = Text(nativePoints?.Status ?? "Checking point presentation…", 11, Muted);
+                state.name = "liminal-point-status"; advanced.Add(state);
+                advanced.Add(Paragraph("Inspection opens an existing Activity map record. It does not create knowledge or change your companion.", 11));
+            }
+            advanced.Add(Paragraph("ARCHi owns this companion’s identity, memory and development. Keep, Return and Resume remain in the desktop app.", 11));
+            advanced.Add(Paragraph(nativeSnapshot?.SeedAppearance == "hamptonLiminal"
+                ? "Liminal keeps the authored desktop Seed and your chosen color. This presentation does not claim a later body."
+                : "The desktop Seed stays available as the cursor form. The room uses the existing authored body study and light expressions.", 11));
             var image = new Image { image = firstLight ? lightTexture : seedTexture, scaleMode = ScaleMode.ScaleToFit, name = "native-authored-reference" };
-            image.style.height = 96;
-            card.Add(image);
-            card.Add(Text((nativeAppearance == "proto" ? "Proto expression · desktop artwork" : "Current desktop artwork reference"), 10, Muted));
-            card.Add(MakeButton(nativeStopped ? "Resume Unity motion" : "Pause Unity motion", () => { if (nativeStopped) ResumeNativeMotion(); else StopNativeMotion(); }, "native-pause-motion"));
+            image.style.height = 96; advanced.Add(image);
+            advanced.Add(Text(nativeAppearance == "proto" ? "Proto expression · desktop artwork" : "Desktop artwork reference", 10, Muted));
+            card.Add(advanced);
             detail.Add(card);
+            RefreshNativePointControls();
         }
 
         /// Closed, local silhouettes share the native design palette. No recipe

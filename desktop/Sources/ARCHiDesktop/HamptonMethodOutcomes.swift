@@ -5,6 +5,12 @@ import Foundation
 /// Exact-version results can prioritize explicitly available methods; they never
 /// certify a capability, admit a procedure, select it, or execute an action.
 struct HamptonMethodOutcomes: Equatable, Sendable {
+    enum ReconciliationIssue: Equatable, Sendable {
+        case repeatedRequestProvider
+    }
+
+    /// Ambiguous ownership is unavailable evidence, not an empty history.
+    private(set) var reconciliationIssue: ReconciliationIssue?
     private(set) var attempts = 0
     /// Current applied state, including records without qualifying review evidence.
     private(set) var applied = 0
@@ -34,7 +40,17 @@ struct HamptonMethodOutcomes: Equatable, Sendable {
         guard procedure?.isValid ?? true else { return }
         var unique: [String: DocumentWorkRecord] = [:]
         var contradictory = Set<String>()
+        var owners: [[String]: String] = [:]
         for record in records {
+            // Check every supplied variant before retaining one per record ID.
+            // A contradictory copy must not hide an owner also claimed by a
+            // different record, including a record for another method version.
+            let owner = [record.requestID, record.provider]
+            if let priorID = owners[owner], priorID != record.id {
+                reconciliationIssue = .repeatedRequestProvider
+                return
+            }
+            owners[owner] = record.id
             if let prior = unique[record.id] {
                 if prior != record { contradictory.insert(record.id) }
             } else {
@@ -77,6 +93,7 @@ struct HamptonMethodOutcomes: Equatable, Sendable {
     /// This is a prioritization heuristic, not calibrated success probability or
     /// capability certification. No exploration bonus or hypothetical evidence.
     static func rankBefore(lhs: HamptonMethodOutcomes, rhs: HamptonMethodOutcomes) -> Bool {
+        guard lhs.reconciliationIssue == nil, rhs.reconciliationIssue == nil else { return false }
         // Positive and negative counts are disjoint and sum to at most 64.
         // Each cross-product is at most 65 * 66, safely inside Int bounds.
         let left = (lhs.helpful + 1) * (rhs.helpful + rhs.needsCorrection + 2)

@@ -1,6 +1,8 @@
+import contextlib
 import copy
 import os
 import sqlite3
+import stat
 import tempfile
 import unittest
 import uuid
@@ -48,6 +50,12 @@ class StoreTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, code)
         return caught.exception
 
+    def test_store_startup_does_not_run_password_kdf(self):
+        fresh_path = self.path.with_name("startup.sqlite3")
+        with patch("marketplace.store.hash_password", side_effect=AssertionError("startup must not run password KDF")):
+            fresh = Store(fresh_path, clock=lambda: self.now[0])
+        self.assertEqual(fresh.dispatch("GET", "/v1/catalog").value["total"], 0)
+
     def test_empty_catalog_no_profile_or_fixture_seed(self):
         self.assertEqual(self.store.dispatch("GET", "/v1/catalog").value, {"items": [], "total": 0, "limit": 40, "offset": 0})
         self.assertEqual(self.call("GET", "/v1/inventory").value["total"], 0)
@@ -62,7 +70,7 @@ class StoreTests(unittest.TestCase):
         self.assertEqual(self.call("GET", "/v1/inventory").value["items"], [acquired])
 
     def test_password_and_session_secrets_are_hashed_not_stored_raw(self):
-        with sqlite3.connect(self.path) as db:
+        with contextlib.closing(sqlite3.connect(self.path)) as db, db:
             row = db.execute("SELECT password_salt,password_hash FROM accounts").fetchone()
             token_hash = db.execute("SELECT token_hash FROM sessions").fetchone()[0]
         self.assertEqual(len(row[0]), 32)
@@ -70,7 +78,10 @@ class StoreTests(unittest.TestCase):
         self.assertEqual(len(token_hash), 64)
         self.assertNotIn(self.token.encode(), self.path.read_bytes())
         self.assertNotIn(PASSWORD.encode(), self.path.read_bytes())
-        self.assertEqual(os.stat(self.path).st_mode & 0o777, 0o600)
+        info = os.stat(self.path)
+        self.assertTrue(stat.S_ISREG(info.st_mode))
+        if hasattr(os, "getuid"):
+            self.assertEqual(info.st_mode & 0o777, 0o600)
 
     def test_session_failure_expiry_and_logout(self):
         self.assert_error("unauthorized", "POST", "/v1/sessions", body={"handle": "synthetic_owner", "password": "wrong but long enough"})
@@ -234,24 +245,39 @@ class StoreTests(unittest.TestCase):
 
     def test_corrupt_stored_recipe_is_not_downloaded_or_added(self):
         published = self.publish(self.listing())
-        with sqlite3.connect(self.path) as db:
+        with contextlib.closing(sqlite3.connect(self.path)) as db, db:
             db.execute("UPDATE versions SET recipe_id=? WHERE listing_id=? AND version=2", ("0" * 64, published["id"]))
         self.assert_error("storage_unavailable", "GET", f'/v1/listings/{published["id"]}/versions/2/package')
         self.assertEqual(self.call("GET", "/v1/inventory").value["total"], 0)
 
+    def test_reparse_attribute_is_classified_as_indirect_storage(self):
+        from marketplace.store import _is_link_or_reparse
+
+        class SyntheticStat:
+            st_mode = stat.S_IFREG
+            st_file_attributes = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+
+        self.assertTrue(_is_link_or_reparse(SyntheticStat()))
+
     def test_refuses_symlink_permissive_or_unrelated_database(self):
         link = self.path.with_name("linked.sqlite3")
-        link.symlink_to(self.path)
-        with self.assertRaises(OSError):
-            Store(link)
-        mode_path = self.path.with_name("permissive.sqlite3")
-        mode_path.touch(mode=0o644)
-        mode_path.chmod(0o644)
-        with self.assertRaises(ValueError):
-            Store(mode_path)
+        try:
+            link.symlink_to(self.path)
+        except OSError:
+            if os.name != "nt":
+                raise
+        else:
+            with self.assertRaises((OSError, ValueError)):
+                Store(link)
+        if hasattr(os, "getuid"):
+            mode_path = self.path.with_name("permissive.sqlite3")
+            mode_path.touch(mode=0o644)
+            mode_path.chmod(0o644)
+            with self.assertRaises(ValueError):
+                Store(mode_path)
         unrelated = self.path.with_name("unrelated.sqlite3")
         unrelated.touch(mode=0o600)
-        with sqlite3.connect(unrelated) as db:
+        with contextlib.closing(sqlite3.connect(unrelated)) as db, db:
             db.execute("CREATE TABLE personal_data(value TEXT)")
         before = unrelated.read_bytes()
         with self.assertRaises(ValueError):

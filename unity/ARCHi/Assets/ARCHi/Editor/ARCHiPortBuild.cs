@@ -10,8 +10,8 @@ using UnityEngine;
 using UnityEngine.SceneManagement;
 using UnityEngine.UIElements;
 
-/// Explicit source-project preparation and local Mac validation. Nothing runs
-/// automatically on import; the presentation pilot and native profiles are untouched.
+/// Explicit source-project preparation and local standalone validation. Nothing runs
+/// automatically on import; presentation state and native profile authority are untouched.
 public static class ARCHiPortBuild
 {
     public const string StartupScene = "Assets/Scenes/ARCHiDesktop.unity";
@@ -46,7 +46,7 @@ public static class ARCHiPortBuild
     [Serializable] private sealed class ArtProvenance { public string schema = ""; public ArtEntry[] assets = Array.Empty<ArtEntry>(); }
     [Serializable] private sealed class ArtEntry { public string asset = "", sha256 = ""; public int bytes = 0; }
 
-    [MenuItem("ARCHi/Port/Prepare Mac Startup")]
+    [MenuItem("ARCHi/Port/Prepare Standalone Startup")]
     public static void Prepare()
     {
         CheckProject();
@@ -101,7 +101,7 @@ public static class ARCHiPortBuild
         PlayerSettings.defaultScreenHeight = 820;
         PlayerSettings.fullScreenMode = FullScreenMode.Windowed;
         PlayerSettings.resizableWindow = true;
-        UnityEditor.OSXStandalone.UserBuildSettings.architecture = OSArchitecture.ARM64;
+        ConfigureActiveStandaloneTarget();
         EditorUserBuildSettings.standaloneBuildSubtarget = StandaloneBuildSubtarget.Player;
         AssetDatabase.SaveAssets();
         Debug.Log("ARCHI_PORT_PREPARED " + StartupScene);
@@ -150,17 +150,68 @@ public static class ARCHiPortBuild
 
     [MenuItem("ARCHi/Port/Build Mac ARM64")]
     public static void BuildMac()
+        => BuildStandalone(BuildTarget.StandaloneOSX, ".app", "MAC_ARM64", nativeBuildOverride);
+
+    [MenuItem("ARCHi/Port/Build Windows x86_64")]
+    public static void BuildWindows()
+        => BuildStandalone(BuildTarget.StandaloneWindows64, ".exe", "WINDOWS_X64", null);
+
+    [MenuItem("ARCHi/Port/Build Linux x86_64")]
+    public static void BuildLinux()
+        => BuildStandalone(BuildTarget.StandaloneLinux64, ".x86_64", "LINUX_X64", null);
+
+    private static void BuildStandalone(BuildTarget target, string artifactSuffix, string receiptPrefix, string artifactOverride)
     {
         CheckProject();
         RequireSavedScenes();
-        if (EditorUserBuildSettings.activeBuildTarget != BuildTarget.StandaloneOSX)
-            throw new InvalidOperationException("Start this project with -buildTarget StandaloneOSX before building.");
-        if (!BuildPipeline.IsBuildTargetSupported(BuildTargetGroup.Standalone, BuildTarget.StandaloneOSX))
-            throw new InvalidOperationException("The matching Mac standalone build module is unavailable.");
+        if (EditorUserBuildSettings.activeBuildTarget != target)
+            throw new InvalidOperationException("Start this project with -buildTarget " + target + " before building.");
+        if (!BuildPipeline.IsBuildTargetSupported(BuildTargetGroup.Standalone, target))
+            throw new InvalidOperationException("The matching " + target + " standalone build module is unavailable.");
 
-        string artifact = nativeBuildOverride ?? Path.Combine(EvidenceRoot, ProductName + ".app");
-        // Keep prior build evidence. A caller may select another path beneath
-        // this task's output directory with -archiBuildOutput <absolute-path>.
+        string artifact = ResolveBuildOutput(target, artifactSuffix, artifactOverride);
+        Prepare();
+        Validate();
+        ArenaValidation.Validate();
+        ArenaMultiplayerValidation.Validate();
+        PersonalSeedValidation.Validate();
+        Directory.CreateDirectory(Path.GetDirectoryName(artifact));
+
+        var options = new BuildPlayerOptions
+        {
+            scenes = new[] { StartupScene },
+            locationPathName = artifact,
+            target = target,
+            subtarget = (int)StandaloneBuildSubtarget.Player,
+            options = BuildOptions.Development | BuildOptions.DetailedBuildReport
+        };
+        var report = BuildPipeline.BuildPlayer(options);
+        bool succeeded = report.summary.result == BuildResult.Succeeded && report.summary.totalErrors == 0;
+        var receipt = NewReceipt();
+        receipt.status = succeeded
+            ? receiptPrefix + "_PLAYER_BUILT_RUNTIME_NOT_EXERCISED"
+            : receiptPrefix + "_PLAYER_BUILD_FAILED";
+        receipt.artifact = artifact;
+        receipt.result = report.summary.result.ToString();
+        receipt.buildErrors = report.summary.totalErrors;
+        receipt.buildWarnings = report.summary.totalWarnings;
+        receipt.artifactBytes = report.summary.totalSize;
+        receipt.buildSeconds = report.summary.totalTime.TotalSeconds;
+        WriteReceipt(receipt, "build");
+
+        if (!succeeded)
+            throw new BuildFailedException("ARCHi " + target + " build failed: " + report.summary.result
+                + " errors=" + report.summary.totalErrors);
+
+        ValidateBuiltArtifact(target, artifact);
+        if (target == BuildTarget.StandaloneOSX)
+            StampMacBundle(artifact);
+        Debug.Log("ARCHI_PORT_BUILD_SUCCEEDED " + target + " " + artifact);
+    }
+
+    private static string ResolveBuildOutput(BuildTarget target, string artifactSuffix, string artifactOverride)
+    {
+        string artifact = artifactOverride ?? Path.Combine(EvidenceRoot, ProductName + artifactSuffix);
         var arguments = Environment.GetCommandLineArgs();
         int outputArgument = Array.IndexOf(arguments, "-archiBuildOutput");
         if (outputArgument >= 0)
@@ -169,42 +220,37 @@ public static class ARCHiPortBuild
                 throw new ArgumentException("-archiBuildOutput requires a path.");
             artifact = Path.GetFullPath(arguments[outputArgument + 1]);
         }
-        if (!artifact.StartsWith(EvidenceRoot + Path.DirectorySeparatorChar, StringComparison.Ordinal)
-            || !artifact.EndsWith(".app", StringComparison.Ordinal))
-            throw new InvalidOperationException("Build output must be an .app beneath " + EvidenceRoot);
+
+        string evidenceRoot = Path.GetFullPath(EvidenceRoot)
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+            + Path.DirectorySeparatorChar;
+        artifact = Path.GetFullPath(artifact);
+        var comparison = Application.platform == RuntimePlatform.WindowsEditor
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
+        if (!artifact.StartsWith(evidenceRoot, comparison) || !artifact.EndsWith(artifactSuffix, comparison))
+            throw new InvalidOperationException("Build output for " + target + " must end in "
+                + artifactSuffix + " beneath " + EvidenceRoot);
         if (Directory.Exists(artifact) || File.Exists(artifact))
             throw new IOException("Preserving existing artifact. Choose a fresh -archiBuildOutput path: " + artifact);
+        return artifact;
+    }
 
-        Prepare();
-        Validate();
-        ArenaValidation.Validate();
-        ArenaMultiplayerValidation.Validate();
-        PersonalSeedValidation.Validate();
-        Directory.CreateDirectory(Path.GetDirectoryName(artifact));
-        var options = new BuildPlayerOptions
+    private static void ValidateBuiltArtifact(BuildTarget target, string artifact)
+    {
+        if (target == BuildTarget.StandaloneOSX)
         {
-            scenes = new[] { StartupScene },
-            locationPathName = artifact,
-            target = BuildTarget.StandaloneOSX,
-            subtarget = (int)StandaloneBuildSubtarget.Player,
-            options = BuildOptions.Development | BuildOptions.DetailedBuildReport
-        };
-        var report = BuildPipeline.BuildPlayer(options);
-        var receipt = NewReceipt();
-        receipt.status = report.summary.result == BuildResult.Succeeded
-            ? "MAC_PLAYER_BUILT_RUNTIME_NOT_EXERCISED" : "MAC_PLAYER_BUILD_FAILED";
-        receipt.artifact = artifact;
-        receipt.result = report.summary.result.ToString();
-        receipt.buildErrors = report.summary.totalErrors;
-        receipt.buildWarnings = report.summary.totalWarnings;
-        receipt.artifactBytes = report.summary.totalSize;
-        receipt.buildSeconds = report.summary.totalTime.TotalSeconds;
-        WriteReceipt(receipt, "build");
-        if (report.summary.result != BuildResult.Succeeded)
-            throw new BuildFailedException("ARCHi Mac build failed: " + report.summary.result);
-        if (!File.Exists(Path.Combine(artifact, "Contents/Info.plist")))
-            throw new BuildFailedException("Build reported success but the Mac bundle is incomplete.");
-        var plistPath = Path.Combine(artifact, "Contents/Info.plist");
+            if (!File.Exists(Path.Combine(artifact, "Contents", "Info.plist")))
+                throw new BuildFailedException("Build reported success but the Mac bundle is incomplete.");
+            return;
+        }
+        if (!File.Exists(artifact))
+            throw new BuildFailedException("Build reported success but the standalone executable is missing: " + artifact);
+    }
+
+    private static void StampMacBundle(string artifact)
+    {
+        var plistPath = Path.Combine(artifact, "Contents", "Info.plist");
         var plist = File.ReadAllText(plistPath);
         int closing = plist.LastIndexOf("</dict>", StringComparison.Ordinal);
         if (closing < 0) throw new BuildFailedException("Native presentation marker needs a valid plist.");
@@ -214,7 +260,35 @@ public static class ARCHiPortBuild
             + "\t<key>ARCHiSeedAppearanceVersion</key>\n\t<integer>1</integer>\n"
             + "\t<key>ARCHiPersonalSeedVersion</key>\n\t<integer>1</integer>\n");
         File.WriteAllText(plistPath, plist);
-        Debug.Log("ARCHI_PORT_MAC_BUILD_SUCCEEDED " + artifact);
+    }
+
+    private static void ConfigureActiveStandaloneTarget()
+    {
+        switch (EditorUserBuildSettings.activeBuildTarget)
+        {
+            case BuildTarget.StandaloneOSX:
+                UnityEditor.OSXStandalone.UserBuildSettings.architecture = OSArchitecture.ARM64;
+                break;
+            case BuildTarget.StandaloneWindows64:
+            case BuildTarget.StandaloneLinux64:
+                break;
+            default:
+                throw new InvalidOperationException("ARCHi Port supports StandaloneOSX, StandaloneWindows64, or StandaloneLinux64.");
+        }
+    }
+
+    private static string ActiveArchitecture()
+    {
+        switch (EditorUserBuildSettings.activeBuildTarget)
+        {
+            case BuildTarget.StandaloneOSX:
+                return UnityEditor.OSXStandalone.UserBuildSettings.architecture.ToString();
+            case BuildTarget.StandaloneWindows64:
+            case BuildTarget.StandaloneLinux64:
+                return "x86_64";
+            default:
+                return "unsupported";
+        }
     }
 
     private static Receipt InspectScene(Scene scene)
@@ -378,7 +452,7 @@ public static class ARCHiPortBuild
         utc = DateTime.UtcNow.ToString("O"), unityVersion = Application.unityVersion,
         project = ProjectRoot, scene = StartupScene,
         target = EditorUserBuildSettings.activeBuildTarget.ToString(),
-        architecture = UnityEditor.OSXStandalone.UserBuildSettings.architecture.ToString(),
+        architecture = ActiveArchitecture(),
         backend = PlayerSettings.GetScriptingBackend(NamedBuildTarget.Standalone).ToString(),
         runtimeInteractionVerified = false, verifiedBundledArtCount = 3, verifiedNativeRigCount = 2
     };

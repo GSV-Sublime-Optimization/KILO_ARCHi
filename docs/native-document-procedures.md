@@ -1,5 +1,21 @@
 # Reviewed document procedures
 
+**30 September follow-through:** The current edit and the review queue now resolve
+the exact saved method used by an edit. **Used: name · vN** leads directly to that
+version's reviewed uses and current reuse guidance. Reviewing a reuse no longer
+offers a second Keep workflow. An ordinary edit that already supplied a method
+keeps that relationship visible even after its method is withdrawn, blocked or
+superseded. Historical versions remain inspectable; reuse still uses the existing
+availability and preparation checks. A missing version or stale profile/history
+shows an unavailable notice and cannot become a new method implicitly. This is a
+read-only projection over existing stores, with no data migration or new learning
+credit. Installation and focused evidence are tracked separately in the developer
+ledger.
+
+**26 September update:** If a local Qwen revision attaches a period to the only URL in a source that separated it with spaces or tabs, ARCHi can restore that exact separator in the review candidate. This occurs only when every other mechanical check already passes and the unchanged checks also pass afterward. The pane identifies the native correction and retains the original model wording for inspection. Apply remains explicit; ambiguous or changed URLs stay blocked. The work history records separate original/restored digests, and model usage receipts remain unchanged. This is native formatting assistance, not a new successful model result or Helpful feedback.
+
+**25 September delivery:** Work together now exposes feedback and the method editor beside the current applied edit, with an optional requirements-only starter. See [reviewed-work follow-through](native-document-follow-through.md) for current behavior and delivery evidence. The original loop and provenance rules below remain in force.
+
 19 September 2026 · Native selected-passage workflow
 
 Work together now connects a helpful applied edit to an explicitly authored,
@@ -83,10 +99,11 @@ compatible with records written before this increment. Procedure uses and review
 records are retained rather than pruned; the 64-record capacity can therefore
 block new work. No automatic compaction or history deletion was introduced.
 
-The Saved & this visit sheet identifies these files' scope. Companion recovery
-packages currently exclude both sidecars. They require separate file preservation;
-a two-file companion backup is not a backup of procedure/history data. Loading
-never replays work or restores an unsaved document copy.
+The Saved & this visit sheet identifies these files' scope. New v2 companion
+backups include both sidecars with preferences, development and kept reading
+copies; see [backup and restore](native-desktop-backup-and-restore.md). Older
+two-file backups exclude this history and cannot replace a profile with document
+sidecar files. Loading never replays work or restores an unsaved document copy.
 
 ## Relation to Hampton's research
 

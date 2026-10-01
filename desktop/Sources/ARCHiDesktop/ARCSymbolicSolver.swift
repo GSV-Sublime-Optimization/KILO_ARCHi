@@ -14,7 +14,7 @@ struct ARCSolverInput: Codable, Equatable, Sendable {
 }
 
 struct ARCSolverConfiguration: Codable, Equatable, Sendable {
-    enum TrainingOrder: String, Codable, Equatable, Sendable { case fixed, adaptive }
+    enum TrainingOrder: String, Codable, Equatable, Sendable { case fixed, adaptive, costAware }
     let maxProgramAttempts: Int
     let maxCellOperations: Int
     let maxTraceEntries: Int
@@ -22,7 +22,7 @@ struct ARCSolverConfiguration: Codable, Equatable, Sendable {
     let includeObjectRules: Bool
 
     init(maxProgramAttempts: Int = 1_500, maxCellOperations: Int = 2_000_000, maxTraceEntries: Int = 1_500,
-         trainingOrder: TrainingOrder = .adaptive, includeObjectRules: Bool = true) {
+         trainingOrder: TrainingOrder = .costAware, includeObjectRules: Bool = true) {
         self.maxProgramAttempts = maxProgramAttempts
         self.maxCellOperations = maxCellOperations
         self.maxTraceEntries = maxTraceEntries
@@ -31,7 +31,7 @@ struct ARCSolverConfiguration: Codable, Equatable, Sendable {
     }
 
     static let standard = ARCSolverConfiguration()
-    static let geometryBaseline = ARCSolverConfiguration(includeObjectRules: false)
+    static let geometryBaseline = ARCSolverConfiguration(trainingOrder: .adaptive, includeObjectRules: false)
 
     private enum CodingKeys: String, CodingKey {
         case maxProgramAttempts, maxCellOperations, maxTraceEntries, trainingOrder, includeObjectRules
@@ -48,7 +48,11 @@ struct ARCSolverConfiguration: Codable, Equatable, Sendable {
     }
 
     var identity: String {
-        "arc-symbolic-config-\(includeObjectRules ? "v3" : "v2"):attempts=\(maxProgramAttempts):cells=\(maxCellOperations):trace=\(maxTraceEntries):order=\(trainingOrder.rawValue)"
+        if trainingOrder == .costAware {
+            return "arc-symbolic-config-v4:attempts=\(maxProgramAttempts):cells=\(maxCellOperations):trace=\(maxTraceEntries):order=costAware:objects=\(includeObjectRules):scheduler=\(HamptonARCTrainingOrder.costAwareVersion)"
+        }
+        // Preserve exact legacy identities and behavior for retained reruns.
+        return "arc-symbolic-config-\(includeObjectRules ? "v3" : "v2"):attempts=\(maxProgramAttempts):cells=\(maxCellOperations):trace=\(maxTraceEntries):order=\(trainingOrder.rawValue)"
     }
 }
 
@@ -62,6 +66,18 @@ struct ARCSolverTraceEntry: Codable, Equatable, Sendable {
     let trainingExamplesChecked: Int
     /// Frozen training-pair addresses actually visited, in execution order.
     let checkedTrainingIndices: [Int]
+    /// v4 only: consumed deterministic work for each visit, including any partial
+    /// terminal budget visit. Nil identifies legacy records; it never means zero.
+    let checkedTrainingCellOperations: [Int]?
+
+    init(programID: String, status: Status, trainingExamplesChecked: Int,
+         checkedTrainingIndices: [Int], checkedTrainingCellOperations: [Int]? = nil) {
+        self.programID = programID
+        self.status = status
+        self.trainingExamplesChecked = trainingExamplesChecked
+        self.checkedTrainingIndices = checkedTrainingIndices
+        self.checkedTrainingCellOperations = checkedTrainingCellOperations
+    }
 }
 
 struct ARCSolverRun: Codable, Equatable, Sendable {
@@ -98,12 +114,13 @@ enum ARCSolverError: LocalizedError, Equatable {
 /// Training fits are retained only after all pairs agree. Predictions require complete search
 /// and agreement among *all* fits, including rejection when any fit is undefined on a test.
 enum ARCSymbolicSolver {
-    static let version = "archi-arc-symbolic-v3"
+    static let version = "archi-arc-symbolic-v4"
     private static let geometryCatalogIdentity = "arc-dsl-v1:identity;d4;crop-nonzero;scale2,3;tile2,3;geometry-depth2;changed-palette-last-depth2;unseen-undefined"
     static let catalogIdentity = geometryCatalogIdentity + ";objects4:cropLargest,cropSmallest,keepLargest,keepSmallest;zero-background;same-color-four-connected;sort-negative-area-color-bbox"
     static var catalogProgramCount: Int { catalog.count + objectCatalog.count }
     static func version(for configuration: ARCSolverConfiguration) -> String {
-        configuration.includeObjectRules ? version : "archi-arc-symbolic-v2"
+        configuration.trainingOrder == .costAware ? version
+            : (configuration.includeObjectRules ? "archi-arc-symbolic-v3" : "archi-arc-symbolic-v2")
     }
     static func catalogIdentity(for configuration: ARCSolverConfiguration) -> String {
         configuration.includeObjectRules ? catalogIdentity : geometryCatalogIdentity
@@ -145,7 +162,8 @@ enum ARCSymbolicSolver {
 
         do {
             try validate(input, budget: &budget, isCancelled: isCancelled)
-            var trainingOrder = try HamptonARCTrainingOrder(exampleCount: input.training.count)
+            let measuresCost = configuration.trainingOrder == .costAware
+            var trainingOrder = try HamptonARCTrainingOrder(exampleCount: input.training.count, costAware: measuresCost)
             let programs = catalog + (configuration.includeObjectRules ? objectCatalog : [])
             for program in programs {
                 try checkCancellation(isCancelled)
@@ -153,48 +171,51 @@ enum ARCSymbolicSolver {
                 attempted += 1
                 var checked = 0
                 var checkedIndices: [Int] = []
+                var checkedCosts: [Int] = []
                 do {
                     var palette = [Int?](repeating: nil, count: 10)
                     var rejection: ARCSolverTraceEntry.Status?
                     // Freeze this candidate's order. Feedback affects only later
                     // candidates, never the pass condition or hidden test answers.
-                    let indices = configuration.trainingOrder == .adaptive ? trainingOrder.order : Array(input.training.indices)
+                    let indices = configuration.trainingOrder == .fixed ? Array(input.training.indices) : trainingOrder.order
                     for index in indices {
                         let example = input.training[index]
                         try checkCancellation(isCancelled)
                         checkedIndices.append(index)
+                        let workBefore = budget.used
+                        defer { if measuresCost { checkedCosts.append(budget.used - workBefore) } }
                         guard let transformed = try transform(example.input, steps: program.steps, budget: &budget, isCancelled: isCancelled) else {
                             rejection = .trainingUndefined
-                            try trainingOrder.observe(index: index, falsified: true)
+                            try trainingOrder.observe(index: index, falsified: true, cellOperations: measuresCost ? budget.used - workBefore : nil)
                             break
                         }
                         checked += 1
                         guard sameDimensions(transformed, example.output) else {
                             rejection = .trainingMismatch
-                            try trainingOrder.observe(index: index, falsified: true)
+                            try trainingOrder.observe(index: index, falsified: true, cellOperations: measuresCost ? budget.used - workBefore : nil)
                             break
                         }
                         if program.learnPalette {
                             guard try extendPalette(&palette, source: transformed, target: example.output, budget: &budget, isCancelled: isCancelled) else {
                                 rejection = .trainingMismatch
-                                try trainingOrder.observe(index: index, falsified: true)
+                                try trainingOrder.observe(index: index, falsified: true, cellOperations: measuresCost ? budget.used - workBefore : nil)
                                 break
                             }
                         } else if try !equal(transformed, example.output, budget: &budget, isCancelled: isCancelled) {
                             rejection = .trainingMismatch
-                            try trainingOrder.observe(index: index, falsified: true)
+                            try trainingOrder.observe(index: index, falsified: true, cellOperations: measuresCost ? budget.used - workBefore : nil)
                             break
                         }
-                        try trainingOrder.observe(index: index, falsified: false)
+                        try trainingOrder.observe(index: index, falsified: false, cellOperations: measuresCost ? budget.used - workBefore : nil)
                     }
                     if let rejection {
-                        appendTrace(.init(programID: program.id, status: rejection, trainingExamplesChecked: checked, checkedTrainingIndices: checkedIndices))
+                        appendTrace(.init(programID: program.id, status: rejection, trainingExamplesChecked: checked, checkedTrainingIndices: checkedIndices, checkedTrainingCellOperations: measuresCost ? checkedCosts : nil))
                         continue
                     }
                     // Do not add a redundant partial identity palette to a geometric fit. This
                     // explicit language bias lets plain geometry handle previously unseen colors.
                     if program.learnPalette && !palette.enumerated().contains(where: { $0.element != nil && $0.element != $0.offset }) {
-                        appendTrace(.init(programID: program.id, status: .redundantPalette, trainingExamplesChecked: checked, checkedTrainingIndices: checkedIndices))
+                        appendTrace(.init(programID: program.id, status: .redundantPalette, trainingExamplesChecked: checked, checkedTrainingIndices: checkedIndices, checkedTrainingCellOperations: measuresCost ? checkedCosts : nil))
                         continue
                     }
                     let id = program.id + (program.learnPalette ? paletteSuffix(palette) : "")
@@ -222,9 +243,9 @@ enum ARCSymbolicSolver {
                             if try !equal(lhs, rhs, budget: &budget, isCancelled: isCancelled) { ambiguous = true }
                         }
                     } else { consensus = predictions }
-                    appendTrace(.init(programID: id, status: defined ? .matched : .predictionUndefined, trainingExamplesChecked: checked, checkedTrainingIndices: checkedIndices))
+                    appendTrace(.init(programID: id, status: defined ? .matched : .predictionUndefined, trainingExamplesChecked: checked, checkedTrainingIndices: checkedIndices, checkedTrainingCellOperations: measuresCost ? checkedCosts : nil))
                 } catch is BudgetExhausted {
-                    appendTrace(.init(programID: program.id, status: .budgetExhausted, trainingExamplesChecked: checked, checkedTrainingIndices: checkedIndices))
+                    appendTrace(.init(programID: program.id, status: .budgetExhausted, trainingExamplesChecked: checked, checkedTrainingIndices: checkedIndices, checkedTrainingCellOperations: measuresCost ? checkedCosts : nil))
                     throw BudgetExhausted()
                 }
             }

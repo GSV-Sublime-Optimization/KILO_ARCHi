@@ -38,6 +38,9 @@ struct TokenStewardObservation: Codable, Equatable, Identifiable, Sendable {
     let resource: TokenStewardResource
     let observedAt: Date
     let model: String?
+    /// Exact local artifact observed by the invocation owner. Legacy entries
+    /// stay nil; a model name alone cannot establish comparable token counts.
+    var modelDigest: String? = nil
     let role: String?
     let outcome: String
     let inputDigest: String?
@@ -49,13 +52,13 @@ struct TokenStewardObservation: Codable, Equatable, Identifiable, Sendable {
     let elapsedMilliseconds: Int64?
 
     init(id: String, taskID: String, provider: String, accountID: String = "native",
-         resource: TokenStewardResource, observedAt: Date, model: String? = nil,
+         resource: TokenStewardResource, observedAt: Date, model: String? = nil, modelDigest: String? = nil,
          role: String? = nil, outcome: String, inputDigest: String? = nil,
          inputTokens: Int64? = nil, outputTokens: Int64? = nil,
          cacheReadTokens: Int64? = nil, cacheWriteTokens: Int64? = nil,
          reasoningTokens: Int64? = nil, elapsedMilliseconds: Int64? = nil) {
         self.id = id; self.taskID = taskID; self.provider = provider; self.accountID = accountID
-        self.resource = resource; self.observedAt = observedAt; self.model = model; self.role = role
+        self.resource = resource; self.observedAt = observedAt; self.model = model; self.modelDigest = modelDigest; self.role = role
         self.outcome = outcome; self.inputDigest = inputDigest; self.inputTokens = inputTokens
         self.outputTokens = outputTokens; self.cacheReadTokens = cacheReadTokens
         self.cacheWriteTokens = cacheWriteTokens; self.reasoningTokens = reasoningTokens
@@ -230,6 +233,7 @@ final class TokenStewardStore: ObservableObject {
             guard lane.state == "pending", !lane.dispatched else {
                 throw TokenStewardError.conflict("document reading trace after Qwen dispatch")
             }
+            try Self.requireCurrentReadingEvidence(trace, tasks: state.tasks, excludingRequestID: requestID)
             state.tasks[index].documentReading = trace
         }
     }
@@ -253,6 +257,10 @@ final class TokenStewardStore: ObservableObject {
             }
             guard lane.state == "pending", lane.dispatched else {
                 throw TokenStewardError.conflict("document reading result outside the pending Qwen dispatch")
+            }
+            guard Set((trace.conversationRequestIDs ?? []).compactMap(UUID.init(uuidString:)))
+                .isDisjoint(with: HamptonMemoryDependencies.invalidatedReadings(tasks: state.tasks)) else {
+                throw TokenStewardError.conflict("a parent answer was corrected during this reading")
             }
             state.tasks[index].documentReadingResult = result
         }
@@ -313,6 +321,12 @@ final class TokenStewardStore: ObservableObject {
             guard state.tasks[task].lanes[lane].state == "pending" else {
                 throw TokenStewardError.conflict("dispatch after a terminal lane")
             }
+            if provider == .qwen, !state.tasks[task].lanes[lane].dispatched,
+               let trace = state.tasks[task].documentReading {
+                // Check within the dispatch transaction too: another writer can
+                // revise a review after trace capture but before this lock.
+                try Self.requireCurrentReadingEvidence(trace, tasks: state.tasks, excludingRequestID: requestID)
+            }
             state.tasks[task].lanes[lane].dispatched = true
         }
     }
@@ -358,7 +372,7 @@ final class TokenStewardStore: ObservableObject {
                         id: Self.nativeObservationID(receipt.requestID, receipt.provider.name, invocation.id),
                         taskID: receipt.requestID, provider: receipt.provider.name,
                         resource: .localInference, observedAt: observedAt,
-                        model: invocation.model?.name ?? receipt.modelIdentity, role: invocation.role.rawValue,
+                        model: invocation.model?.name, modelDigest: invocation.model?.digest, role: invocation.role.rawValue,
                         outcome: invocation.outcome.rawValue, inputDigest: invocation.inputDigest,
                         inputTokens: metrics?.inputTokens.flatMap(Int64.init(exactly:)),
                         outputTokens: metrics?.outputTokens.flatMap(Int64.init(exactly:)),
@@ -771,6 +785,21 @@ final class TokenStewardStore: ObservableObject {
         }
     }
 
+    private static func requireCurrentReadingEvidence(_ trace: DocumentReadingTrace,
+        tasks: [TokenStewardTask], excludingRequestID: String) throws {
+        guard HamptonMemoryDependencies.validParents(trace, before: excludingRequestID, tasks: tasks),
+              Set((trace.conversationRequestIDs ?? []).compactMap(UUID.init(uuidString:)))
+                .isDisjoint(with: HamptonMemoryDependencies.invalidatedReadings(tasks: tasks)) else {
+            throw TokenStewardError.conflict("reading context was corrected; start a fresh answer")
+        }
+        guard trace.control.version == HamptonQ2EController.readingNumericalVersion else { return }
+        let current = HamptonReadingOutcomeAdapter.project(tasks: tasks, sourceDigest: trace.sourceDigest,
+            excludingRequestID: excludingRequestID)
+        guard current.isValid, current.reconciliationIssue == nil, current == trace.control.readingEvidence else {
+            throw TokenStewardError.conflict("reading feedback changed; prepare the passages again")
+        }
+    }
+
     private static func permitsDocumentReading(_ task: TokenStewardTask) -> Bool {
         ["native", "local", "automatic", "compare"].contains(task.route)
             && task.lanes.contains { $0.provider == AssistantProvider.qwen.name }
@@ -794,6 +823,12 @@ final class TokenStewardStore: ObservableObject {
     private static func importObservation(_ observation: TokenStewardObservation, into state: inout Journal) throws {
         try validateID(observation.id); try validateID(observation.taskID)
         try validateID(observation.provider); try validateID(observation.accountID)
+        if let digest = observation.modelDigest {
+            guard observation.resource == .localInference, observation.model != nil,
+                  digest.range(of: "^[a-fA-F0-9]{64}$", options: .regularExpression) != nil else {
+                throw TokenStewardError.invalid("local model artifact identity")
+            }
+        }
         guard observation.observedAt.timeIntervalSince1970.isFinite,
               [observation.inputTokens, observation.outputTokens, observation.cacheReadTokens,
                observation.cacheWriteTokens, observation.reasoningTokens, observation.elapsedMilliseconds]
@@ -807,6 +842,13 @@ final class TokenStewardStore: ObservableObject {
             throw TokenStewardError.invalid("reasoning count exceeding inclusive output")
         }
         if let old = state.observations.first(where: { $0.id == observation.id }) {
+            // An unchanged receipt replayed after upgrading must not enrich or
+            // rewrite a legacy observation. Retain its unknown artifact identity.
+            if old.modelDigest == nil {
+                var legacy = observation
+                legacy.modelDigest = nil
+                if old == legacy { return }
+            }
             guard old == observation else { throw TokenStewardError.conflict("immutable observation") }
             return
         }
@@ -957,7 +999,8 @@ final class TokenStewardStore: ObservableObject {
             default: throw TokenStewardError.invalid("task route")
             }
             if let trace = task.documentReading {
-                guard trace.isValid, permitsDocumentReading(task) else {
+                guard trace.isValid, permitsDocumentReading(task),
+                      HamptonMemoryDependencies.validParents(trace, before: task.id, tasks: state.tasks) else {
                     throw TokenStewardError.invalid("saved document reading trace or route")
                 }
             }

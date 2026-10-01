@@ -10,6 +10,8 @@ struct ARCSolverPanel: View {
     var onOpenUsage: ((String) -> Void)? = nil
     var onOpenGraph: ((String) -> Void)? = nil
     var onShowQwen: (() -> Void)? = nil
+    var startUnavailableReason: String? = nil
+    var isArenaTrial = false
     @State private var importError: String?
     @State private var showTraining = false
     @State private var showHowItWorks = false
@@ -17,7 +19,7 @@ struct ARCSolverPanel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 5) {
-                Label("ARC task canvas", systemImage: "square.grid.3x3.fill")
+                Label(isArenaTrial ? "Pattern Trial" : "ARC task canvas", systemImage: "square.grid.3x3.fill")
                     .font(.title3.weight(.semibold))
                 Text("Load examples. Find a rule. Review the result.")
                     .font(.callout).foregroundStyle(.secondary)
@@ -90,11 +92,12 @@ struct ARCSolverPanel: View {
     private var runControls: some View {
         HStack(spacing: 10) {
             Button("Solve locally", systemImage: "play.fill") {
+                guard startUnavailableReason == nil else { return }
                 importError = nil
                 store.startSolving(onEvaluation: onEvaluation)
             }
             .buttonStyle(WorkspaceActionStyle(prominent: true))
-            .disabled(store.solverDocument == nil || store.isSolving || store.isProposing)
+            .disabled(store.solverDocument == nil || store.isSolving || store.isProposing || startUnavailableReason != nil)
             .accessibilityIdentifier("capabilities.solver.solve")
             if let onShowQwen {
                 Button("Try Qwen", action: onShowQwen)
@@ -249,7 +252,7 @@ struct ARCSolverPanel: View {
         DisclosureGroup("How this works", isExpanded: $showHowItWorks) {
             VStack(alignment: .leading, spacing: 10) {
                 Text("The local solver searches a fixed catalog of grid rules. Each fitting rule must pass every training pair, and all fitting rules must agree on every test prediction. A partial search or disagreement produces no prediction.")
-                Text("Hampton feedback uses training falsifications to choose which example to check first. Counts reset for each run. Supplied test answers stay outside the solver and are used only by the independent checker.")
+                Text("Hampton feedback uses observed training failures and their measured cell work to choose which example to check first. Learning resets for each run. Older records replay their original scheduler. Supplied test answers stay outside the solver and are used only by the independent checker.")
                 Text("Import standard ARC JSON with 1–20 train and test examples. Grids must be rectangular, up to 30 × 30, with integer colors 0–9. Training outputs are required; test outputs are optional. Files are limited to 2 MiB; extra fields are rejected.")
                 Text("Cell work is an abstract search budget; elapsed time describes this run. No model calls are made, and local CPU/energy cost is unmeasured. Synthetic or imported-file checks are not benchmark certification or permission for companion growth.")
             }
@@ -273,6 +276,10 @@ struct ARCSolverPanel: View {
                                     .foregroundStyle(.secondary)
                                 Text("Example order: " + entry.checkedTrainingIndices.map { String($0 + 1) }.joined(separator: " → "))
                                     .foregroundStyle(.secondary)
+                                if let costs = entry.checkedTrainingCellOperations {
+                                    Text("Cell work by visit: " + costs.map(String.init).joined(separator: ", "))
+                                        .foregroundStyle(.secondary)
+                                }
                                 if (entry.status == .trainingMismatch || entry.status == .trainingUndefined), let failed = entry.checkedTrainingIndices.last {
                                     Text("Counterexample: training pair \(failed + 1)").foregroundStyle(.orange)
                                 }

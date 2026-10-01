@@ -5,7 +5,7 @@ import CryptoKit
 /// copy nor applies an edit, reruns checks, infers meaning, or updates a journal.
 enum DocumentWorkGraph {
     static func append(to base: CompanionGraphSnapshot, records: [DocumentWorkRecord],
-                       accountingTaskIDs: Set<String>) -> CompanionGraphSnapshot {
+                       accountingTaskIDs: Set<String>, lessons: [KeptLesson] = []) -> CompanionGraphSnapshot {
         var nodes = Array(base.nodes.prefix(CompanionGraph.maximumNodes))
         var nodeIDs = Set(nodes.map(\.id))
         var edges: [CompanionGraphEdge] = []
@@ -56,7 +56,8 @@ enum DocumentWorkGraph {
                 .init(label: "State", value: record.state.rawValue),
                 .init(label: "Your review", value: record.feedback?.verdict.rawValue ?? "Not reviewed"),
                 .init(label: "Review event", value: record.feedback?.id ?? "Not recorded"),
-                .init(label: "Captured lesson versions", value: String(record.learning?.usedLessons.count ?? 0)),
+                .init(label: "Supplied lesson dependencies", value: record.learning?.suppliedLessons.map { String($0.count) } ?? "Not retained by this earlier result"),
+                .init(label: "Model-cited lessons", value: String(record.learning?.usedLessons.count ?? 0)),
                 .init(label: "Procedure version", value: record.procedureUse.map { "\($0.id) · v\($0.revision) · \($0.digest)" } ?? "No procedure selected"),
                 .init(label: "Procedure counterexample", value: record.procedureUseRejected == true ? "Retained; reuse unavailable" : "Not recorded"),
                 .init(label: "Learning boundary", value: "User judgment is separate from mechanical checks. Kept lessons and Evolution have their own explicit review/save controls."),
@@ -85,6 +86,29 @@ enum DocumentWorkGraph {
                             kind: .context, status: record.state.rawValue, details: details, target: .context)) else { continue }
             omitted += max(0, record.checks.count - 24)
             connect("companion-archi", taskID, "retained document task")
+
+            // Immutable references survive withdrawal without reconstructing old
+            // lesson text. Backlinks reveal which retained tasks depended on them.
+            if let learning = record.learning, learning.isValid {
+                for reference in learning.dependencyLessons {
+                    let dependencyID = "document-lesson-" + key(reference.lessonID + "|" + String(reference.lessonRevision) + "|" + reference.snapshotDigest)
+                    let cited = learning.usedLessons.contains(reference)
+                    let retained = lessons.first { reference.matches(snapshot: LessonSnapshot(lesson: $0)) }
+                    guard add(.init(id: dependencyID, title: "Lesson dependency", subtitle: "Exact version \(reference.lessonRevision)",
+                        kind: .context, status: retained == nil ? "Version no longer kept" : "Retained version",
+                        details: [.init(label: "Lesson ID", value: reference.lessonID),
+                                  .init(label: "Revision", value: String(reference.lessonRevision)),
+                                  .init(label: "Snapshot digest", value: reference.snapshotDigest),
+                                  .init(label: "Meaning", value: "Recorded context dependency. Receiving or citing a lesson does not establish useful contribution. Method availability is checked by its native owner.")],
+                        target: retained == nil ? nil : .memory)) else { continue }
+                    connect(taskID, dependencyID, learning.hasCompleteLessonProvenance ? "supplied lesson" : "cited lesson · earlier record")
+                    if cited && learning.hasCompleteLessonProvenance { connect(taskID, dependencyID, "model cited") }
+                    if let retained {
+                        let lessonID = CompanionGraph.lessonNodeID(retained)
+                        if nodeIDs.contains(lessonID) { connect(dependencyID, lessonID, "exact retained version") }
+                    }
+                }
+            }
 
             // A request ID absent from Usage has no navigable accounting node.
             // Compare bytes rather than canonically equivalent String values.

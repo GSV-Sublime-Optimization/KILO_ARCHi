@@ -82,11 +82,33 @@ struct ARCActiveAssistantAnswer: Equatable, Sendable {
 
     var replyText: String {
         if let error { return error }
-        guard !isWorking else { return status }
-        let detail = result?.description ?? status
-        guard let counts = summary?.counts else { return detail }
-        return detail + " Independent check: \(counts.exact) of \(counts.totalExamples) test examples exact; "
-            + "\(counts.incorrect) incorrect, \(counts.missing) missing, \(counts.invalid) invalid, \(counts.unscored) unscored."
+        if cancelled { return "I stopped working on this. You can return to it when you're ready." }
+        if isWorking { return "I'm looking for a pattern in the examples you shared." }
+        let message: String
+        switch result {
+        case .symbolic(let run):
+            switch run.outcome {
+            case .predicted: message = "I found a pattern that fits your examples. The matching rules agree on the result."
+            case .ambiguous: message = "The examples support different results, so I haven't chosen one. Another example or constraint could help narrow it down."
+            case .noMatch: message = "I haven't found a pattern that explains all the examples with the methods available to me. You can share another example or try another approach."
+            case .budgetExhausted: message = "I reached the work limit before I could settle on a result. I've paused here."
+            }
+        case .proposal(let proposal):
+            switch proposal.status {
+            case .predicted: message = "The proposed pattern fits the examples you shared. Here is the result it suggests."
+            case .abstained: message = "I don't have a useful pattern to suggest yet. Another example or constraint may help."
+            case .trainingMismatch, .trainingUndefined: message = "The proposed pattern doesn't explain every example, so I haven't used it to give you an answer."
+            case .predictionUndefined: message = "The pattern fits the examples but cannot produce every requested result. I need another approach."
+            case .budgetExhausted: message = "I reached the work limit while checking the proposed pattern. I've paused here."
+            }
+        case nil: message = status
+        }
+        guard predictions != nil, let counts = summary?.counts else { return message }
+        if counts.incorrect > 0 || counts.invalid > 0 || counts.missing > 0 {
+            return message + " The supplied answers do not all agree with this result, so it needs review."
+        }
+        if counts.unscored > 0 { return message + " Some results have no supplied answer to confirm them yet." }
+        return counts.totalExamples > 0 ? message + " It also matches the supplied answers." : message
     }
 }
 

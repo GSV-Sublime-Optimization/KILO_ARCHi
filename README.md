@@ -1,5 +1,11 @@
 # ARCHi source candidate
 
+**Current system — 29 September:** [Installed behavior and remaining work](docs/system-status-2026-09-29.md) · [One-app system and recovery](docs/one-app-system.md) · [Desktop guide](desktop/README.md) · [Marketplace and Arena access](docs/developer-access-protocol.md).
+
+Open **`/Applications/ARCHi.app`** for Home, Ask ARCHi, Memory map, Work together, Marketplace and Arena. These are workspaces in one app. Existing profiles, sources and development history remain with their current owners. Dated entries below preserve historical evidence and do not override the current status report.
+
+[Everyday learning, relationship memory and practice outcomes](docs/everyday-learning-and-world-outcomes.md) describes the installed method-review, selected People context and bounded solo-action observer, with measured delivery evidence and remaining limits.
+
 **Native Qwen update — 19 September:** ARCHi automatically starts or reuses local Ollama and verifies the installed Qwen model. The default Qwen-first route can use one Codex fallback after an eligible failure; a retained local-only option stays available. Local memory stays out of fallback, and window snapshots require exact-copy external permission. [Operation and limits](docs/native-qwen.md).
 
 > **Code-only draft update — 18 September 2026.** New Liminal, Ball of Light, Proto and KIN rig artwork is withheld pending its separate redistribution decision. Existing published artwork remains included (PNG metadata may be removed). This branch is available for code review, but cannot reproduce the full current desktop/Unity presentation; Unity asset validation and artwork-dependent tests are expected to fail until those resources are admitted. The complete local candidate was tested separately. See [validation and omitted resources](docs/ALPHA_VALIDATION.md). No Beta or downloadable application release is declared.
@@ -12,7 +18,7 @@ The native Swift app owns assistance, private working context, the companion's i
 
 The native working-copy path now retains explicit Helpful, Needs correction and withdrawn judgments after Apply. Usage reconciles the exact event; Add to learning review and Save evolution remain separate choices. A correction opens a user-authored Memory draft and requires Keep. Lesson-use confirmation requires the exact cited version to remain kept. Interrupted Undo permits retry or withdrawal, and unreadable feedback history blocks loading older learning. See [active document work](docs/active-document-work.md).
 
-This bounded feedback bridge passed 21 focused journal/store checks using injected clients and temporary profiles. It does not automatically adjust Q2E state, generalize lessons or certify skills. New native interaction and live-provider acceptance remain separate from these checks. Reviewed metadata stays pinned at the 64-record capacity; explicit history removal remains future work.
+The original feedback bridge passed 21 focused checks at its historical checkpoint. Subsequent increments connect attributed outcomes to numerical Q2E approach control and exact-version method reuse. General transfer and certified skills remain unproven; see the [current status](docs/system-progress-2026-09-26.md) and [method guide](docs/native-knowledge-methods.md) for newer evidence and failures. Reviewed metadata stays pinned at the 64-record capacity; explicit history removal remains future work.
 
 ## Current desktop and Arena increment
 
@@ -26,7 +32,7 @@ The ARC replay checks pin the macOS arm64 Node 24.18.0 executable and its depend
 
 ## Build from source
 
-Use macOS 14 or later and a Swift 6 toolchain for the native target, plus Python 3.11 or later for the creator service and source preparation checks. The Swift package declares no external package dependencies. Local preparation used Node 24.18.0, npm 11.16.0, Python 3.11.9 and Apple Swift 6.4 on arm64; other environments remain to be qualified. Run these commands from a fresh source checkout:
+Use macOS 14 or later and a Swift 6 toolchain for the native target, plus Python 3.11 or later for the creator service and source preparation checks. The Swift package declares no external package dependencies. Local preparation used Node 24.18.0, npm 11.16.0, Python 3.11.9 and Apple Swift 6.4 on arm64; other environments remain to be qualified. For access and a minimal build, use the [developer protocol](docs/developer-access-protocol.md). The following broader verification commands are optional engineering checks, not prerequisites for entering Marketplace or Arena:
 
 ```sh
 npm ci
@@ -49,7 +55,7 @@ bash script/build_unity_port.sh
 
 That command builds a development player and writes its receipt under `output`. Inspect the build receipt and then qualify the native-to-Unity interaction. A successful Editor build does not prove the native handoff, rendering, keyboard, VoiceOver, reduced motion or recovery paths work. The runtime FBX files and their `.meta` files must be present; earlier export tooling omitted FBX.
 
-For a locally signed review bundle, use the existing `script/build_and_run.sh` only after exporting any unsaved draft and keeping the selected review app closed. Its default action launches an app; `--review --stage-only` stages a separate candidate without launch. This is development signing, not distribution signing. An optional existing Unity player can be supplied with `--unity-player` after its bundle contract is verified.
+For a locally signed candidate, follow the [one-app staging/install protocol](docs/developer-access-protocol.md#build-or-update-the-one-app). Quit ARCHi first. The installer requires a compatible Unity player, reusing the installed helper when available; first installation needs an explicit `--unity-player`. `--stage-only` prepares an unopened candidate, while the normal command installs and launches the one ARCHi app. `--review` and `--install` are aliases for that same app. Development signing is not distribution signing.
 
 ## Source scope and release gates
 

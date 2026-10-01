@@ -41,6 +41,8 @@ struct UnityPresentationSnapshot: Codable, Equatable {
     var destinationRevision: Int? = nil
     var seedAppearance: String? = nil
     var seedColor: String? = nil
+    var pointPresentation: LiminalPointPresentation? = nil
+    var pointKnowledgeSHA256: String? = nil
 
     func hasSamePresentation(as other: Self) -> Bool {
         sessionID == other.sessionID && originDigest == other.originDigest && body == other.body
@@ -52,6 +54,7 @@ struct UnityPresentationSnapshot: Codable, Equatable {
             && staffCrown == other.staffCrown && active == other.active
             && sessionKind == other.sessionKind && destination == other.destination
             && destinationRevision == other.destinationRevision && seedAppearance == other.seedAppearance && seedColor == other.seedColor
+            && pointPresentation == other.pointPresentation && pointKnowledgeSHA256 == other.pointKnowledgeSHA256
     }
 
     @MainActor static func capture(store: CompanionStore, sessionID: UUID, revision: Int,
@@ -78,6 +81,7 @@ struct UnityPresentationSnapshot: Codable, Equatable {
         let proto = CompanionVisualAsset.usesProto(store.preferences.visualTreatment)
         let seedDigest: String
         switch store.preferences.seedAppearance {
+        case .vela: return nil // Vela has no qualified Unity renderer or asset digest yet.
         case .hamptonLiminal: seedDigest = store.preferences.seedColor == .garnet ? CompanionVisualAsset.hamptonGarnetDigest : CompanionVisualAsset.hamptonSeedDigest
         case .archiLight: seedDigest = CompanionVisualAsset.lightSeedDigest
         case .kinParticles: seedDigest = CompanionVisualAsset.kinSeedDigest
@@ -113,6 +117,7 @@ struct UnityPresentationAcknowledgment: Codable {
     let staffPalette: String?
     let staffCrown: String?
     let renderer: String
+    var worldOutcomeVersion: Int? = nil
     var sessionKind: String? = nil
     var destination: String? = nil
     var destinationRevision: Int? = nil
@@ -121,6 +126,9 @@ struct UnityPresentationAcknowledgment: Codable {
     var seedColor: String? = nil
     var seedAssetSHA256: String? = nil
     var bodyAssetSHA256: String? = nil
+    var pointAssetVersion: Int? = nil
+    var pointManifestSHA256: String? = nil
+    var pointKnowledgeSHA256: String? = nil
 
     func matches(_ snapshot: UnityPresentationSnapshot, now: Date) -> Bool {
         schemaVersion == 1 && sessionID == snapshot.sessionID && originDigest == snapshot.originDigest
@@ -137,6 +145,9 @@ struct UnityPresentationAcknowledgment: Codable {
             && (destinationRevision ?? 0) == (snapshot.destinationRevision ?? 0)
             && ((snapshot.sessionKind == nil && snapshot.destination == nil && snapshot.destinationRevision == nil) || currentArea != nil)
             && (currentArea == nil || UnityPresentationDestination(rawValue: currentArea!) != nil)
+            && (snapshot.pointPresentation == nil || (pointAssetVersion == 4
+                && pointManifestSHA256 == snapshot.pointPresentation?.manifestSHA256
+                && pointKnowledgeSHA256 == snapshot.pointKnowledgeSHA256))
             && renderer == "unity-companion" && updatedAtUnix.isFinite
             && now.timeIntervalSince1970 - updatedAtUnix >= -5
             && now.timeIntervalSince1970 - updatedAtUnix <= 5
@@ -166,6 +177,77 @@ struct UnityPresentationAcknowledgment: Codable {
     @Published private(set) var isLocalPractice = false
     @Published private(set) var isOpening = false
     @Published private(set) var lastLaunchFailure: String?
+    @Published private(set) var worldOutcomes: [WorldActionOutcome] = []
+    @Published private(set) var worldOutcomeStatus = "Open Arena to observe solo practice outcomes."
+    @Published private(set) var missingWorldOutcomes = 0
+    @Published private(set) var arenaAdviceTracking: ArenaAdviceTracking?
+    private var worldOutcomeHistory = WorldOutcomeHistory()
+    private var lastWorldOutcomeSnapshot: WorldOutcomeSnapshot?
+    private var pointBindings: LiminalKnowledgeBindings?
+    private var pointSidecar: LiminalKnowledgeBindings.Sidecar?
+    private var pointSidecarDigest: String?
+    private var lastPointSelectionSequence = 0
+
+
+    /// A frozen report of checked observations, not a claim that Unity is still
+    /// connected. The observation timestamp and coverage travel with the report.
+    func practiceReport(now: Date = Date()) -> ArenaPracticeReport? {
+        guard isSharing, let observation = lastWorldOutcomeSnapshot,
+              observation.sessionID == sessionID.uuidString else { return nil }
+        return ArenaPracticeReport(history: worldOutcomeHistory, snapshot: observation, capturedAt: now,
+                                   adviceTracking: arenaAdviceTracking)
+    }
+
+    /// Conditional advice from checked observations. The wire does not yet expose
+    /// a live bout cursor, so this is never a dispatchable command or legality claim.
+    func arenaMoveAdvice(now: Date = Date()) -> ArenaMoveAdvice? {
+        guard isSharing, hasRenderAcknowledgment, let observation = lastWorldOutcomeSnapshot,
+              observation.sessionID == sessionID.uuidString else { return nil }
+        return ArenaMoveAdvice(history: worldOutcomeHistory, snapshot: observation, preparedAt: now)
+    }
+
+    func trackArenaAdvice(_ advice: ArenaMoveAdvice, now: Date = Date()) {
+        guard arenaAdviceTracking?.status != .pending,
+              let current = arenaMoveAdvice(now: now),
+              current.sessionID == advice.sessionID,
+              current.baseOutcome == advice.baseOutcome,
+              current.evidenceDigest == advice.evidenceDigest,
+              current.selectedMove == advice.selectedMove,
+              now.timeIntervalSince(advice.preparedAt) >= 0,
+              now.timeIntervalSince(advice.preparedAt) <= 5 else { return }
+        arenaAdviceTracking = ArenaAdviceTracking(advice: advice)
+    }
+
+    func clearArenaAdvice() { arenaAdviceTracking = nil }
+
+    private func invalidateArenaAdvice(_ reason: String) {
+        guard var tracking = arenaAdviceTracking, tracking.status == .pending else { return }
+        tracking.invalidate(reason: reason)
+        arenaAdviceTracking = tracking
+    }
+
+    /// A presentation revision/foreground handoff can precede its ACK by one
+    /// poll. Keep the frozen advice only within the existing freshness window;
+    /// no observation is consumed until the normal ACK and wire checks pass.
+    private func expireArenaAdvice(now: Date, reason: String) {
+        if let last = lastWorldOutcomeSnapshot {
+            let age = now.timeIntervalSince1970 - last.updatedAtUnix
+            if age.isFinite, (-5...5).contains(age) { return }
+        }
+        invalidateArenaAdvice(reason)
+    }
+
+    func exportPracticeReport(_ report: ArenaPracticeReport, to url: URL) throws {
+        // A save panel can outlive the session that opened it. Never relabel its
+        // frozen observations as a new session or silently export after Stop.
+        guard isSharing, report.sessionID == sessionID.uuidString,
+              lastWorldOutcomeSnapshot?.sessionID == report.sessionID else {
+            throw PresentationError.reportSessionEnded
+        }
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        try encoder.encode(report).write(to: url, options: .atomic)
+    }
     private(set) var snapshotURL: URL?
     private(set) var lastSnapshot: UnityPresentationSnapshot?
     private var previousSnapshot: UnityPresentationSnapshot?
@@ -222,6 +304,11 @@ struct UnityPresentationAcknowledgment: Codable {
     static func supportsPersonalSeeds(_ url: URL) -> Bool {
         supportsSeedAppearances(url)
             && (Bundle(url: url)?.object(forInfoDictionaryKey: "ARCHiPersonalSeedVersion") as? NSNumber)?.intValue == 1
+    }
+
+    static func supportsPointAssets(_ url: URL) -> Bool {
+        isCompatiblePlayer(url)
+            && (Bundle(url: url)?.object(forInfoDictionaryKey: "ARCHiLiminalPointAssetVersion") as? NSNumber)?.intValue == 4
     }
 
     func choosePlayer() {
@@ -334,6 +421,10 @@ struct UnityPresentationAcknowledgment: Codable {
     /// Also exercised directly with a disposable profile; this does not launch UI.
     func beginPublishing(store: CompanionStore, directory: URL? = nil,
                         destination: UnityPresentationDestination = .companion) throws {
+        guard store.preferences.seedAppearance != .vela,
+              ![CompanionForm.velaSeed, .velaLantern].contains(store.presentationForm) else {
+            throw PresentationError.nativeOnlySeed
+        }
         if let selectedPlayer, store.unityPresentationUnavailableReason(for: selectedPlayer) != nil { throw PresentationError.nativeOnlySeed }
         if store.activeQiMon != nil, store.preferences.seedAppearance == .archiLight,
            let selectedPlayer, !Self.supportsSeedAppearances(selectedPlayer) {
@@ -350,6 +441,10 @@ struct UnityPresentationAcknowledgment: Codable {
         destinationRevision = routes ? 1 : nil
         self.destination = destination
         lastSnapshot = nil; previousSnapshot = nil; hasRenderAcknowledgment = false; suspended = false
+        pointBindings = nil; pointSidecar = nil; pointSidecarDigest = nil; lastPointSelectionSequence = 0
+        worldOutcomeHistory.reset(); lastWorldOutcomeSnapshot = nil; worldOutcomes = []; missingWorldOutcomes = 0
+        arenaAdviceTracking = nil
+        worldOutcomeStatus = "Waiting for Arena outcome support."
         let root = directory ?? FileManager.default.temporaryDirectory
         let folder = root.appendingPathComponent("archi-unity-\(sessionID.uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: false,
@@ -409,17 +504,43 @@ struct UnityPresentationAcknowledgment: Codable {
 
     func publish(store: CompanionStore, now: Date = Date(), systemReduceMotion: Bool? = nil) throws {
         guard isSharing, let snapshotURL, store.activeQiMon?.originDigest == originDigest,
-              let snapshot = UnityPresentationSnapshot.capture(store: store, sessionID: sessionID,
+              var snapshot = UnityPresentationSnapshot.capture(store: store, sessionID: sessionID,
                     revision: revision + 1, active: !suspended, now: now,
                     systemReduceMotion: systemReduceMotion ?? NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
                     destination: requestedDestination, destinationRevision: destinationRevision, localPractice: isLocalPractice)
         else { throw PresentationError.noCompanion }
+        if LiminalV008Runtime.applies(form: store.presentationForm, family: store.presentationFamily, treatment: store.preferences.visualTreatment),
+           store.preferences.seedAppearance == .hamptonLiminal,
+           let selectedPlayer, Self.supportsPointAssets(selectedPlayer),
+           let asset = LiminalV008Runtime.asset {
+            if pointBindings == nil {
+                pointBindings = try LiminalKnowledgeBindings(manifestSHA256: asset.manifestSHA256, lowDetailIDs: asset.lowDetailIDs)
+            }
+            let sidecar = try pointBindings!.project(store.companionGraphSnapshot(at: now),
+                sessionID: snapshot.sessionID, originDigest: snapshot.originDigest)
+            let bytes = try sidecar.data()
+            let digest = LiminalKnowledgeBindings.sha256(bytes)
+            if digest != pointSidecarDigest {
+                let target = snapshotURL.appendingPathExtension("knowledge")
+                try bytes.write(to: target, options: .atomic)
+                try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: target.path)
+            }
+            pointSidecar = sidecar; pointSidecarDigest = digest
+            snapshot.pointPresentation = .init(schemaVersion: 1, assetID: "liminal-v008",
+                manifestSHA256: asset.manifestSHA256, progress: store.preferences.liminalPointProgress,
+                motion: snapshot.reduceMotion || snapshot.quiet ? "reduced" : "sampled",
+                color: store.preferences.seedColor.rawValue, visible: snapshot.visible && snapshot.active)
+            snapshot.pointKnowledgeSHA256 = digest
+        } else {
+            pointSidecar = nil; pointSidecarDigest = nil
+        }
         try Self.write(snapshot, to: snapshotURL)
         previousSnapshot = lastSnapshot
         lastSnapshot = snapshot; revision = snapshot.revision
         // Compare acknowledgments with the newly published presentation. An old
         // body's ACK must not label a new body as rendered, even for one tick.
         readAcknowledgment(now: now)
+        consumeKnowledgeSelection(store: store, now: now)
         if suspended { status = "Unity presentation paused." }
         else if hasRenderAcknowledgment {
             status = isLocalPractice ? "Unity Arena · local roster practice. Nothing is saved to a companion."
@@ -429,15 +550,68 @@ struct UnityPresentationAcknowledgment: Codable {
 
     func readAcknowledgment(now: Date = Date()) {
         hasRenderAcknowledgment = false
+        worldOutcomeStatus = "Waiting for a current Arena connection. Earlier session observations remain below."
         guard isSharing, let url = snapshotURL?.appendingPathExtension("ack"),
               let data = try? Self.readAcknowledgmentData(at: url),
-              let acknowledgment = try? JSONDecoder().decode(UnityPresentationAcknowledgment.self, from: data) else { return }
+              let acknowledgment = try? JSONDecoder().decode(UnityPresentationAcknowledgment.self, from: data) else {
+            expireArenaAdvice(now: now, reason: "The current Arena connection is unavailable.")
+            return
+        }
         guard let latest = lastSnapshot else { return }
         hasRenderAcknowledgment = [latest, previousSnapshot].compactMap { $0 }.contains {
             $0.hasSamePresentation(as: latest) && acknowledgment.matches($0, now: now)
         }
         if hasRenderAcknowledgment, let currentArea = acknowledgment.currentArea,
            let area = UnityPresentationDestination(rawValue: currentArea) { destination = area }
+        guard hasRenderAcknowledgment else {
+            expireArenaAdvice(now: now, reason: "The Arena connection is no longer current.")
+            return
+        }
+        guard acknowledgment.worldOutcomeVersion == 1 else {
+            invalidateArenaAdvice("This Arena build does not report resolved actions.")
+            worldOutcomeStatus = "This Arena build does not report action outcomes. Its render acknowledgment only confirms presentation."
+            return
+        }
+        readWorldOutcomes(now: now)
+    }
+
+    private func consumeKnowledgeSelection(store: CompanionStore, now: Date) {
+        guard isSharing, hasRenderAcknowledgment, !suspended,
+              let snapshotURL, let sidecar = pointSidecar, let latest = lastSnapshot,
+              latest.visible && latest.active,
+              let data = try? Self.readAcknowledgmentData(at: snapshotURL.appendingPathExtension("selection")),
+              let selection = try? JSONDecoder().decode(LiminalKnowledgeSelection.self, from: data) else { return }
+        let revisions = Set([latest, previousSnapshot].compactMap { $0 }
+            .filter { $0.hasSamePresentation(as: latest) }.map(\.revision))
+        let graph = store.companionGraphSnapshot(at: now)
+        guard let node = selection.resolves(in: sidecar, graph: graph, revisions: revisions,
+            after: lastPointSelectionSequence, now: now) else { return }
+        lastPointSelectionSequence = selection.sequence
+        _ = store.inspectKnowledgeParticle(nodeID: node.id, graphDigest: sidecar.graphDigest)
+    }
+
+    private func readWorldOutcomes(now: Date) {
+        guard let snapshotURL else { return }
+        do {
+            let observation = try WorldOutcomeSnapshot.read(from: snapshotURL,
+                matching: [lastSnapshot, previousSnapshot].compactMap { $0 }, now: now)
+            try worldOutcomeHistory.ingest(observation)
+            lastWorldOutcomeSnapshot = observation
+            worldOutcomes = worldOutcomeHistory.outcomes
+            missingWorldOutcomes = worldOutcomeHistory.missingCount
+            if var tracking = arenaAdviceTracking {
+                tracking.observe(history: worldOutcomeHistory, snapshot: observation, now: now)
+                arenaAdviceTracking = tracking
+            }
+            switch observation.mode {
+            case "solo": worldOutcomeStatus = "Observing resolved solo actions · this session only."
+            case "paired": worldOutcomeStatus = "Paired action reporting is not connected. Earlier solo observations remain below."
+            default: worldOutcomeStatus = "Enter solo practice to observe resolved actions."
+            }
+        } catch {
+            invalidateArenaAdvice("A current action report did not pass the session checks.")
+            worldOutcomeStatus = "A current action report is unavailable or did not pass the session checks. No new outcome was accepted."
+        }
     }
 
     private static func readAcknowledgmentData(at url: URL) throws -> Data {
@@ -473,6 +647,10 @@ struct UnityPresentationAcknowledgment: Codable {
             try? Self.write(retired, to: snapshotURL)
         }
         isSharing = false; hasRenderAcknowledgment = false; isOpening = false
+        pointBindings = nil; pointSidecar = nil; pointSidecarDigest = nil; lastPointSelectionSequence = 0
+        worldOutcomeHistory.reset(); lastWorldOutcomeSnapshot = nil; worldOutcomes = []; missingWorldOutcomes = 0
+        arenaAdviceTracking = nil
+        worldOutcomeStatus = "Session ended. Practice observations were cleared."
         player?.terminate(); player = nil
         status = "Unity presentation stopped. Desktop KIN and saved development are unchanged."
     }
@@ -486,7 +664,7 @@ struct UnityPresentationAcknowledgment: Codable {
     }
 
     enum PresentationError: LocalizedError {
-        case noCompanion, oversized, invalidAcknowledgment, seedAppearanceUnavailable, nativeOnlySeed
+        case noCompanion, oversized, invalidAcknowledgment, seedAppearanceUnavailable, nativeOnlySeed, reportSessionEnded
         var errorDescription: String? {
             switch self {
             case .noCompanion: "The current companion identity is unavailable. Open the native profile first."
@@ -494,6 +672,7 @@ struct UnityPresentationAcknowledgment: Codable {
             case .oversized: "The presentation snapshot exceeds its size limit."
             case .invalidAcknowledgment: "The presentation acknowledgment is not a regular file."
             case .seedAppearanceUnavailable: "This Unity build supports the KIN particle Seed. Choose an updated build to use ARCHi’s Ball of Light."
+            case .reportSessionEnded: "That practice session has ended. Start a new session before exporting its observations."
             }
         }
     }

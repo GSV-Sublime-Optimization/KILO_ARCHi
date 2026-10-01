@@ -114,6 +114,29 @@ cp "$REPO_ROOT/desktop/Sources/ARCHiDesktop/Resources/ReactorBridge/worker.py" "
 mkdir -p "$BUNDLE_DIR/Contents/Resources/ARC3Bridge"
 cp "$REPO_ROOT/desktop/Sources/ARCHiDesktop/Resources/ARC3Bridge/archi_arc3_bridge.py" "$BUNDLE_DIR/Contents/Resources/ARC3Bridge/archi_arc3_bridge.py"
 test -s "$BUNDLE_DIR/Contents/Resources/ARC3Bridge/archi_arc3_bridge.py"
+# The task-scoped reader is bundled as frozen evidence, never enabled for chat.
+# Verify the original bytes before copying; this is not a model download.
+python3 "$REPO_ROOT/script/package_record_reader.py" "$REPO_ROOT/desktop/Sources/ARCHiDesktop/Resources/RecordReader" "$BUNDLE_DIR/Contents/Resources/RecordReader"
+# Use a previously built runtime only. Installation never fetches code, weights
+# or readers. Preserve the optional helper on subsequent native-only upgrades.
+if [[ -n "${ARCHI_REPRESENTATION_RUNTIME:-}" ]]; then
+    REPRESENTATION_RUNTIME="$ARCHI_REPRESENTATION_RUNTIME"
+elif [[ -d "/Applications/ARCHi.app/Contents/Resources/RepresentationBridge" ]]; then
+    # Preserve the installed helper on native-only updates. A historical build
+    # directory must not silently downgrade a later calibrated-reader runtime.
+    REPRESENTATION_RUNTIME="/Applications/ARCHi.app/Contents/Resources/RepresentationBridge"
+else
+    REPRESENTATION_RUNTIME="$REPO_ROOT/output/gguf-calibration-runtime-2026-09-25/runtime"
+fi
+if [[ -d "$REPRESENTATION_RUNTIME" ]]; then
+    python3 "$REPO_ROOT/script/package_representation_runtime.py" "$REPRESENTATION_RUNTIME" "$BUNDLE_DIR/Contents/Resources/RepresentationBridge"
+    for native_helper in "$BUNDLE_DIR/Contents/Resources/RepresentationBridge/"*.dylib "$BUNDLE_DIR/Contents/Resources/RepresentationBridge/archi-gguf-shadow"; do
+        codesign --verify --strict "$native_helper"
+    done
+elif [[ -n "${ARCHI_REPRESENTATION_RUNTIME:-}" ]]; then
+    echo "The explicitly selected representation runtime is missing. Nothing was installed." >&2
+    exit 2
+fi
 if [[ -n "$UNITY_PLAYER" ]]; then
     [[ -d "$UNITY_PLAYER" && "$UNITY_PLAYER" == *.app ]] || { echo "Unity player must be an existing app bundle." >&2; exit 2; }
     # The qualified player may be exposed through an output symlink. Resolve
@@ -123,6 +146,18 @@ if [[ -n "$UNITY_PLAYER" ]]; then
     [[ "$(/usr/libexec/PlistBuddy -c 'Print :ARCHiNativePresentationProtocol' "$UNITY_PLAYER/Contents/Info.plist")" == "1" ]] || exit 2
     codesign --verify --deep --strict "$UNITY_PLAYER"
     cp -R "$UNITY_PLAYER" "$BUNDLE_DIR/Contents/Resources/UnityCompanion.app"
+    # Point assets are optional and must already be source/render qualified.
+    # A new native build preserves an existing qualified package by default.
+    LIMINAL_PACKAGE="${ARCHI_LIMINAL_PACKAGE:-/Applications/ARCHi.app/Contents/Resources/LiminalV008}"
+    LIMINAL_QUALIFICATION="${ARCHI_LIMINAL_QUALIFICATION:-/Applications/ARCHi.app/Contents/Resources/LiminalV008-qualification.json}"
+    if [[ -d "$LIMINAL_PACKAGE" ]]; then
+        [[ "$(/usr/libexec/PlistBuddy -c 'Print :ARCHiLiminalPointAssetVersion' "$UNITY_PLAYER/Contents/Info.plist")" == "4" ]] || { echo "The selected helper cannot render the qualified Liminal source clock, garnet Seed and shared activity expression." >&2; exit 2; }
+        python3 "$REPO_ROOT/script/package_liminal_v008.py" "$LIMINAL_PACKAGE" "$LIMINAL_QUALIFICATION" \
+            "$BUNDLE_DIR/Contents/Resources" "$BUNDLE_DIR/Contents/Resources/UnityCompanion.app/Contents/Resources/Data/StreamingAssets"
+    elif [[ -n "${ARCHI_LIMINAL_PACKAGE:-}" ]]; then
+        echo "The explicitly selected Liminal v008 package is missing. Nothing was installed." >&2
+        exit 2
+    fi
     # Unity owns a rendering window inside ARCHi's session, not a second Dock
     # product. Only adapt and re-sign this generated copy; preserve the source.
     plutil -replace LSUIElement -bool YES "$BUNDLE_DIR/Contents/Resources/UnityCompanion.app/Contents/Info.plist"
@@ -150,7 +185,7 @@ cat > "$BUNDLE_DIR/Contents/Info.plist" <<PLIST
 <key>CFBundleDisplayName</key><string>$APP_NAME</string>
 <key>CFBundleIconFile</key><string>AppIcon</string>
 <key>CFBundleVersion</key><string>1</string>
-<key>CFBundleShortVersionString</key><string>0.1.0</string>
+<key>CFBundleShortVersionString</key><string>0.7.0</string>
 <key>LSMinimumSystemVersion</key><string>14.0</string>
 <key>NSPrincipalClass</key><string>NSApplication</string>
 <key>NSHighResolutionCapable</key><true/>
@@ -166,8 +201,8 @@ plutil -lint "$BUNDLE_DIR/Contents/Info.plist"
 xattr -cr "$BUNDLE_DIR"
 codesign --force --sign - "$BUNDLE_DIR"
 codesign --verify --deep --strict "$BUNDLE_DIR"
-# Only promote a complete signed bundle. Keep the previous installation as a
-# recoverable sibling; application-support data is never copied or replaced.
+# Only promote a complete signed bundle. Keep the previous installation in
+# private recovery storage; application-support data is never copied or replaced.
 require_selected_app_stopped
 mkdir -p "$(dirname "$APP_DIR")"
 # Copy and verify before touching the previous bundle. The two final renames
@@ -185,7 +220,11 @@ if [[ -n "$STAGE_DIR" && ( -e "$APP_DIR" || -L "$APP_DIR" ) ]]; then
     exit 1
 fi
 if [[ -z "$STAGE_DIR" && ( -e "$APP_DIR" || -L "$APP_DIR" ) ]]; then
-    PREVIOUS_BUNDLE="$APP_DIR.previous.$(date +%Y%m%d-%H%M%S).$$"
+    if [[ "$STAGE_ONLY" == 0 ]]; then
+        PREVIOUS_BUNDLE="$(python3 "$REPO_ROOT/script/app_rollback_destination.py" "$APP_DIR" "$APP_IDENTIFIER")"
+    else
+        PREVIOUS_BUNDLE="$APP_DIR.previous.$(date +%Y%m%d-%H%M%S).$$"
+    fi
     mv "$APP_DIR" "$PREVIOUS_BUNDLE"
 fi
 if [[ -n "$STAGE_DIR" ]]; then

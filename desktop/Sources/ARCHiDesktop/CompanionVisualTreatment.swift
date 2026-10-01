@@ -6,6 +6,7 @@ enum CompanionVisualTreatment: String, CaseIterable, Identifiable, Codable {
     case original = "Original"
     case pearlStudy = "Pearl study"
     case protoStudy = "Proto expression"
+    case liminalV008 = "Liminal v008"
     var id: String { rawValue }
 }
 
@@ -43,13 +44,13 @@ enum CompanionVisualAsset {
     static let lumenFilename = "archi-lumen-pearl-v1"
     static let maximumBytes = 1_400_000
     static let lightSeedFilename = "archi-ball-of-light-v1"
-    static let lightSeedDigest = "bc8b05e36156af6bb28459fa160b118315c14d1d319e04c23d861b7416d3018b"
+    static let lightSeedDigest = "867b75f54b17619c9eaca563515221e5f7b5e49385b9f29cad8b5216213dd9c4"
     static let lightSeedImage = load(name: lightSeedFilename, digest: lightSeedDigest)
     static let hamptonSeedFilename = "hampton-liminal-seed-v1"
-    static let hamptonSeedDigest = "2f8ac5d79dae36bed3e91cbd55f53b2f86d5317b464c119d9c14d37512044c18"
+    static let hamptonSeedDigest = "9ffb19a74959c29fd1ff46848937c2745c08b543b0c70871e99c4c5c606916a1"
     static let hamptonSeedImage = load(name: hamptonSeedFilename, digest: hamptonSeedDigest)
     static let hamptonGarnetFilename = "hampton-liminal-garnet-v1"
-    static let hamptonGarnetDigest = "4926755798476430159df3923399242d0f564ea11fa3f8895f769f60655128a9"
+    static let hamptonGarnetDigest = "6a60509d41e00d8dd6b204dd894b988498b6e38dabbc29349db058046e7228d0"
     static let hamptonGarnetImage = load(name: hamptonGarnetFilename, digest: hamptonGarnetDigest)
     static let kinSeedFilename = "kin-core-seed-blender-v2"
     static let kinSeedDigest = "02066c89c597edf6b0f9d3c9f5706323cfefa8163c94b8407ec48cd7e57bf5e6"
@@ -59,7 +60,7 @@ enum CompanionVisualAsset {
     static let kinFirstLightDigest = "96dcfec5654287a22c5d53357dcc47dc7a6a92cd4458da381c45fe074f32de2d"
     static let kinFirstLightImage = load(name: kinFirstLightFilename, digest: kinFirstLightDigest)
     static let protoFilename = "archi-proto-blender-v1"
-    static let protoDigest = "c1de08a1afb9532d3cd459f9d166dcc58f4d05852ba3fb98d6c3f4bb3319b338"
+    static let protoDigest = "f64051b207446340c9e813c35e89087afc6fac068ca0d7ec38d22d86e56ac688"
     static let protoImage = load(name: protoFilename, digest: protoDigest)
     static func firstLightImage(treatment: CompanionVisualTreatment) -> NSImage? {
         treatment == .protoStudy ? (protoImage ?? kinFirstLightImage) : kinFirstLightImage
@@ -150,6 +151,9 @@ enum CompanionVisualAsset {
 
     private static func baseLabel(form: CompanionForm, family: EvolutionFamily?, treatment: CompanionVisualTreatment,
                                   recipe: CompanionAppearanceRecipe?, naturalVariation: CompanionNaturalVariation?) -> String {
+        if family == nil && form == .velaSeed { return "Vela · Opal Seed" }
+        if family == nil && form == .velaLantern { return "Vela · Lantern Wing" }
+        if LiminalV008Runtime.applies(form: form, family: family, treatment: treatment) { return "Hampton · Liminal v008 particles" }
         if family == nil && form == .hamptonSeed { return "Hampton · Liminal Seed" }
         if family == nil && form == .corePearl { return "ARCHi · Ball of Light" }
         if family == nil && form == .particleSeed { return "KIN · Particle Seed look" }
@@ -181,7 +185,12 @@ enum CompanionVisualAsset {
     static func appearanceID(form: CompanionForm, family: EvolutionFamily?, treatment: CompanionVisualTreatment,
                              recipe: CompanionAppearanceRecipe? = nil, naturalVariation: CompanionNaturalVariation? = nil,
                              equipment: CompanionEquipment = .empty,
-                             assetAvailable: Bool? = nil, seedColor: CompanionSeedColor = .original) -> String {
+                             assetAvailable: Bool? = nil, seedColor: CompanionSeedColor = .original,
+                             pointProgress: Double = 107.0 / 119.0) -> String {
+        if LiminalV008Runtime.applies(form: form, family: family, treatment: treatment), let asset = LiminalV008Runtime.asset {
+            return liminalAppearanceID(manifestSHA256: asset.manifestSHA256, seedColor: seedColor,
+                equipment: equipment, pointProgress: pointProgress)
+        }
         let original = baseAppearanceID(form: form, family: family, treatment: treatment, recipe: recipe,
             naturalVariation: naturalVariation, assetAvailable: assetAvailable)
         let base = SeedColorRendering.identity(base: original, form: form, family: family, color: seedColor)
@@ -193,9 +202,23 @@ enum CompanionVisualAsset {
         return "e1-\(digest)"
     }
 
+    /// Cache the authenticated displayed frame, not a fractional playhead. This
+    /// keeps a source-clock half-step from returning another pose's saved PNG.
+    static func liminalAppearanceID(manifestSHA256: String, seedColor: CompanionSeedColor = .original,
+                                     equipment: CompanionEquipment = .empty,
+                                     pointProgress: Double = 107.0 / 119.0) -> String {
+        let progress = pointProgress.isFinite ? pointProgress : LiminalV008Runtime.orbProgress
+        let frame = (try? LiminalPointAsset.sourceFrameIndex(progress: progress)) ?? 107
+        let canonical = "\(manifestSHA256)\n\(LiminalSeedStyle.revision)\n\(seedColor.rawValue)\n\(equipment.canonicalIdentity)\nframe=\(frame + 1)"
+        return "liminal-v008-" + LiminalKnowledgeBindings.sha256(Data(canonical.utf8))
+    }
+
     private static func baseAppearanceID(form: CompanionForm, family: EvolutionFamily?, treatment: CompanionVisualTreatment,
                                          recipe: CompanionAppearanceRecipe?, naturalVariation: CompanionNaturalVariation?,
                                          assetAvailable: Bool?) -> String {
+        if family == nil && (form == .velaSeed || form == .velaLantern) {
+            return "\(VelaGeometry.revision):\(form.rawValue)"
+        }
         if family == nil && form == .hamptonSeed {
             return (assetAvailable ?? (hamptonSeedImage != nil)) ? "h1-\(hamptonSeedDigest)" : "hampton-liminal-native-fallback-v1"
         }

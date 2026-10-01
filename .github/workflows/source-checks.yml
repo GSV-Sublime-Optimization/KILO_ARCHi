@@ -172,7 +172,8 @@ jobs:
         run: swift build --package-path desktop
       - name: Check deterministic domain contracts
         run: >-
-          swift test --package-path desktop
+          swift test --package-path desktop --jobs 1
+          -Xswiftc -disable-batch-mode
           --filter 'DesktopInterestCaptureTests|CompanionGraphTests|DocumentSelectionTests|WorkingCopyRevisionTests'
       # No model/provider, window capture, GUI render, permission prompt, profile
       # migration, app launch or opt-in integration test is requested by this job.

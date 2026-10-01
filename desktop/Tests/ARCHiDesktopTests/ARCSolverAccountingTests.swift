@@ -58,6 +58,25 @@ final class ARCSolverAccountingTests: XCTestCase {
         XCTAssertEqual(store.evolution.revision, revision)
         XCTAssertEqual(client.calls, 0)
         XCTAssertFalse(record.summary.permitsStateChanges)
+        // Optional artifact for an explicitly requested single-puzzle run. No
+        // second solve or personal profile mutation is needed to retain proof.
+        if let path = ProcessInfo.processInfo.environment["ARCHI_PUZZLE_OUTPUT"] {
+            let output = URL(fileURLWithPath: path, isDirectory: true).standardizedFileURL.resolvingSymlinksInPath()
+            guard output.path.hasPrefix("/private/tmp/") else { throw CocoaError(.fileWriteNoPermission) }
+            try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
+            try record.bundle.write(to: output.appendingPathComponent("puzzle-bundle.json"), options: .withoutOverwriting)
+            let encoder = JSONEncoder(); encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            try encoder.encode(XCTUnwrap(record.solverEvidence)).write(to: output.appendingPathComponent("solver-evidence.json"), options: .atomic)
+            try encoder.encode(store.tokenSteward.tasks).write(to: output.appendingPathComponent("usage-tasks.json"), options: .atomic)
+            let result: [String: Any] = ["schema": "archi-single-puzzle-check/v1", "allExact": record.summary.allExact,
+                "bundleHash": record.bundleHash, "modelCalls": client.calls,
+                "companionPreferencesUnchanged": store.preferences == preferences,
+                "evolutionRevisionUnchanged": store.evolution.revision == revision,
+                "permitsStateChanges": record.summary.permitsStateChanges,
+                "scope": "One built-in synthetic rotation task, not an official ARC benchmark."]
+            try JSONSerialization.data(withJSONObject: result, options: [.prettyPrinted, .sortedKeys])
+                .write(to: output.appendingPathComponent("result.json"), options: .atomic)
+        }
         await store.shutdownAssistant()
     }
 

@@ -8,6 +8,7 @@ struct ARCQwenProposalPanel: View {
     var onEvaluation: @MainActor (ARCCapabilitiesEvent) -> Void
     var onOpenUsage: ((String) -> Void)?
     var onOpenGraph: ((String) -> Void)?
+    var startUnavailableReason: String? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -74,10 +75,11 @@ struct ARCQwenProposalPanel: View {
     private var controls: some View {
         Group {
             Button("Ask Qwen for a rule", systemImage: "sparkles") {
+                guard startUnavailableReason == nil else { return }
                 store.startQwenProposal(model: model, onEvaluation: onEvaluation)
             }
             .buttonStyle(WorkspaceActionStyle())
-            .disabled(store.solverDocument == nil || store.isSolving || store.isProposing)
+            .disabled(store.solverDocument == nil || store.isSolving || store.isProposing || startUnavailableReason != nil)
             .accessibilityIdentifier("capabilities.qwen.propose")
             Button("Stop Qwen", systemImage: "stop.fill") { store.stopQwenProposal() }
                 .disabled(!store.isProposing)

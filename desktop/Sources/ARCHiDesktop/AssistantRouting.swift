@@ -4,11 +4,11 @@ enum AssistantRoute: String, CaseIterable, Identifiable, Sendable {
     case native, local, codex, compare, automatic
     var id: String { rawValue }
     var title: String {
-        switch self { case .native: "ARCHi · Qwen first"; case .local: "Local Qwen · manual"; case .codex: "Codex · external reference"; case .compare: "Compare · external reference"; case .automatic: "Local Qwen · auto-connect" }
+        switch self { case .native: "Local + Codex fallback"; case .local: "Local · manual connection"; case .codex: "Codex · external"; case .compare: "Compare · local + Codex"; case .automatic: "Local only" }
     }
     var disclosure: String {
         switch self {
-        case .native: "ARCHi manages Qwen on this Mac. Send tries local Qwen first; a connection, generation or timeout failure can use one Codex request through your existing account. Your message, shared copy and reply settings may then leave this Mac. Kept lessons, personal context and recent Qwen conversation stay local. Choose Local Qwen auto-connect to keep all requests local."
+        case .native: "Local models first. An eligible connection, generation or timeout failure can send one Codex request through your existing account. Your message, shared copy and reply settings may leave this Mac. Kept lessons, personal context and local conversation stay local. Choose Local only to prevent external fallback."
         case .local: "Your message and shared copy go only to Qwen on this Mac."
         case .codex: "Optional reference or alternative. Send shares your message, full shared copy and reply settings with Codex through ChatGPT. Kept lessons, session excerpts and recent Qwen conversation stay local."
         case .compare: "Deliberate second opinion. Send shares your message, full shared copy and reply settings with Qwen and external Codex. Kept lessons, session excerpts and recent Qwen conversation stay with Qwen."
@@ -66,12 +66,18 @@ struct AssistantLaneReceipt: Equatable, Sendable {
     var usedLessonIDs: [String] = []
     var pointing: AssistantPointingSnapshot? = nil
     var routingReason: String? = nil
+    var localExpertDecision: LocalExpertDecision? = nil
     var admissionOutcome: HamptonAdmissionOutcome? = nil
     /// Ephemeral source excerpts for the current answer. The usage journal
     /// retains only the matching trace/result digests, never these texts.
     var documentReading: DocumentReadingPlan? = nil
     var readingControl: HamptonQ2EDecision? = nil
     var readingResult: DocumentReadingResult? = nil
+    var readingDependencies: [ReadingSourceBinding]? = nil
+    var knowledgeDependencies: [KnowledgePageBinding]? = nil
+    var knowledgeContextDigest: String? = nil
+    var sourceContext: AssistantSourceContext? = nil
+    var isKnowledgeAcquisition = false
 }
 
 struct AssistantLaneResult: Equatable, Sendable {
@@ -79,5 +85,12 @@ struct AssistantLaneResult: Equatable, Sendable {
     var status: String
     var state: AssistantLaneState
     var receipt: AssistantLaneReceipt?
-    var revision: PassageRevisionProposal? = nil
+    var revision: PassageRevisionProposal? = nil {
+        didSet {
+            if revision == nil { originalRevision = nil; urlBoundaryRestoration = nil }
+        }
+    }
+    /// Present only when native separator restoration produced the preview.
+    var originalRevision: PassageRevisionProposal? = nil
+    var urlBoundaryRestoration: DocumentURLBoundaryRestoration? = nil
 }

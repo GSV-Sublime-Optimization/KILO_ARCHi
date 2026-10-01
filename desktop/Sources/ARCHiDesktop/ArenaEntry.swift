@@ -1,11 +1,19 @@
 import Foundation
 
+/// Transient navigation within the one Arena. Each activity keeps its existing
+/// execution owner; selecting a tab grants no authority to run it.
+enum ArenaActivity: String, CaseIterable, Identifiable {
+    case practice, arc
+    var id: String { rawValue }
+    var title: String { self == .practice ? "Companion practice" : "ARCHi Trials" }
+}
+
 /// One consumer entry shared by Home, the Arena page and app menus. Browsing the
 /// page remains passive; only this explicit action starts or focuses its owner.
 enum ArenaEntryAction {
     @MainActor
     static func open(store: CompanionStore, connection: UnityPresentationConnection? = nil) async {
-        store.open(.unity)
+        store.openArena(.practice)
         let owner = connection ?? store.unityPresentation
         let state = ArenaEntryState(store: store, connection: owner)
         guard state.canEnter else { return }

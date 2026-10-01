@@ -50,7 +50,7 @@ final class HamptonSeedPresentationTests: XCTestCase {
     @MainActor
     func testVerifiedAssetHasDistinctCacheAndNativeSnapshotWithoutChangingKIN() throws {
         XCTAssertNotNil(CompanionVisualAsset.hamptonSeedImage)
-        XCTAssertEqual(CompanionVisualAsset.hamptonSeedDigest, "2f8ac5d79dae36bed3e91cbd55f53b2f86d5317b464c119d9c14d37512044c18")
+        XCTAssertEqual(CompanionVisualAsset.hamptonSeedDigest, "9ffb19a74959c29fd1ff46848937c2745c08b543b0c70871e99c4c5c606916a1")
         XCTAssertEqual(CompanionVisualAsset.kinSeedDigest, "02066c89c597edf6b0f9d3c9f5706323cfefa8163c94b8407ec48cd7e57bf5e6")
         let identity = CompanionVisualAsset.appearanceID(form: .hamptonSeed, family: nil, treatment: .original)
         XCTAssertEqual(identity, "h1-\(CompanionVisualAsset.hamptonSeedDigest)")
@@ -71,7 +71,7 @@ final class HamptonSeedPresentationTests: XCTestCase {
     }
 
     @MainActor
-    func testAllThreeSeedChoicesRemainPresentationOnlyAndRenderAtNarrowWidth() throws {
+    func testAllSeedChoicesRemainPresentationOnlyAndRenderAtNarrowWidth() throws {
         let fixture = try HamptonSeedFixture()
         defer { fixture.clean() }
         let store = fixture.store, original = fixture.identity
@@ -79,7 +79,7 @@ final class HamptonSeedPresentationTests: XCTestCase {
         let bytes = try Data(contentsOf: fixture.profile)
         let oldPlayer = try fixture.player(name: "Old", personal: false)
         let currentPlayer = try fixture.player(name: "Current", personal: true)
-        XCTAssertEqual(CompanionSeedAppearance.allCases.count, 3)
+        XCTAssertEqual(CompanionSeedAppearance.allCases.count, 4)
         for choice in CompanionSeedAppearance.allCases {
             store.chooseSeedAppearance(choice)
             XCTAssertEqual(store.activeQiMon, original)
@@ -87,7 +87,13 @@ final class HamptonSeedPresentationTests: XCTestCase {
             XCTAssertEqual(store.cursorPresentationForm, choice.personalForm)
             XCTAssertEqual(store.evolution.history, history)
             XCTAssertNil(store.evolution.kinGrowthRecord)
-            XCTAssertEqual(store.unityPresentationUnavailableReason(for: oldPlayer) != nil, choice == .hamptonLiminal)
+            XCTAssertEqual(store.unityPresentationUnavailableReason(for: oldPlayer) != nil, [.hamptonLiminal, .vela].contains(choice))
+            if choice == .vela {
+                XCTAssertNotNil(store.unityPresentationUnavailableReason(for: currentPlayer))
+                XCTAssertNil(UnityPresentationSnapshot.capture(store: store, sessionID: UUID(), revision: 1,
+                    active: true, now: Date(), systemReduceMotion: false))
+                continue
+            }
             XCTAssertNil(store.unityPresentationUnavailableReason(for: currentPlayer))
             let projection = try XCTUnwrap(UnityPresentationSnapshot.capture(store: store, sessionID: UUID(), revision: 1,
                 active: true, now: Date(), systemReduceMotion: false))
@@ -141,6 +147,12 @@ final class HamptonSeedPresentationTests: XCTestCase {
         XCTAssertTrue(connection.selectPlayer(currentPlayer))
         for appearance in CompanionSeedAppearance.allCases {
             fixture.store.chooseSeedAppearance(appearance)
+            if appearance == .vela {
+                XCTAssertFalse(ArenaEntryState(store: fixture.store, connection: connection).canEnter)
+                XCTAssertThrowsError(try connection.beginPublishing(store: fixture.store, directory: fixture.directory, destination: .arena))
+                XCTAssertFalse(connection.isSharing)
+                continue
+            }
             XCTAssertTrue(ArenaEntryState(store: fixture.store, connection: connection).canEnter)
             try connection.beginPublishing(store: fixture.store, directory: fixture.directory, destination: .arena)
             XCTAssertTrue(connection.isSharing)

@@ -18,12 +18,15 @@ struct AssistantRouteSelector: View {
     }
 
     private var disclosure: String {
+        if !store.selectedKnowledgePages.isEmpty { return "Selected knowledge pages and passages stay with local Qwen. Your shared document is not sent. External routes are blocked until you detach the pages." }
         if store.arcCommandSelected || store.isARCWorking {
             return "ARC uses its native local task capability. Only an explicit Qwen proposal invokes the local model."
         }
         return switch store.route {
         case .native:
-            store.route.disclosure
+            store.representationMeasurementsEnabled
+                ? "Local Qwen with read-only measurements. This reply has no automatic external fallback."
+                : store.route.disclosure
         case .local:
             store.sessionContextEnabled
                 ? "Send runs on this Mac with optional local session excerpts."
@@ -50,14 +53,15 @@ struct AssistantRoutePicker: View {
     var body: some View {
         HStack(spacing: 6) {
             if showsTitle {
-                Text("Answer with").font(.system(size: compact ? 11 : 12, weight: .medium))
+                Text("Send to").font(.system(size: compact ? 11 : 12, weight: .medium))
             }
             Picker("Answer with", selection: Binding(get: { store.route }, set: { store.setAssistantRoute($0) })) {
-                Text(AssistantRoute.native.title).tag(AssistantRoute.native)
-                Text(AssistantRoute.local.title).tag(AssistantRoute.local)
                 Text(AssistantRoute.automatic.title).tag(AssistantRoute.automatic)
+                Text(AssistantRoute.native.title).tag(AssistantRoute.native)
                 Text(AssistantRoute.codex.title).tag(AssistantRoute.codex)
                 Text(AssistantRoute.compare.title).tag(AssistantRoute.compare)
+                Divider()
+                Text(AssistantRoute.local.title).tag(AssistantRoute.local)
             }
             .pickerStyle(.menu).controlSize(compact ? .small : .regular)
             .labelsHidden()
@@ -79,7 +83,11 @@ struct AssistantComposerSettingsView: View {
             VStack(alignment: .leading, spacing: 12) {
                 NextReplySettingsView(store: store)
                 Divider()
-                Text(store.route.disclosure).font(.system(size: 11)).foregroundStyle(.secondary)
+                AssistantLocalWorkControls(store: store)
+                Divider()
+                Text(store.route == .native && store.representationMeasurementsEnabled
+                     ? "Local Qwen with read-only measurements. This reply has no automatic external fallback."
+                     : store.route.disclosure).font(.system(size: 11)).foregroundStyle(.secondary)
                 AssistantConversationControls(store: store)
                 Text("Send saves usage metadata locally: task and model identifiers, counts, timing and outcome. Message and document text are excluded.")
                     .font(.caption).foregroundStyle(.secondary)
@@ -174,7 +182,9 @@ struct AssistantProviderPanel: View {
             if provider == .qwen {
                 localModels.padding(.top, 12)
             } else {
-                Text("Codex uses your existing login. ARCHi · Qwen first permits one Codex fallback if Qwen is unavailable or times out. Codex and Compare send the current request directly. Kept lessons, personal context and Qwen conversation stay local. Connecting sends no draft or shared copy.")
+                Text(store.representationMeasurementsEnabled
+                     ? "Codex uses your existing login. While local measurements are enabled, Codex, Compare and automatic external fallback are unavailable. Turn measurements off before using an external route. Kept lessons, personal context and Qwen conversation stay local. Connecting sends no draft or shared copy."
+                     : "Codex uses your existing login. Local + Codex fallback permits one external attempt after an eligible local failure. Codex and Compare send the current request directly. Kept lessons, personal context and local conversation stay local. Connecting sends no draft or shared copy.")
                     .font(.system(size: 11)).foregroundStyle(.secondary).lineSpacing(3).padding(.top, 10)
                 Text("Review your provider account’s data and licensing terms before sharing sensitive or proprietary material. ARCHi makes no copyright or exclusive ownership guarantee.")
                     .font(.system(size: 11)).foregroundStyle(.secondary).lineSpacing(3).padding(.top, 6)
@@ -184,20 +194,41 @@ struct AssistantProviderPanel: View {
 
     private var localModels: some View {
         VStack(alignment: .leading, spacing: 9) {
+            AssistantLocalWorkControls(store: store)
+            Divider()
             Picker("Reasoning model", selection: Binding(get: { store.qwenModel }, set: { store.selectQwenModel($0) })) {
-                ForEach(QwenAssistant.supportedModels, id: \.self) { model in Text(model).tag(model) }
+                ForEach(store.localModelChoices, id: \.self) { model in Text(store.localModelLabel(model)).tag(model) }
             }
             .pickerStyle(.menu).accessibilityLabel("Local Qwen model")
-            Picker("Context model", selection: Binding(get: { store.qwenContextModel }, set: { store.selectQwenContextModel($0) })) {
-                ForEach(QwenAssistant.supportedModels, id: \.self) { model in Text(model).tag(model) }
+            Picker("Compact / context model", selection: Binding(get: { store.qwenContextModel }, set: { store.selectQwenContextModel($0) })) {
+                ForEach(store.localModelChoices, id: \.self) { model in Text(store.localModelLabel(model)).tag(model) }
             }
             .pickerStyle(.menu).accessibilityLabel("Local Qwen context model")
-            Text("The context role selects exact excerpts only when Temporary session context is on. Changing a local model stops local work and any active native fallback, then clears local context.")
+            Text("The compact model handles short replies when selected, and exact excerpt selection when Temporary session context is on. Changing a model stops local work and clears temporary context.")
                 .font(.system(size: 11)).foregroundStyle(.secondary).lineSpacing(3)
+            if let models = store.installedLocalModels, !models.contains(where: { LocalModelCatalog.isSmallModel($0.name) }) {
+                Text("No small model (SLM) is installed. Compact currently uses \(store.qwenContextModel); its speed and quality have not been compared here.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            if let smallModel = store.installedLocalModels?.first(where: { LocalModelCatalog.isSmallModel($0.name) }),
+               !LocalModelCatalog.isSmallModel(store.qwenContextModel) {
+                Button("Use \(smallModel.name) for Compact") { store.selectQwenContextModel(smallModel.name) }
+                    .accessibilityIdentifier("assistant.models.use-small")
+                Text("The small model is installed. This changes only the compact/context assignment; Reasoning stays \(store.qwenModel).")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            HStack {
+                Button(store.isRefreshingModels ? "Checking…" : "Refresh installed models") { store.refreshInstalledLocalModels() }
+                    .disabled(store.isRefreshingModels)
+                    .accessibilityIdentifier("assistant.models.refresh")
+                Text(store.modelInventoryNotice).font(.caption).foregroundStyle(.secondary)
+            }
             Button("Manage session context") { store.open(.memory) }.buttonStyle(.borderless)
-            Text("ARCHi manages the local Qwen connection. Connection checks verify the installed Ollama model without generating an answer. Send starts inference. Model choices apply to this visit.")
+            Text("ARCHi manages the local Qwen connection. Connection checks verify the installed Ollama model without generating an answer. Send starts inference. Model choices are kept on this Mac.")
                 .font(.system(size: 11)).foregroundStyle(.secondary).lineSpacing(3)
+            RepresentationSettingsView(store: store)
         }
+        .task { if store.installedLocalModels == nil { store.refreshInstalledLocalModels() } }
         .disabled(store.isShuttingDown)
     }
 }

@@ -2,13 +2,14 @@ import SwiftUI
 
 /// An appearance preference, never a second individual or a development record.
 enum CompanionSeedAppearance: String, CaseIterable, Codable, Identifiable {
-    case archiLight, kinParticles, hamptonLiminal
+    case archiLight, kinParticles, hamptonLiminal, vela
     var id: Self { self }
     var title: String {
         switch self {
         case .archiLight: "ARCHi · Ball of Light"
         case .kinParticles: "KIN · Particle Seed"
         case .hamptonLiminal: "Hampton · Liminal Seed"
+        case .vela: "Vela · Opal Seed"
         }
     }
     var detail: String {
@@ -16,6 +17,7 @@ enum CompanionSeedAppearance: String, CaseIterable, Codable, Identifiable {
         case .archiLight: "Light sphere · inner constellation"
         case .kinParticles: "Open particle field · pearl core"
         case .hamptonLiminal: "Luminous shell · gold connections"
+        case .vela: "Opal light · folded lantern wings"
         }
     }
     var starterForm: CompanionForm {
@@ -23,6 +25,7 @@ enum CompanionSeedAppearance: String, CaseIterable, Codable, Identifiable {
         case .archiLight: .corePearl
         case .kinParticles: .particleSeed
         case .hamptonLiminal: .hamptonSeed
+        case .vela: .velaSeed
         }
     }
     var personalForm: CompanionForm { self == .kinParticles ? .kinSeed : starterForm }
@@ -80,7 +83,7 @@ struct SeedAppearanceCard: View {
                 Text("Choose your light").font(.system(size: 23, weight: .medium, design: .rounded))
                 Text("One core. Many forms. Your light stays with you as your companion takes shape.")
                     .font(.system(size: 13)).foregroundStyle(.secondary)
-                HStack(spacing: 14) {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 190), spacing: 14)], spacing: 14) {
                     ForEach(CompanionSeedAppearance.allCases) { appearance in
                         choice(appearance)
                     }
@@ -128,7 +131,9 @@ struct SeedAppearanceCard: View {
                     .accessibilityHidden(true)
                 Label(appearance.title, systemImage: selected ? "checkmark.circle.fill" : "circle")
                     .font(.system(size: 14, weight: .medium))
+                    .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
                 Text(appearance.detail).font(.system(size: 11)).foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
             }
             .frame(maxWidth: .infinity).padding(.vertical, 16).padding(.horizontal, 10)
             .background(WorkspaceTheme.accent.opacity(selected ? 0.20 : 0.06), in: RoundedRectangle(cornerRadius: 20))

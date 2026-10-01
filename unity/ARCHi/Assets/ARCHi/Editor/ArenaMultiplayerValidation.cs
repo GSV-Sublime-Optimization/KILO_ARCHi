@@ -28,9 +28,15 @@ public static class ArenaMultiplayerValidation
         CheckPairedTrajectories(receipt);
         receipt.passed = true;
         var repository = Path.GetFullPath(Path.Combine(Application.dataPath, "../../.."));
-        var output = Path.Combine(repository, "output/arena-multiplayer-2026-09-18");
+        // Each run retains its own receipt; historical evidence must never be overwritten.
+        var runID = DateTime.UtcNow.ToString("yyyyMMddTHHmmssfffffffZ") + "-" + Guid.NewGuid().ToString("N");
+        var output = Path.Combine(repository, "output/arena-command-validation", runID);
         Directory.CreateDirectory(output);
-        File.WriteAllText(Path.Combine(output, "command-validation.json"), JsonUtility.ToJson(receipt, true));
+        var receiptPath = Path.Combine(output, "command-validation.json");
+        using (var file = new FileStream(receiptPath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+        using (var writer = new StreamWriter(file))
+            writer.Write(JsonUtility.ToJson(receipt, true));
+        Debug.Log("ARCHI_ARENA_MULTIPLAYER_RECEIPT " + receiptPath);
         Debug.Log($"ARCHI_ARENA_MULTIPLAYER_PASS {receipt.echoBouts} ECHO bouts / {receipt.pairedBouts} paired bouts / {receipt.rounds} paired rounds / {receipt.assertions} assertions");
     }
 

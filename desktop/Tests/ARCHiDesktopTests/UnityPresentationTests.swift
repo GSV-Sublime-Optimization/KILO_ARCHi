@@ -3,6 +3,121 @@ import XCTest
 @testable import ARCHiDesktop
 
 final class UnityPresentationTests: XCTestCase {
+    @MainActor func testPointAcknowledgmentCannotBeSatisfiedByLegacyOrDifferentAsset() throws {
+        let fixture = try makeFixture(); defer { fixture.clean() }
+        let now = Date()
+        var snapshot = try XCTUnwrap(UnityPresentationSnapshot.capture(store: fixture.store,
+            sessionID: UUID(), revision: 1, active: true, now: now, systemReduceMotion: false))
+        let digest = String(repeating: "a", count: 64)
+        snapshot.pointPresentation = .init(schemaVersion: 1, assetID: "liminal-v008",
+            manifestSHA256: digest, progress: 107.0 / 119, motion: "sampled", color: "original", visible: true)
+        snapshot.pointKnowledgeSHA256 = String(repeating: "b", count: 64)
+        var ack = UnityPresentationAcknowledgment(schemaVersion: 1, sessionID: snapshot.sessionID,
+            originDigest: snapshot.originDigest, revision: snapshot.revision, updatedAtUnix: now.timeIntervalSince1970,
+            active: snapshot.active, body: snapshot.body, appearance: snapshot.appearance,
+            staffPalette: snapshot.staffPalette, staffCrown: snapshot.staffCrown, renderer: "unity-companion")
+        XCTAssertFalse(ack.matches(snapshot, now: now))
+        ack.pointAssetVersion = 1; ack.pointManifestSHA256 = digest
+        ack.pointKnowledgeSHA256 = snapshot.pointKnowledgeSHA256
+        XCTAssertFalse(ack.matches(snapshot, now: now), "A v1 linear renderer cannot acknowledge the v2 source-clock package.")
+        ack.pointAssetVersion = 2
+        XCTAssertFalse(ack.matches(snapshot, now: now), "The source-clock renderer alone does not include the restored garnet Seed presentation.")
+        ack.pointAssetVersion = 3
+        XCTAssertFalse(ack.matches(snapshot, now: now), "The static Seed renderer cannot acknowledge shared activity expression.")
+        ack.pointAssetVersion = 4
+        XCTAssertTrue(ack.matches(snapshot, now: now))
+        ack.pointManifestSHA256 = String(repeating: "c", count: 64)
+        XCTAssertFalse(ack.matches(snapshot, now: now))
+        ack.pointManifestSHA256 = digest; ack.pointKnowledgeSHA256 = nil
+        XCTAssertFalse(ack.matches(snapshot, now: now))
+    }
+
+    @MainActor func testWorldOutcomesRequireSeparateCapabilityAndClearWithSession() async throws {
+        let fixture = try makeFixture(); defer { fixture.clean() }
+        let store = fixture.store, connection = store.unityPresentation
+        let profile = try Data(contentsOf: fixture.preference)
+        try connection.beginPublishing(store: store, directory: fixture.directory)
+        let snapshot = try XCTUnwrap(connection.lastSnapshot), now = Date()
+        let url = try XCTUnwrap(connection.snapshotURL)
+        var ack: [String: Any] = ["schemaVersion": 1, "sessionID": snapshot.sessionID,
+            "originDigest": snapshot.originDigest, "revision": snapshot.revision,
+            "updatedAtUnix": now.timeIntervalSince1970, "active": true, "body": "seed", "renderer": "unity-companion"]
+        let event = WorldActionOutcome(sequence: 1, actionID: UUID().uuidString, boutID: UUID().uuidString,
+            presentationRevision: snapshot.revision, atUnix: now.timeIntervalSince1970,
+            action: "pulse", rivalAction: "pulse", field: "guardian", round: 1,
+            integrityBefore: 36, integrityAfter: 29, rivalIntegrityBefore: 36, rivalIntegrityAfter: 29,
+            sparkBefore: 3, sparkAfter: 3, rivalSparkBefore: 3, rivalSparkAfter: 3,
+            damageDealt: 7, damageTaken: 7, absorbed: 0, complete: false, winner: "")
+        let observed = WorldOutcomeSnapshot(schemaVersion: 1, sessionID: snapshot.sessionID,
+            originDigest: snapshot.originDigest, sessionKind: snapshot.sessionKind ?? "companion",
+            revision: snapshot.revision, updatedAtUnix: now.timeIntervalSince1970,
+            currentArea: "arena", mode: "solo", firstSequence: 1, lastSequence: 1, outcomes: [event])
+        try JSONEncoder().encode(observed).write(to: url.appendingPathExtension(WorldOutcomeSnapshot.pathExtension))
+        try JSONSerialization.data(withJSONObject: ack).write(to: url.appendingPathExtension("ack"))
+        connection.readAcknowledgment(now: now)
+        XCTAssertTrue(connection.hasRenderAcknowledgment)
+        XCTAssertTrue(connection.worldOutcomes.isEmpty)
+        XCTAssertNil(connection.practiceReport(now: now))
+        XCTAssertTrue(connection.worldOutcomeStatus.contains("does not report"))
+        ack["worldOutcomeVersion"] = 1
+        try JSONSerialization.data(withJSONObject: ack).write(to: url.appendingPathExtension("ack"))
+        connection.readAcknowledgment(now: now)
+        connection.readAcknowledgment(now: now)
+        XCTAssertEqual(connection.worldOutcomes, [event], "Polling never duplicates outcomes.")
+        XCTAssertEqual(connection.missingWorldOutcomes, 0)
+        let advice = try XCTUnwrap(connection.arenaMoveAdvice(now: now))
+        XCTAssertEqual(advice.selectedMove, "guard")
+        connection.trackArenaAdvice(advice, now: now)
+        XCTAssertEqual(connection.arenaAdviceTracking?.status, .pending)
+        try FileManager.default.removeItem(at: url.appendingPathExtension("ack"))
+        connection.readAcknowledgment(now: now.addingTimeInterval(1))
+        XCTAssertEqual(connection.arenaAdviceTracking?.status, .pending,
+                       "A bounded handoff gap must not retire the frozen suggestion.")
+        XCTAssertNil(connection.arenaMoveAdvice(now: now.addingTimeInterval(1)),
+                     "No new advice is offered without a current acknowledgment.")
+        connection.readAcknowledgment(now: now.addingTimeInterval(6))
+        XCTAssertEqual(connection.arenaAdviceTracking?.status, .unlinked,
+                       "The handoff grace must expire after the existing freshness bound.")
+        try JSONSerialization.data(withJSONObject: ack).write(to: url.appendingPathExtension("ack"))
+        connection.clearArenaAdvice()
+        connection.readAcknowledgment(now: now)
+        connection.trackArenaAdvice(advice, now: now)
+        XCTAssertEqual(connection.arenaAdviceTracking?.status, .pending)
+        let next = WorldActionOutcome(sequence: 2, actionID: UUID().uuidString, boutID: event.boutID,
+            presentationRevision: snapshot.revision, atUnix: now.timeIntervalSince1970 + 0.1,
+            action: "guard", rivalAction: "pulse", field: "guardian", round: 2,
+            integrityBefore: 29, integrityAfter: 29, rivalIntegrityBefore: 29, rivalIntegrityAfter: 29,
+            sparkBefore: 3, sparkAfter: 3, rivalSparkBefore: 3, rivalSparkAfter: 3,
+            damageDealt: 0, damageTaken: 0, absorbed: 7, complete: false, winner: "")
+        let nextSnapshot = WorldOutcomeSnapshot(schemaVersion: 1, sessionID: snapshot.sessionID,
+            originDigest: snapshot.originDigest, sessionKind: snapshot.sessionKind ?? "companion",
+            revision: snapshot.revision, updatedAtUnix: now.timeIntervalSince1970 + 0.1,
+            currentArea: "arena", mode: "solo", firstSequence: 1, lastSequence: 2, outcomes: [event, next])
+        try JSONEncoder().encode(nextSnapshot).write(to: url.appendingPathExtension(WorldOutcomeSnapshot.pathExtension))
+        connection.readAcknowledgment(now: now.addingTimeInterval(0.2))
+        XCTAssertEqual(connection.arenaAdviceTracking?.status, .matched)
+        XCTAssertEqual(connection.arenaAdviceTracking?.outcome, next)
+        let report = try XCTUnwrap(connection.practiceReport(now: now))
+        XCTAssertEqual(report.adviceTracking, connection.arenaAdviceTracking)
+        let reportURL = fixture.directory.appendingPathComponent("practice-report.json")
+        try connection.exportPracticeReport(report, to: reportURL)
+        XCTAssertEqual(try JSONDecoder().decode(ArenaPracticeReport.self, from: Data(contentsOf: reportURL)), report)
+        connection.readAcknowledgment(now: now.addingTimeInterval(6))
+        XCTAssertFalse(connection.hasRenderAcknowledgment)
+        XCTAssertEqual(connection.worldOutcomes, [event, next], "Stale connection cannot add or erase past observations.")
+        XCTAssertNil(connection.arenaMoveAdvice(now: now.addingTimeInterval(6)))
+        XCTAssertNotNil(connection.practiceReport(now: now.addingTimeInterval(6)), "Earlier checked facts remain exportable with their original observation timestamp.")
+        connection.stop()
+        XCTAssertTrue(connection.worldOutcomes.isEmpty)
+        XCTAssertNil(connection.arenaAdviceTracking)
+        XCTAssertNil(connection.practiceReport(now: now))
+        let endedExport = fixture.directory.appendingPathComponent("ended-session.json")
+        XCTAssertThrowsError(try connection.exportPracticeReport(report, to: endedExport))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: endedExport.path))
+        XCTAssertEqual(try Data(contentsOf: fixture.preference), profile)
+        await store.shutdownAssistant()
+    }
+
     @MainActor func testLiveUnityPlayerFollowsNativeProfile() async throws {
         guard let path = ProcessInfo.processInfo.environment["ARCHI_UNITY_PLAYER_TEST_APP"] else {
             throw XCTSkip("Set ARCHI_UNITY_PLAYER_TEST_APP for a disposable native-to-Unity interaction check.")

@@ -20,7 +20,7 @@ struct HomeFeatureDirectory: View {
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 230), spacing: 10)], spacing: 10) {
                         ForEach(group.destinations) { section in
                             let detail = Self.detail(for: section)
-                            Button { store.open(section) } label: {
+                            Button { section == .nodeLab ? store.openMemoryMap() : store.open(section) } label: {
                                 HStack(spacing: 10) {
                                     Image(systemName: detail.icon).font(.system(size: 17))
                                         .foregroundStyle(WorkspaceTheme.accent).frame(width: 24)
@@ -62,9 +62,9 @@ struct HomeFeatureDirectory: View {
         case .rhythm: ("waveform", "Tone, reply length, and quiet mode")
         case .accessibility: ("accessibility", "Motion, contrast, and comfort")
         case .advanced: ("slider.horizontal.3", "Privacy, storage, and diagnostics")
-        case .nodeLab: ("point.3.filled.connected.trianglepath.dotted", "Explore connected activity")
+        case .nodeLab: ("point.3.filled.connected.trianglepath.dotted", "Explore sources, pages, and their connections")
         case .steward: ("chart.bar", "Review activity and usage")
-        case .capabilities: ("checkmark.shield", "Explore capability checks")
+        case .capabilities: ("arrow.triangle.branch", "Context, next steps, and reasoning details")
         case .home, .play: ("house", "Your workspace")
         }
     }

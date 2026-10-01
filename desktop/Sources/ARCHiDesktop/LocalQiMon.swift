@@ -27,4 +27,11 @@ extension CompanionForm {
     /// Keep legacy raw identifiers decodable without advertising a person's
     /// companion as a reusable starter skin.
     static var starterChoices: [Self] { allCases.filter { !$0.isKin } }
+    /// Seed looks have their own picker. These remaining visual studies do not
+    /// create an individual or award personal development.
+    static var additionalFormChoices: [Self] {
+        starterChoices.filter { form in
+            !CompanionSeedAppearance.allCases.contains { $0.starterForm == form }
+        }
+    }
 }

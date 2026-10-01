@@ -72,7 +72,8 @@ private struct KinLivingPortrait: View {
             let sample = still ? KinPresentationTransition(form: form).sample(at: 0)
                 : (transition?.sample(at: now) ?? KinPresentationTransition(form: form).sample(at: 0))
             KinPresentationFrame(size: size, pose: pose, sample: sample,
-                reduceMotion: still, lightExpression: lightExpression, bodyImage: bodyImage)
+                reduceMotion: still, lightExpression: lightExpression, bodyImage: bodyImage,
+                lightTime: still || lightExpression.mode == .hold ? 0 : now)
         }
         .frame(width: size, height: size)
         .onChange(of: motionPolicy, initial: true) { _, policy in
@@ -101,6 +102,7 @@ struct KinPresentationFrame: View {
     let reduceMotion: Bool
     let lightExpression: KinLightExpression
     let bodyImage: NSImage?
+    var lightTime: TimeInterval = 0
     @Environment(\.companionSeedColor) private var seedColor
 
     var body: some View {
@@ -110,15 +112,23 @@ struct KinPresentationFrame: View {
             if sample.seedOpacity > 0 {
                 Group {
                     if let image = SeedColorRendering.image(for: .kinSeed, color: seedColor) {
-                        Image(nsImage: image).resizable().interpolation(.high).scaledToFit()
-                            .rotationEffect(.degrees(pose.angle))
+                        ZStack {
+                            // Emission follows the actual authored motes, behind
+                            // the selected artwork. The pearl stays untouched.
+                            KinSeedParticleEmission(image: image, expression: lightExpression,
+                                phase: emissionPhase, size: size)
+                            Image(nsImage: image).resizable().interpolation(.high).scaledToFit()
+                        }
+                        .rotationEffect(.degrees(pose.angle))
                     } else {
                         KinCoreSeedFrame(phase: pose.radians)
                             .modifier(SeedFallbackColor(color: seedColor, sourceHue: 0.105))
                     }
                 }
                 .frame(width: size, height: size)
-                .scaleEffect(sample.seedScale)
+                // Reserve transparent room for a full turn and soft emission;
+                // the containing desktop/window frame remains unchanged.
+                .scaleEffect(sample.seedScale * KinSeedPortraitLayout.contentScale)
                 .offset(x: size * (sample.coreX - 0.5), y: size * (sample.coreY - 0.5) + float)
                 .opacity(sample.seedOpacity)
             }
@@ -140,10 +150,14 @@ struct KinPresentationFrame: View {
         .frame(width: size, height: size)
         .overlay {
             if lightExpression.mode != .rest {
-                KinLightEffects(expression: lightExpression,
-                    size: size * (1 + (KinFirstLightPresentation.effectScale - 1) * progress),
-                    reduceMotion: reduceMotion,
-                    centerY: CompanionVisualAsset.kinSeedImage == nil && progress == 0 ? 0.465 : 0.5)
+                // Use the portrait's existing sampled clock for every light
+                // layer, including settled Focus and static Reduce Motion.
+                KinLightEffectsFrame(expression: lightExpression,
+                    phase: reduceMotion || lightExpression.mode == .hold ? 0
+                        : LightFormGeometry.normalizedPhase(lightTime * 0.16),
+                    centerY: 0.5,
+                    emissionPhase: emissionPhase)
+                    .frame(width: effectSize(progress: progress), height: effectSize(progress: progress))
                     .offset(x: size * (sample.coreX - 0.5), y: size * (sample.coreY - 0.5) + float)
                     .allowsHitTesting(false)
                     .accessibilityHidden(true)
@@ -153,6 +167,57 @@ struct KinPresentationFrame: View {
         // The sampled clock owns timing; a surrounding SwiftUI animation must
         // not tween these frames or delay an accessibility/Quiet stop.
         .transaction { $0.animation = nil }
+    }
+
+    private var emissionPhase: Double {
+        guard !reduceMotion, lightExpression.mode != .hold else { return 0 }
+        return LightFormGeometry.normalizedPhase(lightTime * 1.1)
+    }
+
+    private func effectSize(progress: Double) -> CGFloat {
+        size * (KinSeedPortraitLayout.contentScale
+            + (KinFirstLightPresentation.effectScale - KinSeedPortraitLayout.contentScale) * progress)
+    }
+}
+
+private enum KinSeedPortraitLayout {
+    static let contentScale = 0.92
+}
+
+/// Two small emission layers derived from the verified image's existing alpha.
+/// State changes add light around the motes, never recolor the selected image.
+private struct KinSeedParticleEmission: View {
+    let image: NSImage
+    let expression: KinLightExpression
+    let phase: Double
+    let size: CGFloat
+
+    var body: some View {
+        if expression.mode != .rest {
+            let intensity = KinLightEmission.intensity(mode: expression.mode, phase: phase)
+            let accent = KinLightPalette(mode: expression.mode).accent
+            ZStack {
+                source(accent: accent)
+                    .blur(radius: size * 0.011)
+                    .opacity(intensity * 0.38)
+                source(accent: accent)
+                    .blur(radius: size * 0.0035)
+                    .opacity(intensity * 0.76)
+            }
+            .mask {
+                RadialGradient(colors: [.clear, .white], center: .center,
+                    startRadius: size * KinLightEffectsGeometry.protectedCoreRadius,
+                    endRadius: size * 0.25)
+            }
+            .blendMode(.screen)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+        }
+    }
+
+    private func source(accent: Color) -> some View {
+        Image(nsImage: image).resizable().renderingMode(.template)
+            .interpolation(.high).scaledToFit().foregroundStyle(accent)
     }
 }
 

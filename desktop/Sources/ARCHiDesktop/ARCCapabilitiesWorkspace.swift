@@ -11,6 +11,9 @@ struct ARCCapabilitiesWorkspace: View {
     var qwenModel: String = QwenAssistant.defaultModel
     var interactive: AnyView? = nil
     var prefersInteractive = false
+    var presentation: Presentation = .reasoning
+    enum Presentation { case reasoning, arena }
+    var gridStartUnavailableReason: String? = nil
     @State private var importError: String?
     @State private var page: Page = .solve
     private enum Page { case solve, interactive, results }
@@ -21,9 +24,9 @@ struct ARCCapabilitiesWorkspace: View {
                 VStack(alignment: .leading, spacing: 20) {
                     heading
                     HStack(spacing: 8) {
-                        pageButton("Solve a puzzle", page: .solve, identifier: "capabilities.page.solve")
-                        if interactive != nil { pageButton("Interactive ARC3", page: .interactive, identifier: "capabilities.page.arc3") }
-                        pageButton("Saved results · \(store.records.count)", page: .results, identifier: "capabilities.page.results")
+                        pageButton(presentation == .arena ? "Pattern Trials" : "Grid tools", page: .solve, identifier: "capabilities.page.solve")
+                        if interactive != nil { pageButton(presentation == .arena ? "World Trials" : "Local environments", page: .interactive, identifier: "capabilities.page.arc3") }
+                        pageButton("\(presentation == .arena ? "Trial records" : "Saved results") · \(store.records.count)", page: .results, identifier: "capabilities.page.results")
                         Spacer(minLength: 0)
                     }
                     if let error = importError ?? store.lastError {
@@ -37,12 +40,22 @@ struct ARCCapabilitiesWorkspace: View {
                             .accessibilityIdentifier("capabilities.selection-notice")
                     }
                     if page == .solve {
+                        if let reason = gridStartUnavailableReason {
+                            Text(reason).font(.callout).foregroundStyle(.secondary)
+                                .accessibilityIdentifier("capabilities.grid-unavailable")
+                            if interactive != nil {
+                                Button("Return to World Trials") { page = .interactive }
+                                    .accessibilityIdentifier("capabilities.return-arc3")
+                            }
+                        }
                         ARCSolverPanel(store: store, onEvaluation: onEvaluation,
                             onOpenUsage: onOpenUsage, onOpenGraph: onOpenGraph,
-                            onShowQwen: { reader.scrollTo("arc-qwen-panel", anchor: .top) })
+                            onShowQwen: { reader.scrollTo("arc-qwen-panel", anchor: .top) },
+                            startUnavailableReason: gridStartUnavailableReason, isArenaTrial: presentation == .arena)
                             .id("arc-solver-panel")
                         ARCQwenProposalPanel(store: store, model: qwenModel, onEvaluation: onEvaluation,
-                            onOpenUsage: onOpenUsage, onOpenGraph: onOpenGraph)
+                            onOpenUsage: onOpenUsage, onOpenGraph: onOpenGraph,
+                            startUnavailableReason: gridStartUnavailableReason)
                             .id("arc-qwen-panel")
                     } else if page == .interactive {
                         interactive
@@ -92,11 +105,20 @@ struct ARCCapabilitiesWorkspace: View {
 
     private var heading: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("ARC").font(.system(size: 28, weight: .medium, design: .rounded))
-            Text("ARCHi’s reasoning capabilities. Solve grids, explore environments, and review results.")
+            Text(presentation == .arena ? "ARCHi Trials" : "Reasoning tools").font(.system(size: 28, weight: .medium, design: .rounded))
+            Text(presentation == .arena ? "Find a pattern. Try an action. See what holds up."
+                 : "Inspect the examples, environment controls, and evidence behind a task.")
                 .foregroundStyle(WorkspaceTheme.muted)
-            Text("Use ARC from Chat or your Seed’s chat bubble. Share an ARC JSON task and ask “solve this ARC puzzle”, or choose ARC task beside your message.")
+            Text(presentation == .arena
+                 ? "Discover patterns and explore unfamiliar worlds with ARCHi. Choose a trial below; nothing starts until you ask."
+                 : "Everyday work stays in Chat and Work together. These controls are available when you want to inspect or run a specific grid or environment task.")
                 .font(.callout).foregroundStyle(.secondary)
+            if presentation == .arena {
+                DisclosureGroup("Sources & trial records") {
+                    Text("ARCHi’s trial experience uses ARC-format grid tasks and installed ARC3 environments. Original source names, versions and evidence remain in the records. Local trial results are not official ARC Prize scores. Pattern solving and World Trial exploration use no model tokens; Qwen is a separate choice.")
+                        .font(.caption).foregroundStyle(.secondary).padding(.top, 6)
+                }.font(.caption).accessibilityIdentifier("arena.arc.scope")
+            }
             Label("Local rule search · Optional Qwen proposals", systemImage: "desktopcomputer")
                 .font(.caption).foregroundStyle(WorkspaceTheme.accent)
                 .accessibilityIdentifier("capabilities.local-status")
@@ -181,10 +203,11 @@ struct ARCCapabilitiesWorkspace: View {
                 Button("Run again", systemImage: "arrow.clockwise") {
                     page = .solve
                     store.clearRecordSelection()
+                    guard gridStartUnavailableReason == nil else { return }
                     store.replaySolver(recordID: record.id, onEvaluation: onEvaluation)
                 }
                 .buttonStyle(WorkspaceActionStyle())
-                .disabled(store.isSolving || store.isProposing)
+                .disabled(store.isSolving || store.isProposing || gridStartUnavailableReason != nil)
                 .help("Repeat this retained task with the local solver and compare its trace.")
                 .accessibilityIdentifier("capabilities.solver.replay.\(record.id)")
                 Text("Exact counts above come from the independent checker. A training fit or matching replay does not establish a correct test answer.")

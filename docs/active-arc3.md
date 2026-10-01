@@ -27,7 +27,7 @@ Home exposes the same ARC action menu as the assistant surfaces. An active ARC t
 | `/arc3 explore` or `explore this arc3 environment` | Explore an already started session for up to eight actions, within its remaining budget. |
 | `/arc3 stop` | Stop the current operation/session and retain its record. |
 
-An exploration batch chooses the least previously tried legal action for the current visible frame. Ties follow a deterministic order. Action 6 uses a fixed 4×4 grid of points. Each action is checked again against the latest observation. This is a small observation-driven explorer, with no LLM planner or generated-code execution lane.
+An exploration batch now uses a bounded graph of validated observations, observed routes toward untried actions, and visible color-region centers with a fixed grid fallback for Action 6. Native numerical adaptation selects retain, expand or repair approaches from attributable environment outcomes. The complete plan is recomputed against the current owner evidence before each dispatch. See [Native numerical ARC3 adaptation](native-numerical-arc3.md) for the update mathematics, evidence boundaries and remaining limits. This deterministic local planner uses no LLM or generated-code execution lane.
 
 ## Observation, prediction, action, outcome
 

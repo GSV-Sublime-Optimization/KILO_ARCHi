@@ -34,8 +34,11 @@ enum QwenFailure: Error, LocalizedError, Equatable {
 /// executor, configurable remote endpoint, or cloud fallback are provided.
 @MainActor
 final class QwenAssistant: AssistantClient, LocalRoleClient {
+    // This describes ARCHi's api/chat adapter; it is not a claim about every
+    // possible Qwen runtime or an activation observation from this model.
+    let representationAccess: LocalRepresentationAccess = .outputOnly
     static let defaultModel = "qwen3.5:9b"
-    static let supportedModels = [defaultModel, "qwen3:8b"]
+    static let supportedModels = LocalModelCatalog.supportedModels
     static let maximumInputBytes = 24_000
     private(set) var metadata: QwenModelMetadata?
     let model: String
@@ -51,6 +54,35 @@ final class QwenAssistant: AssistantClient, LocalRoleClient {
         self.model = model
         self.configuration = configuration.copy() as! URLSessionConfiguration
         self.runtime = runtime
+    }
+
+    /// Read only the running local service's inventory. This never launches a
+    /// runtime or loads/downloads a model, and does not verify a model session.
+    static func discoverInstalledModels(configuration: URLSessionConfiguration = .ephemeral) async throws -> [QwenModelMetadata] {
+        let config = localConfiguration(configuration, requestTimeout: 3, resourceTimeout: 5)
+        let connection = URLSession(configuration: config)
+        defer { connection.invalidateAndCancel() }
+        var request = URLRequest(url: URL(string: "http://127.0.0.1:11434/api/tags")!,
+                                 cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 3)
+        request.httpMethod = "GET"
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        do {
+            try Task.checkCancellation()
+            let (bytes, response) = try await connection.bytes(for: request, delegate: QwenRedirectPolicy())
+            try Task.checkCancellation()
+            try validate(response, for: request)
+            guard response.expectedContentLength <= Int64(LocalModelCatalog.maximumResponseBytes) else {
+                throw QwenFailure.invalidResponse
+            }
+            var data = Data()
+            for try await byte in bytes {
+                try Task.checkCancellation()
+                guard data.count < LocalModelCatalog.maximumResponseBytes else { throw QwenFailure.invalidResponse }
+                data.append(byte)
+            }
+            try Task.checkCancellation()
+            return try LocalModelCatalog.installedModels(from: data)
+        } catch { throw failure(error) }
     }
 
     func connect() async throws {
@@ -78,7 +110,8 @@ final class QwenAssistant: AssistantClient, LocalRoleClient {
     func reply(to request: AssistantRequest, onEvent: @escaping @MainActor (AssistantEvent) -> Void) async throws {
         guard request.hasValidSelection, request.hasValidRevisionTarget else { throw QwenFailure.invalidResponse }
         guard request.hasValidLocalLessons, request.hasValidLocalConversation, request.hasValidLocalProfile,
-              request.hasValidLocalControl else { throw QwenFailure.invalidResponse }
+              request.hasValidLocalControl, request.hasValidLocalKnowledge, request.hasValidLocalProcedureKnowledge,
+              request.hasValidLocalMethodDraft, request.hasValidLocalConceptDraft else { throw QwenFailure.invalidResponse }
         guard metadata != nil else { throw QwenFailure.unavailable }
         guard !busy else { throw QwenFailure.busy }
         let input = request.localInput
@@ -86,6 +119,7 @@ final class QwenAssistant: AssistantClient, LocalRoleClient {
             + (request.localReading == nil ? "" : "\n" + AssistantInstructions.documentReadingText)
             + (request.localLessons.isEmpty ? "" : "\n" + LocalLessonGuidance.text)
             + (request.localConversation.isEmpty ? "" : "\n" + LocalConversationGuidance.text)
+            + (request.localKnowledge == nil ? "" : "\n" + LocalKnowledgeGuidance.text)
         guard !request.prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               input.utf8.count + system.utf8.count <= Self.maximumInputBytes else {
             throw QwenFailure.contextLimit
@@ -218,6 +252,15 @@ final class QwenAssistant: AssistantClient, LocalRoleClient {
     func shutdown() async { disconnect() }
 
     private func beginSession() -> URLSession {
+        let connection = URLSession(configuration: Self.localConfiguration(configuration))
+        session = connection
+        busy = true
+        return connection
+    }
+
+    private static func localConfiguration(_ configuration: URLSessionConfiguration,
+                                           requestTimeout: TimeInterval = 60,
+                                           resourceTimeout: TimeInterval = 180) -> URLSessionConfiguration {
         let config = configuration.copy() as! URLSessionConfiguration
         config.httpCookieStorage = nil
         config.httpShouldSetCookies = false
@@ -225,15 +268,13 @@ final class QwenAssistant: AssistantClient, LocalRoleClient {
         config.urlCache = nil
         config.requestCachePolicy = .reloadIgnoringLocalCacheData
         config.httpAdditionalHeaders = [:]
-        config.connectionProxyDictionary = ["HTTPEnable": 0, "HTTPSEnable": 0, "SOCKSEnable": 0]
+        config.connectionProxyDictionary = ["HTTPEnable": 0, "HTTPSEnable": 0, "SOCKSEnable": 0,
+                                           "ProxyAutoConfigEnable": 0, "ProxyAutoDiscoveryEnable": 0]
         config.waitsForConnectivity = false
-        config.timeoutIntervalForRequest = 60
-        config.timeoutIntervalForResource = 180
+        config.timeoutIntervalForRequest = requestTimeout
+        config.timeoutIntervalForResource = resourceTimeout
         config.httpMaximumConnectionsPerHost = 1
-        let connection = URLSession(configuration: config)
-        session = connection
-        busy = true
-        return connection
+        return config
     }
 
     private func finishSession(_ connection: URLSession, owner: UInt64) {
@@ -254,27 +295,25 @@ final class QwenAssistant: AssistantClient, LocalRoleClient {
 
     private func verifyModel(using connection: URLSession, owner: UInt64) async throws -> QwenModelMetadata {
         let tags = try await json(path: "api/tags", using: connection, owner: owner)
-        guard let models = tags["models"]?.array, models.count <= 512 else { throw QwenFailure.invalidResponse }
+        guard let models = tags["models"]?.array, models.count <= LocalModelCatalog.maximumTagCount else { throw QwenFailure.invalidResponse }
         let matches = models.filter { $0["name"]?.string == model && $0["model"]?.string == model }
         guard matches.count == 1, let tag = matches.first else { throw QwenFailure.modelUnavailable }
-        let expectedFamily = model == Self.defaultModel ? "qwen35" : "qwen3"
-        guard Self.isLocal(tag), tag["details"]?["format"]?.string == "gguf",
-              tag["details"]?["family"]?.string == expectedFamily,
-              let digest = tag["digest"]?.string,
-              digest.range(of: "^[a-fA-F0-9]{64}$", options: .regularExpression) != nil else { throw QwenFailure.nonLocalModel }
+        let identity = try LocalModelCatalog.tagIdentity(tag, model: model)
+        let expectedFamily = identity.family
         let info = try await json(path: "api/show", body: ["model": .string(model), "verbose": .bool(false)],
                                   using: connection, owner: owner)
-        guard Self.isLocal(info), info["details"]?["format"]?.string == "gguf",
+        guard LocalModelCatalog.isLocal(info), info["details"]?["format"]?.string == "gguf",
               info["details"]?["family"]?.string == expectedFamily,
               info["model_info"]?["general.architecture"]?.string == expectedFamily,
               info["capabilities"]?.array?.contains(.string("completion")) == true,
+              info["capabilities"]?.array?.contains(.string("cloud")) == false,
               info["messages"] == nil || info["messages"]?.array?.isEmpty == true,
               let size = info["details"]?["parameter_size"]?.string, size.utf8.count <= 80,
               let quantization = info["details"]?["quantization_level"]?.string, quantization.utf8.count <= 80 else {
             throw QwenFailure.nonLocalModel
         }
         return QwenModelMetadata(name: model, family: expectedFamily, parameterSize: size,
-                                 quantization: quantization, digest: digest)
+                                 quantization: quantization, digest: identity.digest)
     }
 
     private func json(path: String, body: [String: JSONValue]? = nil,
@@ -310,10 +349,6 @@ final class QwenAssistant: AssistantClient, LocalRoleClient {
             if (300..<400).contains(http.statusCode) { throw QwenFailure.nonLocalModel }
             throw QwenFailure.generationFailed
         }
-    }
-
-    private static func isLocal(_ value: JSONValue) -> Bool {
-        ["remote_host", "remote_model"].allSatisfy { value[$0] == nil || value[$0]?.string == "" }
     }
 
     private static func failure(_ error: Error) -> Error {

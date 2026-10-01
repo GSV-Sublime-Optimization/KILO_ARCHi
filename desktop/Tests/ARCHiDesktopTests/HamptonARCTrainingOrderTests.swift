@@ -68,6 +68,101 @@ final class HamptonARCTrainingOrderTests: XCTestCase {
         XCTAssertEqual(first.observationCount, events.count)
     }
 
+    func testCostModeIsExplicitAndLegacyRejectsCostTelemetryWithoutMutation() throws {
+        XCTAssertEqual(HamptonARCTrainingOrder.version, "hampton-arc-training-order-v1-beta11")
+        XCTAssertEqual(HamptonARCTrainingOrder.costAwareVersion, "hampton-arc-training-order-v2-cost-beta11")
+        var legacy = try HamptonARCTrainingOrder(exampleCount: 2)
+        var explicitLegacy = try HamptonARCTrainingOrder(exampleCount: 2, costAware: false)
+        try legacy.observe(index: 1, falsified: true)
+        try explicitLegacy.observe(index: 1, falsified: true)
+        XCTAssertEqual(legacy, explicitLegacy)
+        let saved = legacy
+        XCTAssertThrowsError(try legacy.observe(index: 0, falsified: true, cellOperations: 0)) {
+            XCTAssertEqual($0 as? HamptonARCTrainingOrderError, .unexpectedCellOperations)
+        }
+        XCTAssertEqual(legacy, saved)
+    }
+
+    func testCostModePrioritizesCheaperChecksAfterTheSameObservedOutcomes() throws {
+        var state = try HamptonARCTrainingOrder(exampleCount: 2, costAware: true)
+        XCTAssertEqual(state.order, [0, 1])
+        for falsified in [false, true] {
+            try state.observe(index: 0, falsified: falsified, cellOperations: 100)
+            try state.observe(index: 1, falsified: falsified, cellOperations: 1)
+        }
+        XCTAssertEqual(state.order, [1, 0], "Identical falsification evidence is ranked by measured cell work.")
+        XCTAssertEqual(state.observationCount, 4)
+    }
+
+    func testCostModeBalancesFalsificationEvidenceAgainstObservedWork() throws {
+        var state = try HamptonARCTrainingOrder(exampleCount: 2, costAware: true)
+        try state.observe(index: 0, falsified: true, cellOperations: 199)
+        try state.observe(index: 1, falsified: false, cellOperations: 1)
+        XCTAssertEqual(state.order, [1, 0], "A high falsification rate alone cannot hide an expensive check.")
+    }
+
+    func testCostModeRejectsMissingAndInvalidObservationsBeforeAnyMutation() throws {
+        var state = try HamptonARCTrainingOrder(exampleCount: 2, costAware: true)
+        try state.observe(index: 1, falsified: true, cellOperations: 4)
+        let saved = state
+        XCTAssertThrowsError(try state.observe(index: 0, falsified: true)) {
+            XCTAssertEqual($0 as? HamptonARCTrainingOrderError, .missingCellOperations)
+        }
+        XCTAssertEqual(state, saved)
+        for cost in [-1, HamptonARCTrainingOrder.maximumCellOperationsPerCheck + 1, Int.max] {
+            XCTAssertThrowsError(try state.observe(index: 0, falsified: true, cellOperations: cost)) {
+                XCTAssertEqual($0 as? HamptonARCTrainingOrderError, .invalidCellOperations)
+            }
+            XCTAssertEqual(state, saved)
+        }
+        XCTAssertThrowsError(try state.observe(index: 2, falsified: true, cellOperations: 1)) {
+            XCTAssertEqual($0 as? HamptonARCTrainingOrderError, .invalidExampleIndex)
+        }
+        XCTAssertEqual(state, saved)
+    }
+
+    func testCostModeUsesCeilingDivisionAndStableTies() throws {
+        var state = try HamptonARCTrainingOrder(exampleCount: 2, costAware: true)
+        // Both estimates are ceil(three-or-four operations / two observations)
+        // == 2. Fractional or rounded-down estimates would break this tie.
+        try state.observe(index: 0, falsified: true, cellOperations: 3)
+        try state.observe(index: 1, falsified: true, cellOperations: 2)
+        XCTAssertEqual(state.order, [0, 1])
+
+        var zeroCost = try HamptonARCTrainingOrder(exampleCount: 2, costAware: true)
+        try zeroCost.observe(index: 0, falsified: true, cellOperations: 0)
+        try zeroCost.observe(index: 0, falsified: false, cellOperations: 0)
+        XCTAssertEqual(zeroCost.order, [0, 1], "Zero measured work floors the cost estimate at one and preserves the posterior tie.")
+    }
+
+    func testCostModeRemainsExactAtMaximumObservationAndOperationBounds() throws {
+        var state = try HamptonARCTrainingOrder(exampleCount: 2, costAware: true)
+        for _ in 0..<HamptonARCTrainingOrder.maximumObservationsPerExample {
+            try state.observe(index: 0, falsified: true, cellOperations: HamptonARCTrainingOrder.maximumCellOperationsPerCheck)
+            try state.observe(index: 1, falsified: true, cellOperations: HamptonARCTrainingOrder.maximumCellOperationsPerCheck)
+        }
+        XCTAssertEqual(state.order, [0, 1])
+        XCTAssertEqual(state.observationCount, 3_000)
+        let saved = state
+        XCTAssertThrowsError(try state.observe(index: 1, falsified: false, cellOperations: 1)) {
+            XCTAssertEqual($0 as? HamptonARCTrainingOrderError, .observationLimitExceeded)
+        }
+        XCTAssertEqual(state, saved)
+    }
+
+    func testCostModeReplayRequiresAndReconstructsMeasuredWork() throws {
+        let events: [(Int, Bool, Int)] = [(0, false, 4), (1, true, 200), (1, false, 0), (0, true, 3)]
+        var first = try HamptonARCTrainingOrder(exampleCount: 2, costAware: true)
+        var replay = try HamptonARCTrainingOrder(exampleCount: 2, costAware: true)
+        for (index, falsified, cells) in events {
+            try first.observe(index: index, falsified: falsified, cellOperations: cells)
+            try replay.observe(index: index, falsified: falsified, cellOperations: cells)
+        }
+        XCTAssertEqual(first, replay)
+        XCTAssertEqual(first.order, replay.order)
+        XCTAssertEqual(first.observationCount, events.count)
+    }
+
     func testMatchedAblationUsesFewerChecksWithIdenticalCompleteCandidateDecisions() throws {
         // Controlled comparison outcomes, not a claim about an ARC dataset:
         // 150 rules fail only example 20; the final 20 rules pass every example.

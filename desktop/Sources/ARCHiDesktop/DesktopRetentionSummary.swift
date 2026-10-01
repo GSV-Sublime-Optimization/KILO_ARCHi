@@ -49,15 +49,21 @@ struct DesktopRetentionSummary: View {
                         destination: .steward, action: "Review usage", id: "steward")
                     Divider()
                     retentionRow("Document methods & reviews", state: "\(store.documentProcedures.latestProcedures.count) methods · \(store.documentProcedures.procedures.count) versions",
-                        detail: "Keep procedure saves your authored instruction and review references in a separate local file. Document history retains outcomes and counterexamples, without passage or reply text. These files are not included in companion recovery packages. Select a method explicitly before sending it through your chosen assistant route.",
+                        detail: "Keep procedure saves your authored instruction and review references in a separate local file. Document history retains outcomes and counterexamples, without passage or reply text. New companion backups include both files. Select a method explicitly before sending it through your chosen assistant route.",
                         destination: .context, action: "Review procedures", id: "procedures")
+                    Divider()
+                    retentionRow("Reading library", state: "\(store.readingSources.sources.count) text copies · \(store.readingSources.knowledgePages.count) page versions · \(store.readingSources.knowledgeLinks.count) connection versions",
+                        detail: "Keep current copy or Add text file retains explicit local text snapshots. Companion backups include these private source texts and all authored page and connection versions. Explicitly selected pages can be used in local chat; they do not automatically become facts or lessons. Selections are temporary; originals are not watched or backed up. Replace or Forget invalidates dependent reading context and prevents reuse of linked lessons.",
+                        destination: .context, action: "Review reading copies", id: "reading-sources")
                     Divider()
                     retentionRow("ARC evidence", state: "\(store.arcCapabilities.records.count) retained evaluations",
                         detail: "Successful imports retain frozen tasks and raw predictions locally for re-scoring. The synthetic demonstration also saves its evidence. These records do not change your companion or enter model context; companion recovery packages do not include them.",
                         destination: .capabilities, action: "Review evidence", id: "capabilities")
                     Divider()
+                    Text("Local models and work preference are saved on this Mac, separately from your companion. Your saved assistant route controls whether requests can go to Codex; changing local models does not change that route.")
+                        .font(.system(size: 12)).foregroundStyle(.secondary).lineSpacing(3)
                     Text("Only this visit").font(.system(size: 13, weight: .semibold))
-                    Text("Typed messages, replies, conversation, voice drafts, model selections and companion placement are temporary. Copy any chat text you want to keep before quitting. Voice input is not saved as audio.")
+                    Text("Typed messages, replies, conversation, voice drafts and companion placement are temporary. Copy any chat text you want to keep before quitting. Voice input is not saved as audio.")
                         .font(.system(size: 12)).foregroundStyle(.secondary).lineSpacing(3)
                         .accessibilityIdentifier("desktop-retention.temporary")
                     Text("Saved means the last successful read or write by this app, not continuous disk verification. ARCHi keeps the existing companion profile previously named Development Review. Older preview saves stay preserved separately. A lessons export alone is not a complete companion backup.")

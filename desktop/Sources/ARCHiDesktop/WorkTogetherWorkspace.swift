@@ -10,6 +10,7 @@ struct WorkTogetherWorkspace: View {
     @State private var showsSettings = false
     @State private var showsInterest = false
     @State private var showsMeetingNotes = false
+    @State private var pastedDocumentContext: PastedDocumentImportContext?
     @FocusState private var composerFocused: Bool
 
     var body: some View {
@@ -29,6 +30,7 @@ struct WorkTogetherWorkspace: View {
             }
         }
         .sheet(isPresented: $showsMeetingNotes) { MeetingNotesImportSheet(store: store) }
+        .sheet(item: $pastedDocumentContext) { PastedDocumentImportSheet(store: store, context: $0) }
     }
 
     private var workbenchHeader: some View {
@@ -105,7 +107,8 @@ struct WorkTogetherWorkspace: View {
                 Text(store.sourceName ?? "Your working copy")
                     .font(.system(size: 12, weight: .medium)).lineLimit(1)
                     .help(store.sourceName ?? "Choose a UTF-8 text document")
-                Text(store.hasUnexportedWorkingCopy ? "Session edits · Export to keep"
+                Text(store.hasUnexportedWorkingCopy ? (store.workingCopyIsPasted ? "Pasted copy · Export to keep" : "Session edits · Export to keep")
+                     : store.workingCopyIsPasted ? "Pasted copy exported"
                      : store.desktopInterestSource != nil ? "Captured copy · original window unchanged" : "Original file unchanged")
                     .font(.system(size: 10)).foregroundStyle(.secondary)
                     .accessibilityIdentifier("work.persistence-status")
@@ -124,6 +127,8 @@ struct WorkTogetherWorkspace: View {
                 .help("Save a separate text draft")
             Menu {
                 Button(store.sourceName == nil ? "Choose document…" : "Change document…") { store.chooseDocument() }
+                Button("Paste text…") { pastedDocumentContext = store.beginPastedDocumentImport() }
+                    .disabled(!store.canBeginPastedDocumentImport)
                 Button("Import meeting notes…") { showsMeetingNotes = true }
                 Button("Prepare meeting digest") { store.prepareMeetingDigest() }
                     .disabled(store.sourceName == nil || store.isWorking)
@@ -143,12 +148,15 @@ struct WorkTogetherWorkspace: View {
                 .font(.system(size: 38, weight: .ultraLight)).foregroundStyle(WorkspaceTheme.accent)
             Text("Bring something into focus.")
                 .font(.system(size: 19, weight: .medium, design: .rounded))
-            Text("Point ARCHi at a window to read a local snapshot, or choose a text document. Then select a passage to work on together.")
+            Text("Choose a document, paste text, or point ARCHi at a window. Then select a passage to work on together.")
                 .font(.system(size: 12)).foregroundStyle(.secondary)
                 .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
             Button("Choose document…", systemImage: "plus") { store.chooseDocument() }
                 .buttonStyle(.borderedProminent)
                 .accessibilityIdentifier("work.choose-document")
+            Button("Paste text…", systemImage: "doc.on.clipboard") { pastedDocumentContext = store.beginPastedDocumentImport() }
+                .buttonStyle(.bordered).disabled(!store.canBeginPastedDocumentImport)
+                .accessibilityIdentifier("work.paste-text")
             Button("Import meeting notes…", systemImage: "text.bubble") { showsMeetingNotes = true }
                 .buttonStyle(.bordered).accessibilityIdentifier("work.import-meeting-notes")
             Button("Point at a window", systemImage: "scope") { store.beginDesktopInterest() }
@@ -509,6 +517,16 @@ struct WorkTogetherReplyLane: View {
                     DocumentWorkCheckView(verification: store.documentVerification(proposal))
                     passage("Before", text: proposal.target.selection.quote, proposed: false)
                     passage("After", text: proposal.replacement, proposed: true)
+                    if result.urlBoundaryRestoration != nil, let original = result.originalRevision {
+                        Text("ARCHi restored the source’s spacing after one link. Review this version before Apply.")
+                            .font(.caption).foregroundStyle(.secondary)
+                            .accessibilityIdentifier("work.url-spacing-restored.\(provider.name.lowercased())")
+                        DisclosureGroup("Original model wording") {
+                            passage("Original proposal", text: original.replacement, proposed: false)
+                        }
+                        .font(.caption)
+                        .accessibilityIdentifier("work.original-revision.\(provider.name.lowercased())")
+                    }
                 } else {
                     Text(proposal.decision == .clarify ? "A little more detail would help." : "No change proposed.")
                         .font(.system(size: 13, weight: .medium))

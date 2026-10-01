@@ -180,17 +180,30 @@ struct ARCSolverEvidence: Codable, Equatable, Sendable {
     }
 
     private func traceIsConsistent(trainingCount: Int) -> Bool {
-        guard run.attemptedPrograms >= 0, configuration.maxTraceEntries >= 0,
+        guard run.attemptedPrograms >= 0, (0...1_500).contains(configuration.maxTraceEntries),
+              (0...20_000_000).contains(configuration.maxCellOperations),
               run.attemptedPrograms <= ARCSymbolicSolver.catalogProgramCount(for: configuration),
               run.trace.count == min(run.attemptedPrograms, configuration.maxTraceEntries),
               run.traceTruncated == (run.attemptedPrograms > configuration.maxTraceEntries),
               run.outcome != .noMatch || run.matchingPrograms == 0 else { return false }
         let fits = run.trace.filter { $0.status == .matched || $0.status == .predictionUndefined }.map(\.programID)
         guard Array(run.programIDs.prefix(fits.count)) == fits else { return false }
-        guard var schedule = try? HamptonARCTrainingOrder(exampleCount: trainingCount) else { return false }
+        let measuresCost = configuration.trainingOrder == .costAware
+        guard var schedule = try? HamptonARCTrainingOrder(exampleCount: trainingCount, costAware: measuresCost) else { return false }
+        var tracedWork = 0
         for (index, entry) in run.trace.enumerated() {
             let visited = entry.checkedTrainingIndices
-            let expectedOrder = configuration.trainingOrder == .adaptive ? schedule.order : Array(0..<trainingCount)
+            let expectedOrder = configuration.trainingOrder == .fixed ? Array(0..<trainingCount) : schedule.order
+            guard visited.count <= trainingCount else { return false }
+            if measuresCost {
+                guard let work = entry.checkedTrainingCellOperations, work.count == visited.count,
+                      work.allSatisfy({ (0...configuration.maxCellOperations).contains($0) }) else { return false }
+                tracedWork += work.reduce(0, +)
+                guard tracedWork <= run.cellOperations else { return false }
+            } else if entry.checkedTrainingCellOperations != nil {
+                // Do not reinterpret legacy evidence as measured-cost telemetry.
+                return false
+            }
             guard (0...trainingCount).contains(entry.trainingExamplesChecked),
                   Set(visited).count == visited.count,
                   visited.allSatisfy({ (0..<trainingCount).contains($0) }),
@@ -214,7 +227,7 @@ struct ARCSolverEvidence: Codable, Equatable, Sendable {
                 for (position, example) in visited.enumerated() {
                     let rejected = position == visited.count - 1 &&
                         (entry.status == .trainingMismatch || entry.status == .trainingUndefined)
-                    do { try schedule.observe(index: example, falsified: rejected) }
+                    do { try schedule.observe(index: example, falsified: rejected, cellOperations: entry.checkedTrainingCellOperations?[position]) }
                     catch { return false }
                 }
             }

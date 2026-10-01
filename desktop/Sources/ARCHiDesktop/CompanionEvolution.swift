@@ -236,7 +236,7 @@ struct EvolutionHistoryEntry: Equatable, Identifiable, Sendable {
 
 @MainActor
 final class EvolutionStore: ObservableObject {
-    static let maximumUsefulReceipts = 32
+    nonisolated static let maximumUsefulReceipts = 32
     static let maximumHistoryEntries = 32
     static let maximumSaveBytes = 32 * 1024
     static let schema = "archi-companion-evolution/v7"
@@ -276,6 +276,8 @@ final class EvolutionStore: ObservableObject {
     // does not read disk, so a first Save expects an absent destination.
     private var saveBaseline: Data?
     private var excludedDocumentRequests = Set<UUID>()
+    private var excludedReadingRequests = Set<UUID>()
+    private var excludedOutcomeRequests: Set<UUID> { excludedDocumentRequests.union(excludedReadingRequests) }
 
     /// A clean initial session does not establish that an earlier save was
     /// loaded. Only successful explicit Load/Save creates a known baseline.
@@ -397,7 +399,7 @@ final class EvolutionStore: ObservableObject {
               sourceDigest != nil || receipt.provider == .qwen else {
             status = "Only a completed local conversation or shared-document request with valid evidence can count."; return false
         }
-        guard !excludedDocumentRequests.contains(requestID) else { return false }
+        guard !excludedOutcomeRequests.contains(requestID) else { return false }
         let binding = EvolutionRequestBinding(receipt: receipt)
         let lessonUse: EvolutionLessonUse?
         if let snapshot = confirmedLesson {
@@ -430,10 +432,22 @@ final class EvolutionStore: ObservableObject {
     /// saving unrelated session choices or changing a previously kept body.
     func setDocumentFeedbackExclusions(_ ids: Set<UUID>) {
         excludedDocumentRequests = ids
+        reconcileOutcomeFeedback()
+    }
+
+    /// Reading and revision retain their own review meanings and owners. Their
+    /// invalidation sets are combined only at this shared development consumer.
+    func setReadingFeedbackExclusions(_ ids: Set<UUID>) {
+        excludedReadingRequests = ids
+        reconcileOutcomeFeedback()
+    }
+
+    private func reconcileOutcomeFeedback() {
+        let excluded = excludedOutcomeRequests
         let priorCount = usefulReceipts.count
-        usefulReceipts.removeAll { ids.contains($0.requestID) }
+        usefulReceipts.removeAll { excluded.contains($0.requestID) }
         if usefulReceipts.count != priorCount {
-            changed("Document feedback withdrawn from this learning review. Save evolution to retain the withdrawal; your appearance stays the same.")
+            changed("Corrected or withdrawn work removed from this learning review. Save evolution to retain the withdrawal; your chosen appearance stays the same.")
         }
     }
 
@@ -441,7 +455,7 @@ final class EvolutionStore: ObservableObject {
     func markDocumentWorkUseful(requestID: UUID, sourceDigest: String,
                                 requestBinding: EvolutionRequestBinding,
                                 confirmedLesson: EvolutionLessonUse? = nil) -> Bool {
-        guard !excludedDocumentRequests.contains(requestID), Self.validDigest(sourceDigest), requestBinding.isValid else {
+        guard !excludedOutcomeRequests.contains(requestID), Self.validDigest(sourceDigest), requestBinding.isValid else {
             status = "This document outcome is unavailable for learning review."; return false
         }
         if let index = usefulReceipts.firstIndex(where: { $0.requestID == requestID }) {
@@ -780,7 +794,7 @@ final class EvolutionStore: ObservableObject {
             proposal = nil; previewFamily = nil; kinGrowthProposal = nil; revision &+= 1
             hasUnsavedChanges = false; requiresReplacement = false
             status = "Saved evolution choices loaded. Their receipt identifiers are retained records, not fresh assistant observations."
-            setDocumentFeedbackExclusions(excludedDocumentRequests)
+            reconcileOutcomeFeedback()
             return true
         } catch {
             requiresReplacement = true

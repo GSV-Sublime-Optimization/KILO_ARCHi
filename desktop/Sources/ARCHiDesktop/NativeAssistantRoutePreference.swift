@@ -7,7 +7,7 @@ struct NativeAssistantRoutePreference {
     let defaults: UserDefaults
 
     func load() -> AssistantRoute {
-        guard let value = defaults.object(forKey: Self.key) else { return .native }
+        guard let value = defaults.object(forKey: Self.key) else { return .automatic }
         // An unreadable saved choice cannot newly authorize external delivery.
         guard let raw = value as? String, let route = AssistantRoute(rawValue: raw) else { return .automatic }
         return route

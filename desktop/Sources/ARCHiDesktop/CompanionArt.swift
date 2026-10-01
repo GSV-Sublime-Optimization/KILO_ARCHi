@@ -24,7 +24,10 @@ struct CompanionArt: View {
 
     var body: some View {
         Group {
-            if form == .hamptonSeed {
+            if form == .velaSeed || form == .velaLantern {
+                VelaCompanionArt(form: form, size: size, reduceMotion: reduceMotion,
+                    lightExpression: lightExpression, seedColor: seedColor)
+            } else if form == .hamptonSeed {
                 HamptonLiminalSeedArt(size: size, reduceMotion: reduceMotion, lightExpression: lightExpression, seedColor: seedColor)
             } else if form == .corePearl {
                 ArchiLightSeedArt(size: size, reduceMotion: reduceMotion, lightExpression: lightExpression)
@@ -83,6 +86,9 @@ struct CompanionArt: View {
         case .particle: ParticleLightFrame(phase: 0)
         case .particleSeed: KinCoreSeedFrame(phase: 0)
         case .hamptonSeed: HamptonLiminalSeedArt(size: size, reduceMotion: reduceMotion, lightExpression: lightExpression, seedColor: seedColor)
+        case .velaSeed, .velaLantern:
+            VelaCompanionArt(form: form, size: size, reduceMotion: reduceMotion,
+                lightExpression: lightExpression, seedColor: seedColor)
         case .corePearl, .orbitField, .lightForm: LightFormFrame(form: form, phase: 0)
         case .ribbon: ribbon
         case .ink: ink

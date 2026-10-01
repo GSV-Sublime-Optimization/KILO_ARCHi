@@ -61,11 +61,7 @@ struct WorkspaceView: View {
                         onOpenEvidence: { _ = store.openARCEvidenceForUsage(taskID: $0) },
                         canOpenEvidence: store.canOpenARCEvidenceForUsage)
                 } else if store.section == .capabilities {
-                    ARCCapabilitiesWorkspace(store: store.arcCapabilities, onEvaluation: store.recordARCEvaluation,
-                        onOpenUsage: { _ = store.openARCUsage(taskID: $0) },
-                        onOpenGraph: { _ = store.openARCGraph(evidenceID: $0) }, qwenModel: store.qwenModel,
-                        interactive: AnyView(ARC3Workspace(owner: store, session: store.arc3)),
-                        prefersInteractive: store.showsARC3Reply)
+                    ReasoningWorkspace(store: store, session: store.arc3)
                 } else if store.section == .play && store.allowsPlay {
                     PlayWorkspace(store: store, host: playHost)
                 } else {
@@ -87,6 +83,10 @@ struct WorkspaceView: View {
             }
             .background(WorkspaceTheme.background)
         }
+        // Body consumers share the selected authored pose. Cursor surfaces keep
+        // their explicit Seed-orb override outside this workspace.
+        .environment(\.liminalPointProgress, store.preferences.liminalPointProgress)
+        .environment(\.liminalLightExpression, store.kinLightExpression)
         .preferredColorScheme(store.preferences.workspaceAppearance.colorScheme)
         .tint(WorkspaceTheme.accent)
         // The native window owns the 880 × 640 content minimum.
@@ -152,7 +152,9 @@ struct WorkspaceView: View {
         return Button {
             // Native accessibility actions can arrive during a SwiftUI layout
             // callback. Navigate on the next event turn, after that update ends.
-            DispatchQueue.main.async { store.open(section) }
+            DispatchQueue.main.async {
+                section == .nodeLab ? store.openMemoryMap() : store.open(section)
+            }
         } label: {
             HStack(spacing: 11) {
                 Image(systemName: section == .connections ? "gearshape" : section.icon)
@@ -275,21 +277,24 @@ private struct AssistantWorkspace: View {
                             naturalVariation: store.presentationNaturalVariation, equipment: store.preferences.equipment,
                             lightExpression: store.kinLightExpression, seedColor: store.preferences.seedColor)
                         VStack(alignment: .leading, spacing: 5) {
-                            Text(store.activeQiMon == nil ? "Here, with you." : "\(store.activeQiMon?.name ?? "ARCHi") is here, with you.")
+                            Text(AskARCHiBrand.title)
                                 .font(.system(size: 23, weight: .medium, design: .rounded))
-                            if store.activeQiMon != nil {
-                                Button("Life with \(store.activeQiMon?.name ?? "your companion")") { store.open(.evolution) }
-                                    .buttonStyle(.borderless).font(.system(size: 11))
-                            } else {
-                                Text("Start with a thought. Add a document when it helps.")
-                                    .font(.system(size: 12)).foregroundStyle(.secondary)
-                            }
+                                .accessibilityIdentifier("assistant.title")
+                            Text(AskARCHiBrand.companionLine(name: store.activeQiMon?.name))
+                                .font(.system(size: 12, weight: .medium)).foregroundStyle(WorkspaceTheme.accent)
+                                .accessibilityIdentifier("assistant.companion")
+                            Text("Think something through, draw on memory, or work with a document.")
+                                .font(.system(size: 12)).foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
                         }
                         Spacer(minLength: 0)
                         AssistantTaskCue(activity: store.assistantActivity, quiet: store.preferences.quiet,
                             reduceMotion: store.preferences.reduceMotion)
                     }
-                    attachmentSummary
+                    if showsStartingPoints { startingPoints }
+                    if store.selectedKnowledgePages.isEmpty { attachmentSummary }
+                    KnowledgeChatContextView(store: store)
+                    PreparedDocumentProcedureView(store: store)
                     VoiceTranscriptPreview(voice: store.voiceInput)
                     AssistantReplyContent(store: store)
                 }
@@ -308,20 +313,63 @@ private struct AssistantWorkspace: View {
         .frame(minHeight: 0, maxHeight: .infinity)
     }
 
-    private var attachmentSummary: some View {
-        WorkspaceCard(inset: 12) {
+    // Existing owners establish whether there is any work or result to present.
+    // Never classify replies by their text: status and error messages stay visible.
+    private var showsStartingPoints: Bool {
+        !store.isWorking && store.assistantActivity == .idle && store.compareResults.isEmpty
+            && !store.showsARC3Reply && store.activeARCAnswer == nil
+            && store.localConversation.exchanges.isEmpty && store.sourceName == nil
+            && store.selectedKnowledgePages.isEmpty && store.preparedDocumentProcedure == nil
+            && store.textSelection == nil && store.replySourceSelection == nil && !store.voiceInput.isActive
+    }
+
+    private var startingPoints: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 12) { memoryStartingPoint; workStartingPoint }
+            VStack(alignment: .leading, spacing: 10) { memoryStartingPoint; workStartingPoint }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("assistant.starting-points")
+    }
+
+    private var memoryStartingPoint: some View {
+        Button("Memory map", systemImage: "point.3.connected.trianglepath.dotted") { store.openMemoryMap() }
+            .buttonStyle(WorkspaceActionStyle())
+            .accessibilityHint("Explore retained sources, linked knowledge and lessons.")
+            .accessibilityIdentifier("assistant.open-memory-map")
+    }
+
+    private var workStartingPoint: some View {
+        Button("Work together", systemImage: "doc.text.viewfinder") { store.open(.context) }
+            .buttonStyle(WorkspaceActionStyle())
+            .accessibilityHint("Open your document workspace and review tools.")
+            .accessibilityIdentifier("assistant.start-work")
+    }
+
+    @ViewBuilder private var attachmentSummary: some View {
+        if store.sourceName == nil {
             HStack(spacing: 10) {
-                Image(systemName: "doc.text").foregroundStyle(WorkspaceTheme.accent)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(store.sourceName ?? "Add a document")
-                        .font(.system(size: 12, weight: .medium)).lineLimit(1)
-                        .help(store.sourceName ?? "Choose a UTF-8 text file")
-                        .accessibilityIdentifier("assistant.attachment-name")
-                    Text(store.sourceName == nil ? "Optional · UTF-8 text" : "Full working copy shared with your next message")
-                        .font(.system(size: 10)).foregroundStyle(.secondary)
-                }
-                Spacer(minLength: 0)
-                if store.sourceName != nil {
+                Label("Add a document", systemImage: "paperclip")
+                    .font(.system(size: 12)).foregroundStyle(.secondary)
+                    .accessibilityIdentifier("assistant.attachment-name")
+                Text("Optional · UTF-8 text").font(.system(size: 10)).foregroundStyle(.secondary)
+                Spacer(minLength: 8)
+                Button("Choose…") { store.chooseDocument() }.buttonStyle(.borderless)
+                    .accessibilityLabel("Choose document")
+                    .accessibilityIdentifier("assistant.choose-document")
+            }.padding(.horizontal, 4).padding(.vertical, 3)
+            DesktopInterestSharingNotice(store: store)
+        } else if let name = store.sourceName {
+            WorkspaceCard(inset: 12) {
+                HStack(spacing: 10) {
+                    Image(systemName: "doc.text").foregroundStyle(WorkspaceTheme.accent)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(name).font(.system(size: 12, weight: .medium)).lineLimit(1)
+                            .help(name).accessibilityIdentifier("assistant.attachment-name")
+                        Text("Full working copy shared with your next message")
+                            .font(.system(size: 10)).foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 0)
                     Button("Work together", systemImage: "doc.text.viewfinder") { store.section = .context }
                         .buttonStyle(.bordered).controlSize(.small)
                         .accessibilityIdentifier("assistant.open-document")
@@ -331,12 +379,9 @@ private struct AssistantWorkspace: View {
                     } label: { Image(systemName: "ellipsis.circle") }
                     .menuStyle(.borderlessButton).fixedSize()
                     .accessibilityLabel("Shared document actions")
-                } else {
-                    Button("Choose…") { store.chooseDocument() }.buttonStyle(.bordered).controlSize(.small)
-                        .accessibilityLabel("Choose document")
                 }
+                DesktopInterestSharingNotice(store: store)
             }
-            DesktopInterestSharingNotice(store: store)
         }
     }
 }
@@ -435,7 +480,7 @@ private struct AssistantReplyContent: View {
                     AssistantReceiptDetails(receipt: receipt, onOpenGraph: { store.open(.nodeLab) })
                 }
             }
-            Text("Moving ARCHi or changing shared context stops the current reply.")
+            Text("Changing shared text or its selected passage stops the current reply. Moving ARCHi clears pointing cues and stops Point and explain.")
                 .font(.system(size: 10)).foregroundStyle(.secondary)
         }
         .textSelection(.enabled).frame(maxWidth: .infinity, alignment: .topLeading)
@@ -457,6 +502,7 @@ private struct AppearanceWorkspace: View {
             PersonalContextCard(store: store)
             SeedDesignTestCard(store: store)
             SeedAppearanceCard(store: store)
+            VelaEvolutionCard(store: store)
             QiMonCard(store: store)
             if !store.hasPersonalQiMon {
             HStack(spacing: 24) {
@@ -478,6 +524,7 @@ private struct AppearanceWorkspace: View {
             if store.keptQiMon?.character == .kin {
                 ProtoAppearanceCard(store: store)
             }
+            LiminalV008AppearanceCard(store: store)
             CompanionWardrobeCard(store: store)
             if store.activeQiMon != nil {
                 DisclosureGroup("Light & sound") { personalLightAbilities.padding(.top, 14) }
@@ -485,7 +532,7 @@ private struct AppearanceWorkspace: View {
             if store.canChooseStartingForm {
             DisclosureGroup("Explore more forms") {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 124, maximum: 190), spacing: 12)], spacing: 12) {
-                ForEach(CompanionForm.starterChoices.filter { $0 != .corePearl && $0 != .particleSeed && $0 != .hamptonSeed }) { form in
+                ForEach(CompanionForm.additionalFormChoices) { form in
                     Button {
                         store.chooseStartingForm(form)
                     } label: {
@@ -501,16 +548,17 @@ private struct AppearanceWorkspace: View {
                                 if store.presentationFamily == nil && form == store.presentationForm { Image(systemName: "checkmark.circle.fill").font(.system(size: 11)).foregroundStyle(WorkspaceTheme.accent) }
                             }
                             .frame(minHeight: 30)
-                            Text(form.isStillArtwork ? "Still artwork" : " ")
+                            Text(form == .velaLantern ? "Visual form study" : form.isStillArtwork ? "Still artwork" : " ")
                                 .font(.system(size: 10)).foregroundStyle(.secondary)
-                                .accessibilityHidden(!form.isStillArtwork)
+                                .accessibilityHidden(!form.isStillArtwork && form != .velaLantern)
                         }
                         .frame(maxWidth: .infinity).padding(.horizontal, 8).padding(.vertical, 14)
                         .background(store.presentationFamily == nil && form == store.presentationForm ? WorkspaceTheme.accent.opacity(0.30) : WorkspaceTheme.accent.opacity(0.08), in: RoundedRectangle(cornerRadius: 18))
                         .overlay(RoundedRectangle(cornerRadius: 18).stroke(store.presentationFamily == nil && form == store.presentationForm ? WorkspaceTheme.accent.opacity(0.65) : .secondary.opacity(0.12), lineWidth: 1))
                     }.buttonStyle(.plain)
                         .accessibilityLabel("Choose \(form.rawValue) form")
-                        .accessibilityHint(form.isStillArtwork ? "Still artwork for the same companion." : "Change the companion’s starting form.")
+                        .accessibilityHint(form == .velaLantern ? "Try a visual form study. This does not award growth."
+                            : form.isStillArtwork ? "Still artwork for the same companion." : "Change the companion’s starting form.")
                         .accessibilityAddTraits(store.presentationFamily == nil && form == store.presentationForm ? [.isSelected] : [])
                 }
             }
@@ -520,7 +568,7 @@ private struct AppearanceWorkspace: View {
                 if store.canChooseStartingForm && store.presentationForm == .companion && store.presentationFamily == nil {
                     SettingsRow(title: "Companion finish", detail: "Choose the original, soft Pearl or long-eared aqua Proto.", icon: "paintpalette") {
                         Picker("Companion finish", selection: $store.preferences.visualTreatment) {
-                            ForEach(CompanionVisualTreatment.allCases) { treatment in
+                            ForEach(CompanionVisualTreatment.allCases.filter { $0 != .liminalV008 }) { treatment in
                                 Text(treatment.rawValue).tag(treatment)
                             }
                         }
@@ -675,6 +723,9 @@ private struct MemoryWorkspace: View {
             }
             .buttonStyle(.bordered)
             .accessibilityIdentifier("memory.open-graph")
+            RelationshipMemoryCard(store: store)
+            RecordLookupCard(store: store)
+            KnowledgePagesCard(store: store)
             KeptLessonsCard(store: store)
             WorkspaceCard {
                 SettingsRow(title: "Temporary session context", detail: "Let local Qwen refer to useful excerpts from earlier questions during this visit.", icon: "text.bubble") {
@@ -731,7 +782,7 @@ private struct MemoryWorkspace: View {
             WorkspaceCard {
                 Label("Your choices are the starting point", systemImage: "hand.raised")
                     .font(.system(size: 15, weight: .medium))
-                Text("ARCHi saves the appearance, rhythm and lessons you explicitly keep in its settings file. Kept lessons go only to local Qwen when their scope matches. Temporary session context is separate. Send shares your message, the full shared document copy, and any selected passage with your connected assistant.")
+                Text("ARCHi saves the appearance, rhythm and lessons you explicitly keep in its settings file. Kept lessons go only to local Qwen when their scope matches. Temporary session context is separate. Send uses the context shown in Chat. With selected knowledge pages, only those pages and their passages supply source material to local Qwen; otherwise your shared document and selected passage accompany the message.")
                     .font(.system(size: 13)).foregroundStyle(.secondary).lineSpacing(5).padding(.top, 7)
                 Text("Turning the switch off does not erase saved choices. Forget saved preferences removes saved appearance and rhythm; withdraw lessons individually above.")
                     .font(.system(size: 11)).foregroundStyle(.secondary).padding(.top, 8)
@@ -802,7 +853,7 @@ private struct ConnectionsWorkspace: View {
             WorkspaceCard {
                 Text("Qwen at the core. Your choice of help.")
                     .font(.system(size: 21, weight: .medium, design: .rounded))
-                Text("Local Qwen is the default. Use Codex deliberately for an external reference, second opinion or alternative. A local failure never sends your work outside this Mac. Changing the route sends nothing.")
+                Text("Qwen runs locally. Choose a local-only route, Qwen-first fallback, or a comparison with Codex. The route description below explains what may leave this Mac. Changing the route sends nothing.")
                     .font(.system(size: 13)).foregroundStyle(.secondary).lineSpacing(4).padding(.top, 6)
                 Divider().padding(.vertical, 12)
                 AssistantRouteSelector(store: store)
@@ -1077,6 +1128,8 @@ private extension CompanionForm {
         case .corePearl: "A translucent aqua ball of light. One continuing core, with room to become."
         case .particleSeed: "Gold and garnet particles gather around a steady ivory core."
         case .hamptonSeed: "A sea-glass core and open gold arcs, with room to become."
+        case .velaSeed: "An opal light holds a warm core within folded, translucent lantern wings."
+        case .velaLantern: "Vela’s Lantern Wing study: open opal wings shelter the same warm core. A visual possibility for a later form."
         case .orbitField: "A fine green-blue orbit gathers around a small pearl, with sparks tracing its field."
         case .lightForm: "Translucent mint petals open around a luminous pearl, held within a delicate orbit of light."
         case .ribbon: "A fluid line that gives your desk a little movement."

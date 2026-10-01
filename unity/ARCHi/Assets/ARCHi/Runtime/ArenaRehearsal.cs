@@ -38,6 +38,7 @@ namespace ARCHi.Port
         public int GuardedRounds { get; private set; }
         public int ScoutedRounds { get; private set; }
         public bool UsesAutomaticOpponent { get; private set; } = true;
+        public ArenaCombatRound LastCombatRound { get; private set; }
 
         public ArenaRehearsal(ArenaField field)
         {
@@ -118,6 +119,13 @@ namespace ARCHi.Port
             else if (RivalIntegrity == 0) Winner = "one";
             else if (Round >= 20)
                 Winner = Integrity != RivalIntegrity ? (Integrity > RivalIntegrity ? "one" : "two") : Spark != RivalSpark ? (Spark > RivalSpark ? "one" : "two") : "draw";
+            // Capture immutable facts before advancing. Physics consumes these facts;
+            // contact velocity or presentation geometry never changes combat rules.
+            LastCombatRound = new ArenaCombatRound(this, Round,
+                new ArenaFieldTrainingFacts(Field, move, Absorbed, DamageTaken, DamageDealt,
+                    move == ArenaMove.Signature && Field == ArenaField.Scout && RivalIntegrity > 0),
+                new ArenaFieldTrainingFacts(RivalField, rival, Math.Min(rivalShield, outgoing), DamageDealt, DamageTaken,
+                    rival == ArenaMove.Signature && RivalField == ArenaField.Scout && Integrity > 0));
             actions.Add(move);
             Round++;
             return true;

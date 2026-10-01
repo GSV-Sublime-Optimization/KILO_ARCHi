@@ -1,19 +1,22 @@
 import AppKit
 import CryptoKit
 
-/// Palette work happens once per verified asset and palette, outside animation
-/// frames. The cache is bounded by three bundled Seeds and five chosen colors.
+/// Raster palette work happens once per verified asset and palette, outside
+/// animation frames. Procedural Vela shares color identity without a raster entry.
 @MainActor
 enum SeedColorRendering {
     static let revision = "archi-seed-palette/v1"
     private static var images: [String: NSImage] = [:]
 
     static func applies(form: CompanionForm, family: EvolutionFamily? = nil) -> Bool {
-        family == nil && [.corePearl, .particleSeed, .kinSeed, .hamptonSeed].contains(form)
+        family == nil && [.corePearl, .particleSeed, .kinSeed, .hamptonSeed, .velaSeed, .velaLantern].contains(form)
     }
 
     static func image(for form: CompanionForm, color: CompanionSeedColor) -> NSImage? {
         guard applies(form: form) else { return nil }
+        // Vela uses this shared palette and cache contract, with local native
+        // geometry instead of a raster. Never substitute a KIN image for it.
+        guard form != .velaSeed && form != .velaLantern else { return nil }
         if form == .hamptonSeed, color == .garnet, let authored = CompanionVisualAsset.hamptonGarnetImage {
             return authored
         }

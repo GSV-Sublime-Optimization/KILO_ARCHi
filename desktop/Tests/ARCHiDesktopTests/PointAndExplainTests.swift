@@ -5,6 +5,19 @@ import XCTest
 
 final class PointAndExplainTests: XCTestCase {
     @MainActor
+    func testCommandDraftDoesNotGrantPointingReadiness() async throws {
+        let f = PointHelpFixture(); defer { f.cleanup() }
+        f.store.prompt = "/arc solve"
+        XCTAssertTrue(f.store.canBeginReply, "The explicit native command needs no model connection.")
+        XCTAssertFalse(f.store.canPointAndExplainSelection, "Pointing is a separate assistant request.")
+        try await f.connect(.local)
+        XCTAssertTrue(f.store.canPointAndExplainSelection)
+        f.store.selectedReadingSourceIDs = [UUID().uuidString]
+        XCTAssertFalse(f.store.canPointAndExplainSelection, "Kept-source restrictions apply to pointing.")
+        XCTAssertTrue(f.local.replies.isEmpty)
+        XCTAssertTrue(f.cloud.replies.isEmpty)
+    }
+    @MainActor
     func testUnavailableBusyHiddenAndOffscreenTargetsSendNothing() async throws {
         let changes: [(PointHelpFixture) -> Void] = [
             { $0.store.preferences.equipment = .empty },

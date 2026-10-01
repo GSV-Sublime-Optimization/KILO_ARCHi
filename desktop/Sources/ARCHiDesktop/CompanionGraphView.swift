@@ -1,10 +1,54 @@
 import SwiftUI
 
 enum CompanionGraphLayout: String, CaseIterable, Identifiable {
+    case particles = "Particles"
     case constellation = "Constellation"
     case radial = "Radial"
     case flow = "Flow"
     var id: String { rawValue }
+}
+
+/// View-local navigation over recorded edges. It neither infers relationships
+/// nor adds a second graph owner. The focus anchor remains visible while search
+/// and type filters narrow its direct neighbours.
+enum CompanionGraphNavigation {
+    enum Direction: String { case incoming, outgoing }
+
+    static func visibleNodes(in snapshot: CompanionGraphSnapshot, query: String,
+                             kindFilter: CompanionGraphKind?, focusID: String?) -> [CompanionGraphNode] {
+        let search = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        let ids = Set(snapshot.nodes.map(\.id))
+        let anchor = focusID.flatMap { ids.contains($0) ? $0 : nil }
+        var neighbourhood: Set<String> = []
+        if let anchor {
+            neighbourhood.insert(anchor)
+            for edge in snapshot.edges where ids.contains(edge.source) && ids.contains(edge.target) {
+                if edge.source == anchor { neighbourhood.insert(edge.target) }
+                if edge.target == anchor { neighbourhood.insert(edge.source) }
+            }
+        }
+        return snapshot.nodes.filter { node in
+            if node.id == anchor { return true }
+            return (anchor == nil || neighbourhood.contains(node.id))
+                && (kindFilter == nil || node.kind == kindFilter)
+                && (search.isEmpty || ([node.title, node.subtitle, node.status, node.kind.title]
+                    + node.details.flatMap { [$0.label, $0.value] }).contains { $0.localizedStandardContains(search) })
+        }
+    }
+
+    static func links(for nodeID: String, in snapshot: CompanionGraphSnapshot,
+                      direction: Direction) -> [CompanionGraphEdge] {
+        let ids = Set(snapshot.nodes.map(\.id))
+        guard ids.contains(nodeID) else { return [] }
+        return snapshot.edges.filter {
+            ids.contains($0.source) && ids.contains($0.target)
+                && (direction == .incoming ? $0.target == nodeID : $0.source == nodeID)
+        }.sorted { $0.id < $1.id }
+    }
+
+    static func retainedSelection(_ selectedID: String?, in nodes: [CompanionGraphNode]) -> String? {
+        selectedID.flatMap { id in nodes.contains { $0.id == id } ? id : nil }
+    }
 }
 
 /// Deterministic presentation geometry. Positions never become companion state.
@@ -48,7 +92,7 @@ struct CompanionGraphGeometry {
                     points[node.id] = CGPoint(x: x, y: CGFloat(row) * 102)
                 }
             }
-        case .constellation:
+        case .particles, .constellation:
             let satelliteKinds = kinds.filter { $0 != .companion }
             let dimensions: [CompanionGraphKind: CGSize] = Dictionary(uniqueKeysWithValues: kinds.map { kind in
                 let count = nodes.filter { $0.kind == kind }.count
@@ -138,30 +182,38 @@ struct CompanionGraphGeometry {
 struct CompanionGraphView: View {
     let snapshot: CompanionGraphSnapshot
     let onOpen: (CompanionGraphTarget) -> Void
+    var reduceMotion = false
+    var seedColor: CompanionSeedColor = .original
 
+    @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
     @State private var selectedID: String?
     @State private var query = ""
     @State private var kindFilter: CompanionGraphKind?
     @State private var layout = CompanionGraphLayout.constellation
     @State private var showsList = false
+    @State private var focusID: String?
     @State private var zoom: CGFloat = 1
     @State private var fitRevision = 0
+    @State private var particleSpread = 1.0
+    @State private var particlePulses = true
+    @State private var particleExportMessage: String?
+    @State private var isShowcase = false
+    @State private var showsViewOptions = false
 
     init(snapshot: CompanionGraphSnapshot, onOpen: @escaping (CompanionGraphTarget) -> Void,
-         initialLayout: CompanionGraphLayout = .constellation, initialSelectionID: String? = nil) {
+         initialLayout: CompanionGraphLayout = .particles, initialSelectionID: String? = nil,
+         reduceMotion: Bool = false, seedColor: CompanionSeedColor = .original,
+         initialShowcase: Bool = false) {
         self.snapshot = snapshot
         self.onOpen = onOpen
+        self.reduceMotion = reduceMotion; self.seedColor = seedColor
         _layout = State(initialValue: initialLayout)
         _selectedID = State(initialValue: initialSelectionID)
+        _isShowcase = State(initialValue: initialShowcase)
     }
 
     private var visibleNodes: [CompanionGraphNode] {
-        let search = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        return snapshot.nodes.filter { node in
-            (kindFilter == nil || node.kind == kindFilter) && (search.isEmpty ||
-                ([node.title, node.subtitle, node.status, node.kind.title] + node.details.flatMap { [$0.label, $0.value] })
-                    .contains { $0.localizedStandardContains(search) })
-        }
+        CompanionGraphNavigation.visibleNodes(in: snapshot, query: query, kindFilter: kindFilter, focusID: focusID)
     }
 
     private var visibleEdges: [CompanionGraphEdge] {
@@ -171,26 +223,33 @@ struct CompanionGraphView: View {
 
     // Keep only an ID in view state: replacement/removal immediately changes the inspector.
     private var selectedNode: CompanionGraphNode? { visibleNodes.first { $0.id == selectedID } }
+    private var focusNode: CompanionGraphNode? { snapshot.nodes.first { $0.id == focusID } }
+    private var hasFilters: Bool { !query.isEmpty || kindFilter != nil || focusID != nil }
+    private var showsInspector: Bool { !isShowcase || selectedNode != nil }
 
     var body: some View {
         GeometryReader { viewport in
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     heading
-                    filters
+                    if !isShowcase { filters }
+                    else if hasFilters { showcaseFilterSummary }
                     if viewport.size.width >= 930 {
-                        let graphHeight = max(280, viewport.size.height - 260)
+                        let graphHeight = max(280, viewport.size.height - (isShowcase ? 196 : 296))
                         HStack(alignment: .top, spacing: 16) {
                             graphCard(height: graphHeight)
-                            ScrollView { inspector }
-                                .frame(width: 270, height: graphHeight + 78, alignment: .top)
-                                .clipShape(RoundedRectangle(cornerRadius: 18))
-                                .id(selectedID)
-                                .accessibilityIdentifier("companion-graph.inspector-scroll")
+                            if showsInspector {
+                                ScrollView { inspector }
+                                    .frame(width: 270, height: graphHeight + 78, alignment: .top)
+                                    .clipShape(RoundedRectangle(cornerRadius: 18))
+                                    .id(selectedID)
+                                    .accessibilityIdentifier("companion-graph.inspector-scroll")
+                            }
                         }
                     } else {
-                        graphCard(height: max(280, min(400, viewport.size.height * 0.57)))
-                        inspector
+                        graphCard(height: isShowcase ? max(300, viewport.size.height - 196)
+                            : max(280, min(400, viewport.size.height * 0.57)))
+                        if showsInspector { inspector }
                     }
                 }
                 .padding(20)
@@ -202,6 +261,10 @@ struct CompanionGraphView: View {
         .onChange(of: visibleNodes.map(\.id)) { _, ids in
             if let selectedID, !ids.contains(selectedID) { self.selectedID = nil }
         }
+        .onChange(of: snapshot.nodes.map(\.id), initial: true) { _, ids in
+            selectedID = CompanionGraphNavigation.retainedSelection(selectedID, in: visibleNodes)
+            if let focusID, !ids.contains(focusID) { self.focusID = nil }
+        }
         .transaction { $0.animation = nil }
         .accessibilityIdentifier("companion-graph.workspace")
     }
@@ -211,8 +274,8 @@ struct CompanionGraphView: View {
             VStack(alignment: .leading, spacing: 5) {
                 Text("LOCAL CONNECTIONS").font(.system(size: 9, weight: .semibold)).tracking(2)
                     .foregroundStyle(Color.teal)
-                Text("Activity map").font(.system(size: 25, weight: .medium, design: .rounded))
-                Text("\(visibleNodes.count) of \(snapshot.nodes.count) nodes · \(visibleEdges.count) connections")
+                Text("Memory map").font(.system(size: 25, weight: .medium, design: .rounded))
+                Text("\(visibleNodes.count) of \(snapshot.nodes.count) records · \(visibleEdges.count) connections")
                     .font(.system(size: 11)).foregroundStyle(.secondary)
                     .accessibilityIdentifier("companion-graph.counts")
             }
@@ -221,63 +284,121 @@ struct CompanionGraphView: View {
                 Label(showsList ? "Graph" : "List", systemImage: showsList ? "point.3.connected.trianglepath.dotted" : "list.bullet")
             }
             .buttonStyle(.bordered).controlSize(.small)
-            .accessibilityLabel(showsList ? "Show graph" : "Show accessible node list")
+            .accessibilityLabel(showsList ? "Show graph" : "Show accessible record list")
             .accessibilityIdentifier("companion-graph.list-toggle")
+            Button {
+                isShowcase.toggle()
+                fitRevision += 1
+            } label: {
+                Label(isShowcase ? "Exit showcase" : "Showcase",
+                    systemImage: isShowcase ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
+            }
+            .buttonStyle(.bordered).controlSize(.small)
+            .tint(isShowcase ? WorkspaceTheme.accent : nil)
+            .help(isShowcase ? "Return to map controls. Escape also exits showcase." : "Give the map more space. Select any record to inspect it.")
+            .keyboardShortcut(isShowcase ? .cancelAction : nil)
+            .accessibilityValue(isShowcase ? "On" : "Off")
+            .accessibilityIdentifier("companion-graph.showcase")
         }
     }
 
+    private var showcaseFilterSummary: some View {
+        HStack(spacing: 8) {
+            Label("Showing a filtered map", systemImage: "line.3.horizontal.decrease.circle")
+                .foregroundStyle(.secondary)
+            if let focusNode { Text(focusNode.title).lineLimit(1) }
+            Spacer(minLength: 0)
+            Button("Show all records") {
+                query = ""; kindFilter = nil; focusID = nil; fitRevision += 1
+            }.buttonStyle(.borderless)
+        }
+        .font(.system(size: 11))
+        .accessibilityIdentifier("companion-graph.showcase-filter-summary")
+    }
+
     private var filters: some View {
-        HStack(spacing: 10) {
-            HStack(spacing: 7) {
-                Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                TextField("Find a node", text: $query).textFieldStyle(.plain)
-                    .accessibilityLabel("Find a graph node").accessibilityIdentifier("companion-graph.search")
-                if !query.isEmpty {
-                    Button { query = "" } label: { Image(systemName: "xmark.circle.fill") }
-                        .buttonStyle(.plain).foregroundStyle(.secondary).accessibilityLabel("Clear graph search")
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                HStack(spacing: 7) {
+                    Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                    TextField("Find a record", text: $query).textFieldStyle(.plain)
+                        .accessibilityLabel("Find a graph record").accessibilityIdentifier("companion-graph.search")
+                    if !query.isEmpty {
+                        Button { query = "" } label: { Image(systemName: "xmark.circle.fill") }
+                            .buttonStyle(.plain).foregroundStyle(.secondary).accessibilityLabel("Clear graph search")
+                    }
+                }
+                .padding(.horizontal, 11).padding(.vertical, 9)
+                .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 9))
+                Picker("Record type", selection: $kindFilter) {
+                    Text("All types").tag(CompanionGraphKind?.none)
+                    ForEach(CompanionGraphKind.allCases) { kind in
+                        Text("\(kind.title) · \(snapshot.nodes.filter { $0.kind == kind }.count)")
+                            .tag(Optional(kind))
+                    }
+                }
+                .labelsHidden().frame(width: 160)
+                .accessibilityLabel("Filter graph by record type").accessibilityIdentifier("companion-graph.type-filter")
+            }
+            HStack(spacing: 10) {
+                Button {
+                    focusID = focusNode == nil ? selectedNode?.id : nil
+                    fitRevision += 1
+                } label: {
+                    Label(focusNode == nil ? "Focus connections" : "Show all records",
+                          systemImage: focusNode == nil ? "scope" : "point.3.connected.trianglepath.dotted")
+                }
+                .buttonStyle(.bordered).controlSize(.small)
+                .disabled(focusNode == nil && selectedNode == nil)
+                .accessibilityLabel(focusNode == nil ? "Focus on selected record and its direct connections" : "Show all graph records")
+                .accessibilityIdentifier("companion-graph.focus-toggle")
+                if let focusNode {
+                    Text("Direct connections to \(focusNode.title)")
+                        .foregroundStyle(.secondary).lineLimit(2)
+                        .accessibilityIdentifier("companion-graph.focus-summary")
+                } else {
+                    Text("Select a record to follow its connections.").foregroundStyle(.secondary)
                 }
             }
-            .padding(.horizontal, 11).padding(.vertical, 9)
-            .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 9))
-            Picker("Node type", selection: $kindFilter) {
-                Text("All types").tag(CompanionGraphKind?.none)
-                ForEach(CompanionGraphKind.allCases) { kind in
-                    Text("\(kind.title) · \(snapshot.nodes.filter { $0.kind == kind }.count)")
-                        .tag(Optional(kind))
-                }
-            }
-            .labelsHidden().frame(width: 160)
-            .accessibilityLabel("Filter graph by node type").accessibilityIdentifier("companion-graph.type-filter")
         }.font(.system(size: 12))
     }
 
     private func graphCard(height: CGFloat) -> some View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
-                Picker("Graph layout", selection: $layout) {
-                    ForEach(CompanionGraphLayout.allCases) { Text($0.rawValue).tag($0) }
-                }
-                .pickerStyle(.segmented).frame(maxWidth: 320)
-                .disabled(showsList).accessibilityIdentifier("companion-graph.layout")
-                Spacer(minLength: 0)
+                Label(showsList ? "Connected records" : layout.rawValue,
+                    systemImage: showsList ? "list.bullet" : "point.3.connected.trianglepath.dotted")
+                    .font(.system(size: 11, weight: .medium)).foregroundStyle(WorkspaceTheme.accent)
+                Spacer(minLength: 8)
                 if !showsList {
-                    Button { zoom = max(0.005, zoom - 0.15) } label: { Image(systemName: "minus.magnifyingglass") }
-                        .disabled(zoom <= 0.005).accessibilityLabel("Zoom out")
-                    Text("\(Int((zoom * 100).rounded()))%")
-                        .font(.system(size: 10, design: .monospaced)).foregroundStyle(.secondary).frame(width: 34)
-                    Button { zoom = min(1.8, zoom + 0.15) } label: { Image(systemName: "plus.magnifyingglass") }
-                        .disabled(zoom >= 1.8).accessibilityLabel("Zoom in")
-                    Button("Fit") { fitRevision += 1 }
-                        .accessibilityLabel("Fit and center graph").accessibilityIdentifier("companion-graph.fit")
+                    Button("Fit map") { fitRevision += 1 }
+                        .accessibilityLabel("Fit and center graph")
+                        .accessibilityIdentifier("companion-graph.fit")
+                }
+                if !isShowcase {
+                    Button { showsViewOptions.toggle() } label: {
+                        Label("View options", systemImage: "slider.horizontal.3")
+                    }
+                    .help("Change this map's layout, zoom and particle presentation.")
+                    .accessibilityValue(showsViewOptions ? "Open" : "Closed")
+                    .accessibilityIdentifier("companion-graph.view-options")
+                    .popover(isPresented: $showsViewOptions, arrowEdge: .bottom) { viewOptions }
                 }
             }
             .controlSize(.small).buttonStyle(.borderless).padding(12)
+            if let particleExportMessage {
+                Text(particleExportMessage).font(.caption).foregroundStyle(.secondary)
+                    .padding(.horizontal, 12).padding(.bottom, 8)
+                    .accessibilityIdentifier("companion-graph.particle-export-status")
+            }
             Divider().opacity(0.6)
             Group {
                 if visibleNodes.isEmpty {
                     emptyGraph
                 } else if showsList {
                     nodeList
+                } else if layout == .particles {
+                    particleSurface
                 } else {
                     graphSurface
                 }
@@ -285,7 +406,7 @@ struct CompanionGraphView: View {
             Divider().opacity(0.6)
             HStack(alignment: .top, spacing: 8) {
                 Image(systemName: "cursorarrow.rays")
-                Text(showsList ? "Select a node to inspect its current record." : layoutHint)
+                Text(showsList ? "Select a record to inspect its source and connections." : layoutHint)
                 Spacer(minLength: 0)
                 if snapshot.truncatedCount > 0 {
                     Text("\(snapshot.truncatedCount) records outside this snapshot")
@@ -293,16 +414,108 @@ struct CompanionGraphView: View {
             }
             .font(.system(size: 10)).foregroundStyle(.secondary).padding(.horizontal, 13).padding(.vertical, 10)
         }
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18))
+        .background {
+            RadialGradient(colors: [seedColor.accent.opacity(0.06), .clear],
+                center: .center, startRadius: 0, endRadius: 420)
+        }
+        .modifier(WorkspaceSurface(emphasis: isShowcase))
         .clipShape(RoundedRectangle(cornerRadius: 18))
-        .overlay(RoundedRectangle(cornerRadius: 18).stroke(.primary.opacity(0.08), lineWidth: 1))
+    }
+
+    private var viewOptions: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                Text("View options").font(.system(size: 14, weight: .medium))
+                Spacer()
+                Button { showsViewOptions = false } label: { Image(systemName: "xmark") }
+                    .buttonStyle(.borderless).accessibilityLabel("Close view options")
+            }
+            Picker("Layout", selection: $layout) {
+                ForEach(CompanionGraphLayout.allCases) { Text($0.rawValue).tag($0) }
+            }
+            .pickerStyle(.menu).disabled(showsList)
+            .accessibilityIdentifier("companion-graph.layout")
+            HStack(spacing: 10) {
+                Text("Zoom")
+                Spacer()
+                Button { zoom = max(layout == .particles ? 1 : 0.005, zoom - 0.15) } label: {
+                    Image(systemName: "minus.magnifyingglass")
+                }
+                .disabled(showsList || zoom <= (layout == .particles ? 1 : 0.005))
+                .accessibilityLabel("Zoom out")
+                Text("\(Int((zoom * 100).rounded()))%")
+                    .font(.system(size: 11, design: .monospaced)).foregroundStyle(.secondary).frame(width: 44)
+                Button { zoom = min(layout == .particles ? 4 : 1.8, zoom + 0.15) } label: {
+                    Image(systemName: "plus.magnifyingglass")
+                }
+                .disabled(showsList || zoom >= (layout == .particles ? 4 : 1.8))
+                .accessibilityLabel("Zoom in")
+            }
+            if showsList {
+                Text("Switch to Graph to adjust its presentation.")
+                    .font(.system(size: 11)).foregroundStyle(.secondary)
+            } else if layout == .particles {
+                Divider()
+                VStack(alignment: .leading, spacing: 7) {
+                    Text("Particle spacing").fontWeight(.medium)
+                    Slider(value: $particleSpread, in: 0...1)
+                        .accessibilityLabel("Spread knowledge particles from orb to constellation")
+                        .accessibilityIdentifier("companion-graph.particle-spread")
+                    HStack {
+                        Text("Orb")
+                        Spacer()
+                        Text("Connections")
+                    }.font(.system(size: 11)).foregroundStyle(.secondary)
+                }
+                Toggle("Pulse particles", isOn: $particlePulses).toggleStyle(.checkbox)
+                    .accessibilityIdentifier("companion-graph.particle-pulse")
+                if reduceMotion || systemReduceMotion {
+                    Text("Reduce Motion keeps the map still.")
+                        .font(.system(size: 11)).foregroundStyle(.secondary)
+                }
+                Divider()
+                Button("Export for Houdini…") {
+                    showsViewOptions = false
+                    do {
+                        let data = try KnowledgeParticleExport(field: KnowledgeParticleField(snapshot: snapshot)).data()
+                        particleExportMessage = nil
+                        KnowledgeParticleExportPanel.save(data) { particleExportMessage = $0 }
+                    } catch { particleExportMessage = "The particle map could not be prepared." }
+                }
+                .help("Export the bounded full snapshot as IDs, types, positions and recorded edges. No source text or titles.")
+                .accessibilityIdentifier("companion-graph.particle-export")
+            }
+        }
+        .font(.system(size: 12)).controlSize(.small)
+        .padding(18).frame(width: 300)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("companion-graph.view-options-panel")
     }
 
     private var layoutHint: String {
         switch layout {
-        case .constellation: "Grouped by type. Select a node; scroll or zoom to explore."
-        case .radial: "Rings follow recorded links from the companion; unlinked nodes sit outside."
+        case .particles: "One particle per record. Lines are recorded links; glow and distance are presentation."
+        case .constellation: "Grouped by type. Select a record; scroll or zoom to explore."
+        case .radial: "Rings follow recorded links from the companion; unlinked records sit outside."
         case .flow: "Columns group record types. Arrows show recorded direction."
+        }
+    }
+
+    private var particleSurface: some View {
+        let field = KnowledgeParticleField(snapshot: snapshot)
+        return GeometryReader { viewport in
+            ScrollViewReader { scroll in
+                ScrollView([.horizontal, .vertical]) {
+                    KnowledgeParticleView(field: field, nodes: visibleNodes, selectedID: selectedID,
+                        spread: particleSpread, pulses: particlePulses, reduceMotion: reduceMotion || systemReduceMotion,
+                        tint: seedColor.accent, onSelect: { selectNode($0) })
+                        .frame(width: max(viewport.size.width, viewport.size.width * zoom),
+                               height: max(viewport.size.height, viewport.size.height * zoom))
+                        .overlay { Color.clear.frame(width: 1, height: 1).id("particle-center").allowsHitTesting(false) }
+                }
+                .onAppear { zoom = 1 }
+                .onChange(of: fitRevision) { _, _ in zoom = 1; scroll.scrollTo("particle-center", anchor: .center) }
+            }
         }
     }
 
@@ -318,7 +531,7 @@ struct CompanionGraphView: View {
                             .frame(width: geometry.size.width, height: geometry.size.height)
                         ForEach(nodes) { node in
                             if let position = geometry.positions[node.id] {
-                                GraphNodeButton(node: node, selected: selectedID == node.id) { selectedID = node.id }
+                                GraphNodeButton(node: node, selected: selectedID == node.id) { selectNode(node.id) }
                                     .position(position)
                             }
                         }
@@ -357,7 +570,7 @@ struct CompanionGraphView: View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
                 ForEach(visibleNodes) { node in
-                    Button { selectedID = node.id } label: {
+                    Button { selectNode(node.id) } label: {
                         HStack(alignment: .top, spacing: 12) {
                             Image(systemName: node.kind.symbol).foregroundStyle(graphColor(node.kind))
                                 .frame(width: 20).padding(.top, 2)
@@ -386,7 +599,7 @@ struct CompanionGraphView: View {
         VStack(spacing: 10) {
             Image(systemName: "point.3.connected.trianglepath.dotted")
                 .font(.system(size: 32, weight: .light)).foregroundStyle(WorkspaceTheme.accent)
-            Text(snapshot.nodes.isEmpty ? "Connections will appear here" : "No matching nodes")
+            Text(snapshot.nodes.isEmpty ? "Connections will appear here" : "No matching records")
                 .font(.system(size: 16, weight: .medium, design: .rounded))
             Text(snapshot.nodes.isEmpty ? "This view follows the companion’s available records." : "Try another search or show all types.")
                 .font(.system(size: 12)).foregroundStyle(.secondary)
@@ -411,8 +624,11 @@ struct CompanionGraphView: View {
                             .foregroundStyle(graphColor(node.kind))
                         Text(node.title).font(.system(size: 17, weight: .medium, design: .rounded))
                     }.frame(maxWidth: .infinity, alignment: .leading)
-                    Button { selectedID = nil } label: { Image(systemName: "xmark") }
-                        .buttonStyle(.borderless).foregroundStyle(.secondary).accessibilityLabel("Clear selected node")
+                    Button {
+                        selectedID = nil
+                        if focusID != nil { focusID = nil; fitRevision += 1 }
+                    } label: { Image(systemName: "xmark") }
+                        .buttonStyle(.borderless).foregroundStyle(.secondary).accessibilityLabel("Clear selected record")
                 }
                 if !node.subtitle.isEmpty && !subtitleIsReference {
                     Text(node.subtitle).font(.system(size: 12)).foregroundStyle(.secondary)
@@ -439,10 +655,10 @@ struct CompanionGraphView: View {
                 }
                 selectedConnections(node)
             } else {
-                Label("Inspect a connection", systemImage: "scope")
+                Label("Inspect a record", systemImage: "scope")
                     .font(.system(size: 15, weight: .medium, design: .rounded))
                     .foregroundStyle(WorkspaceTheme.accent)
-                Text("Select a node to see its source, status and recorded relationships.")
+                Text("Select a record to see its source, status and recorded relationships.")
                     .font(.system(size: 12)).foregroundStyle(.secondary).lineSpacing(3)
                 Text("The graph reflects available records. Arrangement and distance do not measure importance or certainty.")
                     .font(.system(size: 11)).foregroundStyle(.secondary).lineSpacing(3).padding(.top, 4)
@@ -479,41 +695,67 @@ struct CompanionGraphView: View {
     }
 
     @ViewBuilder private func selectedConnections(_ node: CompanionGraphNode) -> some View {
-        let relationships = snapshot.edges.filter { $0.source == node.id || $0.target == node.id }
-        if !relationships.isEmpty {
-            Divider().padding(.vertical, 5)
-            Text("RECORDED LINKS · \(relationships.count)")
-                .font(.system(size: 9, weight: .semibold)).tracking(1.1).foregroundStyle(.secondary)
-            ForEach(relationships.prefix(12)) { edge in
-                let otherID = edge.source == node.id ? edge.target : edge.source
-                if let other = snapshot.nodes.first(where: { $0.id == otherID }) {
-                    Button {
-                        query = ""
-                        kindFilter = nil
-                        selectedID = other.id
-                    } label: {
-                        HStack(alignment: .top, spacing: 7) {
-                            Image(systemName: edge.source == node.id ? "arrow.up.right" : "arrow.down.left")
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(other.title).fontWeight(.medium)
-                                Text(edge.label).foregroundStyle(.secondary)
-                            }.frame(maxWidth: .infinity, alignment: .leading)
-                        }.font(.system(size: 11)).padding(.vertical, 4).contentShape(Rectangle())
-                    }.buttonStyle(.plain).foregroundStyle(graphColor(other.kind))
-                }
+        Divider().padding(.vertical, 5)
+        connectionGroup(node, direction: .incoming)
+        connectionGroup(node, direction: .outgoing)
+    }
+
+    private func connectionGroup(_ node: CompanionGraphNode, direction: CompanionGraphNavigation.Direction) -> some View {
+        let links = CompanionGraphNavigation.links(for: node.id, in: snapshot, direction: direction)
+        let title = direction == .incoming ? "Incoming links · Backlinks" : "Outgoing links"
+        return VStack(alignment: .leading, spacing: 3) {
+            Text("\(title) · \(links.count)")
+                .font(.system(size: 10, weight: .semibold)).foregroundStyle(.secondary)
+            if links.isEmpty {
+                Text(direction == .incoming ? "No incoming links in this map." : "No outgoing links in this map.")
+                    .font(.system(size: 11)).foregroundStyle(.secondary).padding(.vertical, 4)
             }
-            if relationships.count > 12 {
-                Text("\(relationships.count - 12) more recorded links in the graph")
-                    .font(.system(size: 10)).foregroundStyle(.secondary)
+            ForEach(links.prefix(8)) { connectionButton($0, direction: direction) }
+            if links.count > 8 {
+                DisclosureGroup("\(links.count - 8) more links") {
+                    ForEach(links.dropFirst(8)) { connectionButton($0, direction: direction) }
+                }
+                .font(.system(size: 11)).id("\(node.id)-\(direction.rawValue)")
+                .accessibilityIdentifier("companion-graph.more-links.\(direction.rawValue)")
             }
         }
+        .padding(.top, 6)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("companion-graph.links.\(direction.rawValue)")
+    }
+
+    @ViewBuilder private func connectionButton(_ edge: CompanionGraphEdge, direction: CompanionGraphNavigation.Direction) -> some View {
+        let otherID = direction == .incoming ? edge.source : edge.target
+        if let other = snapshot.nodes.first(where: { $0.id == otherID }) {
+            Button { selectNode(other.id, clearFilters: true) } label: {
+                HStack(alignment: .top, spacing: 7) {
+                    Image(systemName: direction == .incoming ? "arrow.down.left" : "arrow.up.right")
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(other.title).fontWeight(.medium)
+                        Text(edge.label).foregroundStyle(.secondary)
+                    }.frame(maxWidth: .infinity, alignment: .leading)
+                }.font(.system(size: 11)).padding(.vertical, 4).contentShape(Rectangle())
+            }
+            .buttonStyle(.plain).foregroundStyle(graphColor(other.kind))
+            .accessibilityLabel("\(direction == .incoming ? "Incoming link from" : "Outgoing link to") \(other.title): \(edge.label)")
+            .accessibilityHint("Select this connected record")
+            .accessibilityIdentifier("companion-graph.link.\(direction.rawValue).\(edge.id)")
+        }
+    }
+
+    private func selectNode(_ id: String, clearFilters: Bool = false) {
+        guard snapshot.nodes.contains(where: { $0.id == id }) else { return }
+        if clearFilters { query = ""; kindFilter = nil }
+        selectedID = id
+        if focusID != nil && focusID != id { focusID = id; fitRevision += 1 }
     }
 
     private func openTitle(_ target: CompanionGraphTarget) -> String {
         switch target {
-        case .assistant: "Open assistant"
+        case .assistant: "Open " + AskARCHiBrand.title
         case .context: "Open shared context"
-        case .memory: "Open memory"
+        case .memory: "Manage memories"
+        case .knowledgePage: "Open this knowledge page"
         case .advanced: "Open local receipts"
         case .capabilities: "Open ARC"
         case .interactiveARC: "Open ARC3 episode"
@@ -524,10 +766,11 @@ struct CompanionGraphView: View {
     }
 }
 
-private func graphColor(_ kind: CompanionGraphKind) -> Color {
+func graphColor(_ kind: CompanionGraphKind) -> Color {
     switch kind {
     case .companion: Color.teal
     case .source: Color.blue
+    case .knowledge: Color.pink
     case .lesson: WorkspaceTheme.accent
     case .request: Color.indigo
     case .invocation: Color.purple

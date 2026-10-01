@@ -3,6 +3,62 @@ import XCTest
 
 final class AutomaticAssistantRoutingTests: XCTestCase {
     @MainActor
+    func testChangedReviewWhileConnectingStopsBeforeGeneration() async throws {
+        let f = AutomaticRoutingFixture(), store = f.store
+        defer { f.drain() }
+        store.share(text: "A short synthetic passage.", name: "fixture.txt")
+        store.selectText(range: NSRange(location: 0, length: 26), sourceRevision: store.sourceRevision)
+        store.requestsRevision = true
+        let now = Date(), oldID = UUID().uuidString
+        let digest = WorkingCopyEditReceipt.digest("Earlier applied result")
+        var prior = DocumentWorkRecord(id: oldID + "-Qwen", requestID: oldID, provider: "Qwen",
+            targetID: UUID().uuidString, sourceDigest: WorkingCopyEditReceipt.digest(store.sharedText),
+            sourceRevision: 0, selectionStart: 0, selectionLength: 10,
+            preserveNumbersAndLinks: true, createdAt: now, updatedAt: now, state: .applying,
+            proposedDigest: digest, expectedAfterDigest: digest, actualAfterDigest: digest,
+            afterRevision: 1, checks: [.init(id: "source", title: "Source checked", passed: true)],
+            learning: DocumentWorkLearningContext(requestBinding: .init(inputDigest: digest, contextDigest: digest)))
+        try store.documentWork.save(prior)
+        prior.state = .applied
+        prior.feedback = DocumentWorkFeedback(revision: 1, verdict: .helpful, recordedAt: now)
+        try store.documentWork.save(prior)
+        store.setAssistantRoute(.native)
+        store.prompt = "Make this clearer."
+        XCTAssertEqual(store.documentQ2EDecision.signals.retainedSupport, 1)
+        store.submit()
+        try await wait("Local readiness is pending") { f.local.connectCount == 1 }
+        XCTAssertTrue(store.reviewDocument(id: prior.id, verdict: .withdrawn))
+        XCTAssertEqual(store.documentQ2EDecision.signals.retainedSupport, 0)
+        f.local.resolveConnection(0)
+        try await wait("Changed evidence ends the pending request") { !store.isWorking }
+        XCTAssertTrue(f.local.replies.isEmpty)
+        XCTAssertTrue(f.cloud.replies.isEmpty)
+        XCTAssertEqual(f.cloud.connectCount, 0)
+        XCTAssertEqual(store.documentWork.records.count, 1)
+        XCTAssertEqual(store.compareResults[.qwen]?.receipt?.requestStarted, false)
+    }
+
+    @MainActor
+    func testSameRequestSiblingIsNotHistoricalFeedback() throws {
+        let f = AutomaticRoutingFixture(), store = f.store
+        defer { f.drain() }
+        store.share(text: "A short synthetic passage.", name: "fixture.txt")
+        store.selectText(range: NSRange(location: 0, length: 26), sourceRevision: store.sourceRevision)
+        let captured = store.documentQ2EDecision
+        XCTAssertTrue(captured.isValid)
+        let requestID = UUID().uuidString, now = Date()
+        try store.documentWork.save(DocumentWorkRecord(id: requestID + "-Codex", requestID: requestID,
+            provider: "Codex", targetID: UUID().uuidString,
+            sourceDigest: WorkingCopyEditReceipt.digest(store.sharedText), sourceRevision: store.sourceRevision,
+            selectionStart: 0, selectionLength: 26, preserveNumbersAndLinks: true,
+            createdAt: now, updatedAt: now, state: .proposing))
+        XCTAssertNotEqual(store.documentQ2EDecision, captured)
+        XCTAssertEqual(store.makeDocumentQ2EDecision(excludingRequestID: requestID), captured)
+        XCTAssertEqual(f.local.connectCount, 0)
+        XCTAssertEqual(f.cloud.connectCount, 0)
+    }
+
+    @MainActor
     func testNativePreparationChecksLocalReadinessWithoutInferenceOrFallback() async throws {
         for result in [Result<Void, any Error>.success(()), .failure(QwenFailure.unavailable)] {
             let f = AutomaticRoutingFixture(), store = f.store
@@ -52,8 +108,9 @@ final class AutomaticAssistantRoutingTests: XCTestCase {
     func testNativeUnavailableConnectFallsBackOnceWithLocalContextRemoved() async throws {
         let f = AutomaticRoutingFixture(), store = f.store
         defer { f.drain() }
-        store.share(text: "First. Café is the selected passage.", name: "source.txt")
-        store.selectText(range: NSRange(location: 7, length: 4), sourceRevision: store.sourceRevision)
+        // This plain AssistantClient fixture can complete conversation replies.
+        // Document reading requires a typed Hampton proposal; cover forwarding
+        // of shared source separately with a connection failure before reply.
         store.beginLessonCorrection()
         var lesson = try XCTUnwrap(store.lessonDraft)
         lesson.topic = "selected passage"
@@ -122,6 +179,32 @@ final class AutomaticAssistantRoutingTests: XCTestCase {
         XCTAssertEqual(f.local.replies.count, 1)
         XCTAssertEqual(f.cloud.connectCount, 1)
         XCTAssertEqual(f.cloud.replies.count, 1)
+    }
+
+    @MainActor
+    func testNativeFallbackPreservesCurrentSharedSourceAndSelection() async throws {
+        let f = AutomaticRoutingFixture(), store = f.store
+        defer { f.drain() }
+        store.share(text: "First. Café is the selected passage.", name: "source.txt")
+        store.selectText(range: NSRange(location: 7, length: 4), sourceRevision: store.sourceRevision)
+        store.setAssistantRoute(.native)
+        store.prompt = "Explain the selected passage."
+        let selected = store.textSelection
+        store.submit()
+        try await wait("Local connection starts") { f.local.connectCount == 1 }
+        f.local.resolveConnection(0, result: .failure(QwenFailure.unavailable))
+        try await wait("Fallback connects once") { f.cloud.connectCount == 1 }
+        f.cloud.resolveConnection(0)
+        try await wait("External request starts") { f.cloud.replies.count == 1 }
+        let external = f.cloud.replies[0].request
+        XCTAssertEqual(external.sourceName, "source.txt")
+        XCTAssertEqual(external.sourceText, store.sharedText)
+        XCTAssertEqual(external.selection, selected)
+        XCTAssertNil(external.localReading)
+        XCTAssertNil(external.localControl)
+        XCTAssertNil(external.localProfile)
+        XCTAssertTrue(external.localLessons.isEmpty)
+        XCTAssertTrue(external.localConversation.isEmpty)
     }
 
     @MainActor
@@ -309,9 +392,11 @@ final class AutomaticAssistantRoutingTests: XCTestCase {
         XCTAssertEqual(store.assistantProvider, .qwen)
         store.setAssistantRoute(.automatic)
         XCTAssertEqual(store.resultProviders, [.qwen])
-        XCTAssertEqual(store.nextCallBudget, "1 local answer call · no external requests")
+        XCTAssertEqual(store.nextCallBudget, "1 local answer attempt · no external requests")
         store.setSessionContextEnabled(true)
-        XCTAssertEqual(store.nextCallBudget, "1 local answer call, plus up to 2 context calls · no external requests")
+        XCTAssertEqual(store.nextCallBudget, "1 local answer attempt, plus up to 2 context calls · no external requests")
+        store.setLocalWorkPreference(.reasoning)
+        XCTAssertEqual(store.nextCallBudget, "1 local answer attempt, plus up to 2 context calls · no external requests")
     }
 
     @MainActor
@@ -487,7 +572,7 @@ final class AutomaticAssistantRoutingTests: XCTestCase {
 
     @MainActor
     func testLocalReplyInvalidationPreventsStaleReplyOrExternalRequest() async throws {
-        for change in ["stop", "source", "placement", "selection", "route", "model", "context model", "clear context", "disable context"] {
+        for change in ["stop", "source", "selection", "route", "model", "context model", "clear context", "disable context"] {
             let f = AutomaticRoutingFixture(), store = f.store
             defer { f.drain() }
             store.share(text: "First. Second.", name: "source.txt")
@@ -497,7 +582,6 @@ final class AutomaticAssistantRoutingTests: XCTestCase {
             switch change {
             case "stop": store.cancelWork()
             case "source": store.share(text: "New shared source.", name: "new.txt")
-            case "placement": store.placed(at: CGPoint(x: 700, y: -120))
             case "selection": store.selectText(range: NSRange(location: 0, length: 6), sourceRevision: store.sourceRevision)
             case "route": store.setAssistantRoute(.local)
             case "model": store.selectQwenModel(try XCTUnwrap(QwenAssistant.supportedModels.first { $0 != store.qwenModel }))

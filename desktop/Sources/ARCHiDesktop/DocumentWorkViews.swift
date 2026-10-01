@@ -22,7 +22,13 @@ struct DocumentWorkCheckView: View {
 struct DocumentWorkHistory: View {
     @ObservedObject var store: CompanionStore
     var body: some View {
+        let currentOutcome = store.currentDocumentOutcome
         VStack(alignment: .leading, spacing: 8) {
+            if let outcome = currentOutcome {
+                DocumentOutcomeView(store: store, record: outcome)
+                    .id(outcome.id)
+            }
+            DocumentReviewQueueView(store: store)
             HamptonTaskWorkCard(store: store)
             if store.requestsRevision { HamptonDocumentControlView(store: store) }
             else { DocumentReadingTools(store: store) }
@@ -55,8 +61,14 @@ struct DocumentWorkHistory: View {
                             if let control = record.q2eDecision {
                                 Text("Approach: \(control.lane.title) · decision \(control.revision)")
                                     .font(.caption2).foregroundStyle(.secondary)
+                                if let numerical = control.numericalControl {
+                                    Text("Based on \(numerical.steps.count) attributed outcomes available when this request began.")
+                                        .font(.caption2).foregroundStyle(.secondary)
+                                }
                             }
-                            DocumentFeedbackControls(store: store, record: record)
+                            if currentOutcome?.id != record.id {
+                                DocumentFeedbackControls(store: store, record: record)
+                            }
                             if let use = record.procedureUse {
                                 Text("Procedure v\(use.revision) · \(store.documentProcedures.procedure(matching: use)?.title ?? use.id)")
                                     .font(.caption2).foregroundStyle(.secondary)
@@ -65,7 +77,11 @@ struct DocumentWorkHistory: View {
                                         .font(.caption2).foregroundStyle(.orange)
                                 }
                             }
-                            KeepDocumentProcedureView(store: store, record: record)
+                            if currentOutcome?.id != record.id {
+                                KeepDocumentProcedureView(store: store, record: record)
+                            } else {
+                                Text("Review this change above.").font(.caption2).foregroundStyle(.secondary)
+                            }
                             HStack {
                                 Button("Usage") { _ = store.openDocumentUsage(taskID: record.requestID) }
                                 Button("Activity map") { store.open(.nodeLab) }

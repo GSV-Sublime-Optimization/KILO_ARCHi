@@ -1,19 +1,39 @@
 import SwiftUI
 
-/// Procedure text is deliberately authored and reviewed here, never silently
-/// extracted from a model reply or the shared document.
+/// Procedure text is reviewed here, never silently extracted from a model reply
+/// or shared document. An optional starter uses only declared edit requirements.
 @MainActor
 struct KeepDocumentProcedureView: View {
     @ObservedObject var store: CompanionStore
     let record: DocumentWorkRecord
     @State private var title = ""
     @State private var instruction = ""
+    @State private var expanded: Bool
+
+    init(store: CompanionStore, record: DocumentWorkRecord, startsExpanded: Bool = false) {
+        self.store = store
+        self.record = record
+        _expanded = State(initialValue: startsExpanded)
+    }
 
     var body: some View {
         if record.state == .applied, record.feedback?.verdict == .helpful, store.canReviewDocument(record) {
-            DisclosureGroup("Keep a procedure from this work") {
+            DisclosureGroup("Keep a procedure from this work", isExpanded: $expanded) {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Describe the method worth trying again. Keep saves only this name, instruction, requirements and review references on this Mac.")
+                        .foregroundStyle(.secondary)
+                    Button("Start with this edit’s checks") {
+                        title = record.mustBeShorter ? "Shorten a passage" : "Revise a passage"
+                        instruction = record.mustBeShorter
+                            ? "Shorten the selected passage while preserving its meaning."
+                            : "Revise the selected passage while preserving its meaning."
+                        if record.preserveNumbersAndLinks {
+                            instruction += " Keep its numbers and links exactly as written."
+                        }
+                    }
+                    .disabled(!title.isEmpty || !instruction.isEmpty || !store.canKeepDocumentProcedure)
+                    .accessibilityIdentifier("document.procedure-starter")
+                    Text("This starter uses the edit requirements only. Add what made the change useful before keeping it.")
                         .foregroundStyle(.secondary)
                     TextField("Procedure name", text: $title)
                         .accessibilityIdentifier("document.procedure-name")
@@ -25,12 +45,17 @@ struct KeepDocumentProcedureView: View {
                         .foregroundStyle(.secondary)
                     Text("This is a candidate method you author. The earlier result supports review; it does not prove the new instruction will work elsewhere.")
                         .foregroundStyle(.secondary)
+                    if let reason = store.documentMethodDependencyIssue(record) {
+                        Text(reason).foregroundStyle(.orange)
+                            .accessibilityIdentifier("document.procedure-dependency-issue")
+                    }
                     Button("Keep procedure") {
                         if store.keepDocumentProcedure(recordID: record.id, title: title, instruction: instruction) {
                             title = ""; instruction = ""
                         }
                     }
-                    .disabled(!store.canKeepDocumentProcedure || title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    .disabled(!store.canKeepDocumentProcedure || store.documentMethodDependencyIssue(record) != nil
+                        || title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                         || instruction.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     .accessibilityIdentifier("document.keep-procedure")
                 }.padding(.top, 6)
@@ -44,9 +69,10 @@ struct DocumentProcedureLibraryView: View {
     @ObservedObject var store: CompanionStore
 
     var body: some View {
+        DocumentMethodFinderView(store: store)
         DisclosureGroup("Saved procedures (\(store.documentProcedures.latestProcedures.count))") {
             VStack(alignment: .leading, spacing: 10) {
-                Text("Keep a method after helpful applied work. Available methods matching these requirements appear first, ordered by their recorded outcomes. Choose a method explicitly for each new passage.")
+                Text("Keep a method after helpful applied work, or author an untested candidate from a reviewed concept. Matching methods use reviewed outcomes first. Ties use comparable local usage when fully measured. Choose a method for each new passage.")
                     .foregroundStyle(.secondary)
                 if let error = store.documentProcedures.loadError { Text(error).foregroundStyle(.orange) }
                 ForEach(store.orderedDocumentProcedures) { procedure in
@@ -84,9 +110,9 @@ private struct DocumentProcedureLibraryRow: View {
         VStack(alignment: .leading, spacing: 7) {
             DocumentProcedureVersionDetails(store: store, procedure: procedure)
             HStack {
-                Button("Use for this passage") { _ = store.prepareDocumentProcedure(procedure.binding) }
-                    .disabled(!store.canPrepareDocumentProcedure(procedure))
-                    .accessibilityIdentifier("document.use-procedure.\(identifier)")
+                DocumentMethodPreviewButton(store: store, procedure: procedure,
+                    title: "Use for this passage…",
+                    accessibilityID: "document.use-procedure.\(identifier)")
                 Button("Edit method") {
                     title = procedure.title
                     instruction = procedure.instruction
@@ -203,10 +229,22 @@ private struct DocumentProcedureVersionDetails: View {
         VStack(alignment: .leading, spacing: 5) {
             Text("\(procedure.title) · v\(procedure.revision)").fontWeight(.medium)
             Text(procedure.instruction).textSelection(.enabled)
-            if let outcomes = store.outcomes(for: procedure) {
-                Text("This version · \(outcomes.helpful) helpful · \(outcomes.needsCorrection) corrected or withdrawn · \(outcomes.awaitingReview) awaiting review")
-                    .foregroundStyle(.secondary)
+            if let origin = procedure.knowledgeOrigin {
+                knowledgeOriginDetails(origin)
             }
+            MethodLearningView(store: store, procedure: procedure, isHistorical: isHistorical)
+            DisclosureGroup("Local usage") {
+                if let usage = store.resources(for: procedure) {
+                    let perHelpful = Double(usage.totalTokens) / Double(usage.helpfulResults)
+                    Text("\(perHelpful.formatted(.number.precision(.fractionLength(0...1)))) observed tokens per Helpful result")
+                    Text("\(usage.totalTokens.formatted()) tokens across \(usage.recordedUses) uses · \(usage.localAttempts) model calls, including retries and context preparation.")
+                    Text("This describes past local work. It is not a price or a prediction of future savings.")
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text("Not enough comparable local usage yet. The existing review-based order is preserved.")
+                        .foregroundStyle(.secondary)
+                }
+            }.accessibilityIdentifier("document.procedure-usage.\(procedure.id).\(procedure.revision)")
             Text((procedure.mustBeShorter ? "Shorter text" : "Flexible length") + " · "
                  + (procedure.preserveNumbersAndLinks ? "Exact numbers and links" : "No exact-token requirement"))
                 .foregroundStyle(.secondary)
@@ -225,6 +263,44 @@ private struct DocumentProcedureVersionDetails: View {
                 Text("Earlier candidate · retained for history").foregroundStyle(.secondary)
             } else {
                 Text("Candidate · available for a matching passage").foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private func knowledgeOriginDetails(_ origin: KnowledgePageBinding) -> some View {
+        let source = store.readingSources.knowledgePages.first { $0.binding == origin }
+        let outcomes = store.outcomes(for: procedure)
+        let identifier = "\(procedure.id).\(procedure.revision)"
+        return VStack(alignment: .leading, spacing: 5) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("From \(source?.title ?? "Unavailable knowledge page") · v\(origin.revision)")
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("document.procedure-knowledge-origin.\(identifier)")
+                Button("Show source") {
+                    store.selectedKnowledgePageID = origin.id
+                    store.open(.memory)
+                }
+                .buttonStyle(.borderless)
+                .disabled(source == nil)
+                .accessibilityIdentifier("document.procedure-show-source.\(identifier)")
+            }
+            Text("Candidate from a reviewed concept · local use on this Mac")
+                .foregroundStyle(.secondary)
+                .accessibilityIdentifier("document.procedure-local-origin.\(identifier)")
+            if let outcomes {
+                if outcomes.attempts == 0 {
+                    Text("Untested candidate · no demonstrated usefulness yet.")
+                        .foregroundStyle(.secondary)
+                        .accessibilityIdentifier("document.procedure-untested.\(identifier)")
+                } else if outcomes.helpful == 0 {
+                    Text("No helpful applied outcome recorded for this version yet.")
+                        .foregroundStyle(.secondary)
+                        .accessibilityIdentifier("document.procedure-no-helpful-outcome.\(identifier)")
+                }
+            } else {
+                Text("Outcome history is unavailable. This candidate’s usefulness cannot be assessed yet.")
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("document.procedure-outcomes-unavailable.\(identifier)")
             }
         }
     }

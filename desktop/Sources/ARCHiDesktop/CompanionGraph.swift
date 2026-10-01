@@ -2,12 +2,13 @@ import Foundation
 import CryptoKit
 
 enum CompanionGraphKind: String, CaseIterable, Identifiable, Sendable {
-    case companion, source, lesson, request, invocation, answer, context, omission, evaluation, accounting
+    case companion, source, knowledge, lesson, request, invocation, answer, context, omission, evaluation, accounting
     var id: String { rawValue }
     var title: String {
         switch self {
         case .companion: "Companion"
         case .source: "Source"
+        case .knowledge: "Knowledge page"
         case .lesson: "Kept lesson"
         case .request: "Request"
         case .invocation: "Model call"
@@ -22,6 +23,7 @@ enum CompanionGraphKind: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .companion: "sparkles"
         case .source: "doc.text"
+        case .knowledge: "books.vertical"
         case .lesson: "bookmark"
         case .request: "bubble.left"
         case .invocation: "arrow.triangle.2.circlepath"
@@ -38,6 +40,7 @@ enum CompanionGraphTarget: Equatable, Sendable {
     case assistant, context, memory, advanced, capabilities, steward, interactiveARC
     case arcEvidence(proposalHash: String)
     case stewardTask(taskID: String)
+    case knowledgePage(id: String)
 }
 struct CompanionGraphDetail: Equatable, Sendable { let label: String; let value: String }
 struct CompanionGraphNode: Identifiable, Equatable, Sendable {
@@ -69,6 +72,8 @@ struct CompanionGraphSource: Equatable, Sendable { let name: String; let text: S
 enum CompanionGraph {
     static let maximumNodes = 220
     static let maximumEdges = 500
+    /// Stable identity shared by projections; callers still check exact snapshots.
+    static func lessonNodeID(_ lesson: KeptLesson) -> String { lessonKey(lesson) }
     static func build(receipts: [AssistantLaneReceipt], lessons: [KeptLesson], source: CompanionGraphSource?,
                       now: Date, records: [SessionContextRecord] = [], turn: Int = 0,
                       arcRecords: [ARCCapabilitiesRecord] = [], arcError: String? = nil,
@@ -327,6 +332,9 @@ enum CompanionGraph {
                             .init(label: "Elapsed", value: invocation.elapsedMilliseconds.map { "\($0) ms" } ?? "Unavailable"),
                             .init(label: "Input tokens", value: invocation.metrics?.inputTokens.map(String.init) ?? "Unavailable"),
                             .init(label: "Output tokens", value: invocation.metrics?.outputTokens.map(String.init) ?? "Unavailable"),
+                            .init(label: "Internal representations", value: invocation.representationAccess.title),
+                            .init(label: "Measurement boundary", value: invocation.representationAccess.detail),
+                            .init(label: "Representation receipt", value: invocation.representationReceipt.detail),
                             .init(label: "Meaning", value: "Attempted means the local client was invoked. Response received does not establish answer admission or factual accuracy.")], target: .advanced)
                     edge(requestID, id, "attempted")
                 }

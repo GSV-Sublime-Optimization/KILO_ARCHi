@@ -80,6 +80,12 @@ enum DesktopApplicationIdentity {
 struct ARCHiDesktopMain {
     @MainActor
     static func main() async {
+        if CommandLine.arguments.dropFirst().contains("--local-model-settings") {
+            guard CommandLine.arguments.dropFirst().first == "--local-model-settings" else {
+                print("--local-model-settings must be the first and only command."); exit(2)
+            }
+            exit(await LocalModelSettingsCommand.run(arguments: Array(CommandLine.arguments.dropFirst(2))))
+        }
         if let index = CommandLine.arguments.firstIndex(of: "--import-companion-profile"),
            CommandLine.arguments.indices.contains(index + 1) {
             let running = NSRunningApplication.runningApplications(withBundleIdentifier: DesktopApplicationIdentity.bundleIdentifier)
@@ -101,6 +107,9 @@ struct ARCHiDesktopMain {
         if let index = CommandLine.arguments.firstIndex(of: "--evolution-render"),
            CommandLine.arguments.indices.contains(index + 1) {
             exit(EvolutionVisualDiagnostics.run(directory: URL(fileURLWithPath: CommandLine.arguments[index + 1])) ? 0 : 1)
+        }
+        if CommandLine.arguments.contains("--compact-assistant-smoke") {
+            exit(await CompactAssistantDiagnostics.run() ? 0 : 1)
         }
         if CommandLine.arguments.contains("--routing-smoke") {
             exit(await AssistantRoutingDiagnostics.run() ? 0 : 1)
@@ -189,6 +198,7 @@ final class DesktopDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var expressionObservers: [NSObjectProtocol] = []
     private var appearanceObserver: AnyCancellable?
     private var assistantRouteObserver: AnyCancellable?
+    private var assistantModelObserver: AnyCancellable?
     private var isReviewingQuit = false
     private var terminationInProgress = false
 
@@ -201,8 +211,22 @@ final class DesktopDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
+        let modelPreferences = NativeAssistantModelPreferences(defaults: .standard)
+        modelPreferences.activateQueuedUpdate()
+        let savedModels = modelPreferences.load()
+        store.selectQwenModel(savedModels.reasoningModel)
+        store.selectQwenContextModel(savedModels.compactModel)
+        store.setLocalWorkPreference(savedModels.workPreference)
         let routePreference = NativeAssistantRoutePreference(defaults: .standard)
         store.prepareNativeAssistant(route: routePreference.load())
+        // @Published emits from willSet. Use the three emitted values rather
+        // than reading the store, which may still contain the previous value.
+        assistantModelObserver = Publishers.CombineLatest3(
+            store.$qwenModel, store.$qwenContextModel, store.$localWorkPreference)
+            .map { NativeAssistantModelPreferences.Selection(reasoningModel: $0.0,
+                compactModel: $0.1, workPreference: $0.2) }
+            .dropFirst().removeDuplicates()
+            .sink { modelPreferences.save($0) }
         assistantRouteObserver = store.$route.dropFirst().removeDuplicates()
             .sink { routePreference.save($0) }
         appearanceObserver = store.$preferences.map(\.workspaceAppearance).removeDuplicates()
@@ -323,6 +347,16 @@ final class DesktopDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         if terminationInProgress { return .terminateLater }
         guard !isReviewingQuit else { return .terminateCancel }
+        if store.hasOpenKnowledgeDraft {
+            pendingProfileID = nil
+            let alert = NSAlert()
+            alert.messageText = "Finish your knowledge draft"
+            alert.informativeText = "Save or cancel your open page or connection draft before closing or switching companions."
+            alert.addButton(withTitle: "Return to draft")
+            alert.runModal()
+            showWorkspace(.memory)
+            return .terminateCancel
+        }
         if store.hasPersonalContextDraft || store.hasSeedDesignDraft {
             pendingProfileID = nil
             let alert = NSAlert()
@@ -396,7 +430,9 @@ final class DesktopDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if store.preferenceRetention == .changed {
             return ("Save your appearance and conversation preferences in Memories before switching. Your current companion stays open.", .memory)
         }
+        if store.pastedDocumentDraft.hasContent { return ("Use or discard your pasted text draft before switching.", .context) }
         if store.lessonDraft != nil { return ("Keep or discard your lesson draft before switching.", .memory) }
+        if store.hasOpenKnowledgeDraft { return ("Save or discard your knowledge page or connection draft before switching.", .memory) }
         if store.focusGestureDraft != nil { return ("Keep or discard your gesture draft before switching.", .appearance) }
         if store.voiceInput.phase == .review { return ("Use or discard your voice draft before switching.", .assistant) }
         if store.marketplaceCatalog.isBusy || store.marketplaceCatalog.hasPendingMutation {
@@ -459,7 +495,7 @@ final class DesktopDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     @objc private func openMemory() { showWorkspace(.memory) }
     @objc private func openAppearance() { showWorkspace(.appearance) }
     @objc private func openEvolution() { showWorkspace(.evolution) }
-    @objc private func openNodeLab() { showWorkspace(.nodeLab) }
+    @objc private func openNodeLab() { store.openMemoryMap() }
     @objc private func openSettings() { showWorkspace(.connections) }
     @objc private func showCompanion() { store.showCompanion() }
     @objc private func hideCompanion() { store.hideCompanion() }
@@ -520,10 +556,10 @@ final class DesktopDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let windowRoot = NSMenuItem()
         let windowMenu = NSMenu(title: "Window")
         windowMenu.addItem(item(ARCHiIdentity.homeTitle, #selector(openHome), key: "0"))
-        windowMenu.addItem(item("Assistant", #selector(openAssistant), key: "1"))
+        windowMenu.addItem(item(AskARCHiBrand.title, #selector(openAssistant), key: "1"))
         windowMenu.addItem(item("Companion · Appearance", #selector(openAppearance), key: "2"))
         windowMenu.addItem(item("Companion · Growth", #selector(openEvolution), key: "3"))
-        windowMenu.addItem(item("Node Lab", #selector(openNodeLab), key: "4"))
+        windowMenu.addItem(item("Memory map", #selector(openNodeLab), key: "4"))
         windowMenu.addItem(item("Marketplace", #selector(openMarketplace), key: "5"))
         windowMenu.addItem(item("Arena", #selector(openUnity), key: "6"))
         windowMenu.addItem(item("Work together", #selector(openWorkTogether), key: "7"))
@@ -545,7 +581,7 @@ final class DesktopDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let quick = NSMenu()
         quick.addItem(item("Open ARCHi Home", #selector(openHome)))
         quick.addItem(item("Show ARCHi", #selector(showCompanion)))
-        quick.addItem(item("Open assistant", #selector(openAssistant)))
+        quick.addItem(item("Open " + AskARCHiBrand.title, #selector(openAssistant)))
         quick.addItem(item("Play Arena", #selector(openUnityArena)))
         quick.addItem(item("Marketplace", #selector(openMarketplace)))
         quick.addItem(item("Settings…", #selector(openSettings)))

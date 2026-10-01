@@ -10,6 +10,13 @@ final class UnityPersonalSeedTests: XCTestCase {
         for look in CompanionSeedAppearance.allCases {
             for color in CompanionSeedColor.allCases {
                 store.chooseSeedAppearance(look); store.chooseSeedColor(color)
+                if look == .vela {
+                    XCTAssertNil(UnityPresentationSnapshot.capture(store: store, sessionID: UUID(), revision: 1,
+                        active: true, now: Date(), systemReduceMotion: false))
+                    XCTAssertNotNil(store.unityPresentationUnavailableReason(for: nil))
+                    XCTAssertThrowsError(try store.unityPresentation.beginPublishing(store: store, directory: root))
+                    continue
+                }
                 let value = try snapshot(store)
                 XCTAssertEqual(value.originDigest, store.activeQiMon?.originDigest)
                 XCTAssertEqual(value.body, "seed"); XCTAssertEqual(value.cursor, "seed")

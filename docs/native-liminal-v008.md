@@ -35,7 +35,7 @@ decisions. No third-party example art or renderer code was imported.
   actual point-renderer acknowledgments. Assets stay outside the heartbeat.
   An older helper cannot acknowledge a selected v008 appearance as rendered.
   Both the helper's `ARCHiLiminalPointAssetVersion` plist capability and its
-  rendered acknowledgment must be `2`; a v1 linear helper is rejected before
+  rendered acknowledgment must be `4`; older renderer capabilities are rejected before
   packaging or point-presentation handoff. The small presentation envelope
   retains schema version 1 because its fields are unchanged.
 - `LiminalKnowledgeBindings` projects current graph records onto disjoint
@@ -111,7 +111,7 @@ by at most 0.114%; bounds match. Correct sRGB encoding precedes alpha accumulati
 Unity review explicitly runs its final transparency pass once. These are endpoint
 checks, not a claim about live automatic composition or sustained frame rate.
 
-The guarded updater installed the matching native and capability-v2 Unity helper
+The guarded updater installed the matching native and capability-v4 Unity helper
 with the same manifest in both locations. All 31 baseline profile files were
 preserved. The existing Liminal selector enables v008 and its pose controls.
 Installed transition/selection/handoff, restart, palette, reduced-motion and

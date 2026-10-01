@@ -60,6 +60,12 @@ final class DocumentReviewQueueTests: XCTestCase {
         excluded.id = valid.id
         XCTAssertNil(DocumentReviewQueue(records: [valid, excluded], historyIsCurrent: true,
             reviewableRecordIDs: [], currentOutcomeID: valid.id), "Excluding the current outcome cannot hide a conflicting identity.")
+
+        var repeatedLane = valid
+        repeatedLane.id = "another-record-for-the-same-lane"
+        XCTAssertNil(DocumentReviewQueue(records: [valid, repeatedLane], historyIsCurrent: true,
+            reviewableRecordIDs: [valid.id, repeatedLane.id], currentOutcomeID: nil),
+            "One request/provider lane cannot become two review judgments.")
     }
 
     func testIncompleteEvidenceNonAppliedWorkAndPriorVerdictsAreNotAwaitingReview() throws {

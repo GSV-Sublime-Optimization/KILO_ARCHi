@@ -63,6 +63,30 @@ class SourceReleasePreflightTests(unittest.TestCase):
                                  "marketplace/tests/test_store.py"])
         self.assertEqual(blockers, [])
 
+    def test_representation_runtime_exports_public_sources_and_license_texts(self):
+        scoped = {
+            "research/representation/archi_repe/numerics.py",
+            "research/representation/gguf/worker.cpp",
+            "research/representation/gguf/task_assay.h",
+            "research/representation/gguf/README.md",
+            "research/representation/gguf/upstream-provenance.json",
+            "research/representation/pyproject.toml",
+        }
+        licenses = {
+            "research/representation/gguf/JSON_LICENSE.MIT",
+            "research/representation/gguf/LLAMA_CPP_LICENSE",
+            "research/representation/gguf/OLLAMA_LICENSE",
+        }
+        for path in scoped | licenses:
+            self.put(path, b"public representation source\n")
+        paths, blockers = preflight.collect(
+            self.root,
+            licenses,
+            {"research/representation": preflight.SCOPES["research/representation"]},
+        )
+        self.assertEqual(set(paths), scoped | licenses)
+        self.assertEqual(blockers, [])
+
     def test_misplaced_sqlite_or_journal_is_never_exported_and_blocks_scope_review(self):
         for name in ("accounts.sqlite3", "accounts.sqlite3-wal", "accounts.sqlite3-shm", "accounts.sqlite3-journal"):
             self.put("marketplace/" + name)

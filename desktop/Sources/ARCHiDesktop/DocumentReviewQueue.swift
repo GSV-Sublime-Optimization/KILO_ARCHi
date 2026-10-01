@@ -15,6 +15,10 @@ struct DocumentReviewQueue: Equatable, Sendable {
     init?(records: [DocumentWorkRecord], historyIsCurrent: Bool,
           reviewableRecordIDs: Set<String>, currentOutcomeID: String?) {
         guard historyIsCurrent else { return nil }
+        // Review projection must agree with the journal-wide evidence owner:
+        // one request/provider lane cannot produce two separately reviewable
+        // records. Reuse the same reconciliation contract as method outcomes.
+        guard HamptonMethodOutcomes(records: records).reconciliationIssue == nil else { return nil }
         var unique: [String: DocumentWorkRecord] = [:]
         // Validate the whole supplied scope before selecting outcomes. An
         // excluded record cannot hide conflicting or oversized history.

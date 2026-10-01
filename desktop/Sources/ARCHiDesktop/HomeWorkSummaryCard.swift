@@ -19,6 +19,13 @@ struct HomeWorkSummaryCard: View {
     }
 
     var body: some View {
+        lifecycleObservedCard
+    }
+
+    /// Opaque view boundaries keep SwiftUI's generic type from turning the full
+    /// card plus every lifecycle observer into one compiler-sized expression.
+    /// The boundaries do not change rendering, state ownership or event order.
+    private var cardSurface: some View {
         VStack(alignment: .leading, spacing: 12) {
             Label("Work that carries forward", systemImage: "arrow.triangle.branch")
                 .font(.system(size: 19, weight: .medium, design: .rounded))
@@ -62,28 +69,40 @@ struct HomeWorkSummaryCard: View {
         .modifier(WorkspaceSurface())
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("home.work-summary")
-        .sheet(item: $detail) { selection in detailSheet(selection) }
-        .onAppear(perform: refresh)
-        .onReceive(Timer.publish(every: 30, on: .main, in: .common).autoconnect()) { _ in
-            if scenePhase == .active { refresh() }
-        }
-        .onChange(of: journal.records) { _, _ in refresh() }
-        .onChange(of: journal.loadError) { _, _ in refresh() }
-        .onChange(of: methods.procedures) { _, _ in refresh() }
-        .onChange(of: methods.loadError) { _, _ in refresh() }
-        .onChange(of: store.pendingDocumentReceipt) { _, _ in refresh() }
-        .onChange(of: store.profileRecoveryBlock) { _, _ in refresh() }
-        .onChange(of: store.isWorking) { _, _ in refresh() }
-        .onChange(of: store.isShuttingDown) { _, _ in refresh() }
-        .onChange(of: store.sourceRevision) { _, _ in refresh() }
-        .onChange(of: store.keptLessons) { _, _ in refresh() }
-        .onChange(of: store.readingSources.sources) { _, _ in refresh() }
-        .onChange(of: store.readingSources.knowledgePages) { _, _ in refresh() }
-        .onChange(of: ObjectIdentifier(store.documentWork)) { _, _ in reset() }
-        .onChange(of: ObjectIdentifier(store.documentProcedures)) { _, _ in reset() }
-        .onChange(of: store.activeQiMon) { _, _ in reset() }
-        .onChange(of: store.section) { _, section in if section != .home { detail = nil } }
-        .onChange(of: scenePhase) { _, phase in if phase == .active { refresh() } }
+    }
+
+    private var presentedCard: some View {
+        cardSurface
+            .sheet(item: $detail) { selection in detailSheet(selection) }
+            .onAppear(perform: refresh)
+            .onReceive(Timer.publish(every: 30, on: .main, in: .common).autoconnect()) { _ in
+                if scenePhase == .active { refresh() }
+            }
+    }
+
+    private var documentObservedCard: some View {
+        presentedCard
+            .onChange(of: journal.records) { _, _ in refresh() }
+            .onChange(of: journal.loadError) { _, _ in refresh() }
+            .onChange(of: methods.procedures) { _, _ in refresh() }
+            .onChange(of: methods.loadError) { _, _ in refresh() }
+            .onChange(of: store.pendingDocumentReceipt) { _, _ in refresh() }
+            .onChange(of: store.profileRecoveryBlock) { _, _ in refresh() }
+            .onChange(of: store.isWorking) { _, _ in refresh() }
+            .onChange(of: store.isShuttingDown) { _, _ in refresh() }
+            .onChange(of: store.sourceRevision) { _, _ in refresh() }
+    }
+
+    private var lifecycleObservedCard: some View {
+        documentObservedCard
+            .onChange(of: store.keptLessons) { _, _ in refresh() }
+            .onChange(of: store.readingSources.sources) { _, _ in refresh() }
+            .onChange(of: store.readingSources.knowledgePages) { _, _ in refresh() }
+            .onChange(of: ObjectIdentifier(store.documentWork)) { _, _ in reset() }
+            .onChange(of: ObjectIdentifier(store.documentProcedures)) { _, _ in reset() }
+            .onChange(of: store.activeQiMon) { _, _ in reset() }
+            .onChange(of: store.section) { _, section in if section != .home { detail = nil } }
+            .onChange(of: scenePhase) { _, phase in if phase == .active { refresh() } }
     }
 
     @ViewBuilder

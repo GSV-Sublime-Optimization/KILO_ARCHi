@@ -1,0 +1,6 @@
+# Check out the committed LF bytes on every OS. SOURCE_SHA256SUMS, the source
+# preflight and the ARC replay pins hash working-tree bytes, so a CRLF checkout
+# (Windows, core.autocrlf=true) would otherwise fail them on untouched files.
+* text=auto eol=lf
+*.png binary
+*.icns binary

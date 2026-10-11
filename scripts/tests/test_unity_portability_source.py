@@ -41,11 +41,34 @@ class UnityPortabilitySourceTests(unittest.TestCase):
         blocks = self.source.split("#if UNITY_EDITOR_OSX")
         self.assertEqual(len(blocks) - 1, 2)
         self.assertNotIn(mac_calls, blocks[0])
+        non_mac_branches = []
         for block in blocks[1:]:
             mac_branch, guard_end = block.split("#else", 1)
             self.assertIn(mac_calls, mac_branch)
-            self.assertIn("throw new InvalidOperationException", guard_end.split("#endif", 1)[0])
-            self.assertNotIn(mac_calls, guard_end.split("#endif", 1)[1].split("#if UNITY_EDITOR_OSX", 1)[0])
+            non_mac_branch, after_guard = guard_end.split("#endif", 1)
+            non_mac_branches.append(non_mac_branch)
+            self.assertNotIn(mac_calls, after_guard)
+        # Preparation/build refuses explicitly; receipt reporting stays usable so
+        # scene validation still works from a Windows/Linux Editor.
+        self.assertIn("throw new InvalidOperationException", non_mac_branches[0])
+        self.assertIn('return "unavailable-non-macos-editor";', non_mac_branches[1])
+
+    def test_prepare_refuses_unsupported_target_before_mutation(self):
+        prepare = self.source.split("public static void Prepare()", 1)[1].split("[MenuItem(", 1)[0]
+        self.assertEqual(prepare.count("ConfigureActiveStandaloneTarget();"), 1)
+        guard = prepare.index("ConfigureActiveStandaloneTarget();")
+        for mutation in ("EditorSceneManager.NewScene", "EnsurePresentationPanel(scene);",
+                         "EditorBuildSettings.scenes =", "PlayerSettings.companyName"):
+            with self.subTest(mutation=mutation):
+                self.assertLess(guard, prepare.index(mutation))
+
+    def test_windows_and_linux_players_require_a_fresh_directory(self):
+        resolve = self.source.split("private static string ResolveBuildOutput(", 1)[1].split("private static void ValidateBuiltArtifact(", 1)[0]
+        self.assertIn("bool selfContainedBundle = target == BuildTarget.StandaloneOSX;", resolve)
+        self.assertIn('Path.Combine(EvidenceRoot, target + "-" + DateTime.UtcNow.ToString("yyyyMMdd-HHmmss"),', resolve)
+        self.assertIn("if (!selfContainedBundle)", resolve)
+        self.assertIn("string.Equals(playerDirectory + Path.DirectorySeparatorChar, evidenceRoot, comparison)", resolve)
+        self.assertIn("|| Directory.Exists(playerDirectory)", resolve)
 
     def test_artifact_validation_is_platform_specific(self):
         self.assertIn('artifact.EndsWith(artifactSuffix, comparison)', self.source)

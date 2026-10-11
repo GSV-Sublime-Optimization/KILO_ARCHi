@@ -52,6 +52,9 @@ public static class ARCHiPortBuild
         CheckProject();
         RequireSavedScenes();
         VerifyBundledArt();
+        // Refuse unsupported targets (and Mac preparation from a non-macOS Editor)
+        // before any scene, build-settings or PlayerSettings mutation.
+        ConfigureActiveStandaloneTarget();
         Scene scene = SceneManager.GetSceneByPath(StartupScene);
         if (!File.Exists(StartupScene))
         {
@@ -101,7 +104,6 @@ public static class ARCHiPortBuild
         PlayerSettings.defaultScreenHeight = 820;
         PlayerSettings.fullScreenMode = FullScreenMode.Windowed;
         PlayerSettings.resizableWindow = true;
-        ConfigureActiveStandaloneTarget();
         EditorUserBuildSettings.standaloneBuildSubtarget = StandaloneBuildSubtarget.Player;
         AssetDatabase.SaveAssets();
         Debug.Log("ARCHI_PORT_PREPARED " + StartupScene);
@@ -211,7 +213,14 @@ public static class ARCHiPortBuild
 
     private static string ResolveBuildOutput(BuildTarget target, string artifactSuffix, string artifactOverride)
     {
-        string artifact = artifactOverride ?? Path.Combine(EvidenceRoot, ProductName + artifactSuffix);
+        // A Mac .app is one self-contained bundle. Windows/Linux players also write
+        // <name>_Data, UnityPlayer.dll/.so and MonoBleedingEdge beside the executable,
+        // so they default to a fresh per-build directory.
+        bool selfContainedBundle = target == BuildTarget.StandaloneOSX;
+        string artifact = artifactOverride ?? (selfContainedBundle
+            ? Path.Combine(EvidenceRoot, ProductName + artifactSuffix)
+            : Path.Combine(EvidenceRoot, target + "-" + DateTime.UtcNow.ToString("yyyyMMdd-HHmmss"),
+                ProductName + artifactSuffix));
         var arguments = Environment.GetCommandLineArgs();
         int outputArgument = Array.IndexOf(arguments, "-archiBuildOutput");
         if (outputArgument >= 0)
@@ -233,6 +242,15 @@ public static class ARCHiPortBuild
                 + artifactSuffix + " beneath " + EvidenceRoot);
         if (Directory.Exists(artifact) || File.Exists(artifact))
             throw new IOException("Preserving existing artifact. Choose a fresh -archiBuildOutput path: " + artifact);
+        if (!selfContainedBundle)
+        {
+            string playerDirectory = Path.GetDirectoryName(artifact);
+            if (string.Equals(playerDirectory + Path.DirectorySeparatorChar, evidenceRoot, comparison)
+                || Directory.Exists(playerDirectory))
+                throw new IOException("Preserving existing evidence. A " + target
+                    + " player writes sibling files, so -archiBuildOutput must name a fresh directory beneath "
+                    + EvidenceRoot + ": " + playerDirectory);
+        }
         return artifact;
     }
 
@@ -292,8 +310,9 @@ public static class ARCHiPortBuild
 #if UNITY_EDITOR_OSX
                 return UnityEditor.OSXStandalone.UserBuildSettings.architecture.ToString();
 #else
-                throw new InvalidOperationException(
-                    "Cannot report Mac architecture without a macOS Unity Editor.");
+                // Reporting only: Validate() must still work here. Builds and Prepare
+                // are refused separately by ConfigureActiveStandaloneTarget().
+                return "unavailable-non-macos-editor";
 #endif
             case BuildTarget.StandaloneWindows64:
             case BuildTarget.StandaloneLinux64:

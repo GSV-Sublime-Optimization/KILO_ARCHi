@@ -33,6 +33,20 @@ class UnityPortabilitySourceTests(unittest.TestCase):
         self.assertIn("case BuildTarget.StandaloneLinux64:", self.source)
         self.assertIn("OSXStandalone.UserBuildSettings.architecture = OSArchitecture.ARM64", self.source)
 
+    def test_macos_editor_module_is_compile_guarded(self):
+        # Source-grep tests do not replace compilation, but must not *require*
+        # macOS-only editor APIs in the Windows/Linux compile branches.
+        mac_calls = "UnityEditor.OSXStandalone.UserBuildSettings.architecture"
+        self.assertEqual(self.source.count(mac_calls), 2)
+        blocks = self.source.split("#if UNITY_EDITOR_OSX")
+        self.assertEqual(len(blocks) - 1, 2)
+        self.assertNotIn(mac_calls, blocks[0])
+        for block in blocks[1:]:
+            mac_branch, guard_end = block.split("#else", 1)
+            self.assertIn(mac_calls, mac_branch)
+            self.assertIn("throw new InvalidOperationException", guard_end.split("#endif", 1)[0])
+            self.assertNotIn(mac_calls, guard_end.split("#endif", 1)[1].split("#if UNITY_EDITOR_OSX", 1)[0])
+
     def test_artifact_validation_is_platform_specific(self):
         self.assertIn('artifact.EndsWith(artifactSuffix, comparison)', self.source)
         self.assertIn('Path.Combine(artifact, "Contents", "Info.plist")', self.source)

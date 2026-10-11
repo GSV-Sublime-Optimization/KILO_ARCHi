@@ -267,8 +267,15 @@ public static class ARCHiPortBuild
         switch (EditorUserBuildSettings.activeBuildTarget)
         {
             case BuildTarget.StandaloneOSX:
+#if UNITY_EDITOR_OSX
+                // This API is supplied by the macOS Editor/module. References
+                // must not prevent Windows/Linux-only editors from compiling.
                 UnityEditor.OSXStandalone.UserBuildSettings.architecture = OSArchitecture.ARM64;
                 break;
+#else
+                throw new InvalidOperationException(
+                    "ARCHi Mac ARM64 preparation requires a macOS Unity Editor with Mac Build Support.");
+#endif
             case BuildTarget.StandaloneWindows64:
             case BuildTarget.StandaloneLinux64:
                 break;
@@ -282,7 +289,12 @@ public static class ARCHiPortBuild
         switch (EditorUserBuildSettings.activeBuildTarget)
         {
             case BuildTarget.StandaloneOSX:
+#if UNITY_EDITOR_OSX
                 return UnityEditor.OSXStandalone.UserBuildSettings.architecture.ToString();
+#else
+                throw new InvalidOperationException(
+                    "Cannot report Mac architecture without a macOS Unity Editor.");
+#endif
             case BuildTarget.StandaloneWindows64:
             case BuildTarget.StandaloneLinux64:
                 return "x86_64";

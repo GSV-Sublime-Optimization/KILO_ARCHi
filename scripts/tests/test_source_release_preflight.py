@@ -267,6 +267,17 @@ class SourceReleasePreflightTests(unittest.TestCase):
         found = preflight.re.findall(r"<key>CFBundleShortVersionString</key><string>([^<]+)</string>", build)
         self.assertEqual(found, [package])
 
+    def test_checked_in_manifest_matches_ci_rule_and_preflight_output(self):
+        repo = Path(preflight.__file__).resolve().parents[1]
+        tracked = set(subprocess.check_output(["git", "-C", str(repo), "ls-files", "-z"]).decode().split("\0")) - {"", "SOURCE_SHA256SUMS"}
+        committed = (repo / "SOURCE_SHA256SUMS").read_text()
+        listed = {line.split("  ", 1)[1] for line in committed.splitlines()}
+        self.assertEqual(listed, tracked, "CI rule: manifest covers every tracked file except itself")
+        report = preflight.audit(repo)
+        codes = [row["code"] for row in report["blockers"]]
+        self.assertNotIn("TRACKED_FILES_OUTSIDE_ALLOWLIST", codes)
+        self.assertEqual(report["checksums"], committed, "preflight manifest must equal the checked-in file")
+
     def test_scanner_source_does_not_match_its_own_patterns(self):
         self.assertEqual(preflight.scan("script/source_release_preflight.py", Path(preflight.__file__).read_bytes()), [])
 

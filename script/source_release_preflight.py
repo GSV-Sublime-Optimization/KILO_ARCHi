@@ -26,7 +26,17 @@ ARC_REPLAY_FILES = {
 }
 RELEASE_FILES = {"LICENSE", "ASSET_ATTRIBUTION.md", "THIRD_PARTY_NOTICES.md", "README.md", "docs/ALPHA_VALIDATION.md"}
 RELEASE_FILES.add("docs/native-qwen.md")
-EXACT = RELEASE_FILES | ARC_REPLAY_FILES | {
+# Tracked project/process files that ship with the source and are listed in SOURCE_SHA256SUMS.
+SUPPORT_FILES = {
+    ".gitattributes", ".github/workflows/source-checks.yml", ".github/workflows/upstream-parity.yml",
+    ".gsv/project.yaml", "AGENTS.md", "CONTRIBUTING.md", "RELEASE_NOTES.md", "START_HERE.md",
+    "docs/ARCHITECTURE.md", "docs/HAMPTON_DESIGNED.md", "docs/KILO_CONVERGENCE.md", "docs/LOCAL_MARKETPLACE.md",
+    "docs/NODE_LAB.md", "docs/images/individual-forms.png", "docs/native-document-procedures.md",
+    "docs/native-document-reading.md", "docs/native-q2e-control.md", "docs/native-task-memory-outcomes.md",
+    "docs/siggraph-local-companion-integration.md", "docs/source-checks.yml.example",
+    "scripts/tests/test_unity_portability_source.py",
+}
+EXACT = RELEASE_FILES | ARC_REPLAY_FILES | SUPPORT_FILES | {
     ".gitignore", ".postcssrc.json", "index.html", "tsconfig.json", "package.json", "package-lock.json",
     "desktop/Package.swift", "desktop/README.md", "arc/README.md", "arc/tsconfig.json",
     "arc/fixtures/manifest.json", "arc/fixtures/golden/smoke-evidence-v1.json",

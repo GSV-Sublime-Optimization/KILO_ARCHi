@@ -260,6 +260,13 @@ class SourceReleasePreflightTests(unittest.TestCase):
         self.assertIn("TRACKED_FILES_OUTSIDE_ALLOWLIST", [row["code"] for row in report["blockers"]])
         self.assertEqual(report["sourceFileCount"], 1)
 
+    def test_native_bundle_version_matches_package_version(self):
+        repo = Path(preflight.__file__).resolve().parents[1]
+        package = json.loads((repo / "package.json").read_text())["version"]
+        build = (repo / "script/build_and_run.sh").read_text()
+        found = preflight.re.findall(r"<key>CFBundleShortVersionString</key><string>([^<]+)</string>", build)
+        self.assertEqual(found, [package])
+
     def test_scanner_source_does_not_match_its_own_patterns(self):
         self.assertEqual(preflight.scan("script/source_release_preflight.py", Path(preflight.__file__).read_bytes()), [])
 
